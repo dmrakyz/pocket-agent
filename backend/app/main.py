@@ -26,6 +26,7 @@ from . import agent, config, evals, kv, llm, mcp, memory, oauth, perms, push, ro
 
 mcp_client = mcp.MCP()
 agent.MCP = mcp_client
+perms.MCP = mcp_client
 
 
 @asynccontextmanager
@@ -705,6 +706,8 @@ def _connector_view():
         names = [n.split("__", 2)[-1] for n, t in mcp_client.tools.items() if t["server"]["name"] == srv["name"]]
         out.append({"name": srv["name"], "url": srv["url"], "source": srv.get("source", "app"),
                     "status": mcp_client.report.get(srv["name"], "not connected yet"), "tools": names,
+                    "perm": mcp_client.perm(srv["name"]),
+                    "reads": sum(1 for n, t in mcp_client.tools.items() if t["server"]["name"] == srv["name"] and mcp_client.kind(n) == "read"),
                     "has_headers": bool(srv.get("headers")), "oauth": bool(srv.get("oauth")),
                     "signed_in": oauth.signed_in(srv["name"]) if srv.get("oauth") else None})
     return out
@@ -836,3 +839,16 @@ async def memory_import(body: dict):
     texts = [str(t) for t in (body.get("notes") or [])][:300]
     r = await memory.save(texts, source="import")
     return {"added": len(r["added"]), "skipped": r["skipped"], "notes": memory.notes()}
+
+
+@app.patch("/api/connectors/{name}", dependencies=[Depends(auth)])
+async def connectors_perm(name: str, body: dict):
+    perm = str(body.get("perm", ""))
+    if perm not in ("ask", "readonly", "trusted"):
+        raise HTTPException(400, "perm must be ask, readonly or trusted")
+    if name not in {s["name"] for s in mcp_client.servers()}:
+        raise HTTPException(404, "no such connector")
+    d = kv.get("connector_perms", {}) or {}
+    d[name] = perm
+    await kv.put("connector_perms", d)
+    return {"connectors": _connector_view()}

@@ -105,6 +105,31 @@ class MCP:
                 "parameters": d.get("inputSchema") or {"type": "object", "properties": {}}}})
         return out
 
+    # ---- permissions: classify tools as read or write, per-connector policy lives in kv `connector_perms`
+    WRITE_WORDS = frozenset("create update delete remove add set save move duplicate send post write edit archive upload attach convert "
+                            "run execute merge close assign publish deploy invite revoke reply rename restore trash insert append "
+                            "replace import apply cancel submit commit push reset clear".split())
+    READ_WORDS = frozenset("get list search find fetch read query view describe whoami check lookup show count status resolve ask".split())
+
+    def kind(self, full: str) -> str:
+        """'read' or 'write'. Trust the server's readOnlyHint, else guess from the name, and treat unknowns as writes."""
+        t = self.tools.get(full)
+        if not t:
+            return "write"
+        ann = (t["def"].get("annotations") or {})
+        if ann.get("readOnlyHint") is True:
+            return "read"
+        if ann.get("destructiveHint") is True:
+            return "write"
+        words = {self._stem(w) for w in re.findall(r"[a-z0-9]+", t["name"].lower())}
+        if words & {self._stem(w) for w in self.WRITE_WORDS}:
+            return "write"
+        return "read" if words & self.READ_WORDS else "write"
+
+    def perm(self, server: str) -> str:
+        v = (kv.get("connector_perms", {}) or {}).get(server)
+        return v if v in ("ask", "readonly", "trusted") else "ask"
+
     def counts(self) -> dict:
         c: dict = {}
         for t in self.tools.values():

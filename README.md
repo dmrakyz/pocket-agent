@@ -147,3 +147,6 @@ Settings → Memory holds short notes about you that every chat sees (kv `memory
 
 ### Overloaded models
 A 503 or 429 from the provider is retried once, then the step falls back to the lighter model (set `FALLBACK_MODEL` to choose it). The retry notice shows a **Try another model** button that stops the run, switches the chat to the fallback and re-sends your last message.
+
+### Connector permissions
+Each connector has a policy (Connectors screen): **Ask before writes** (default: reads run automatically, anything that creates/edits/deletes asks), **Read-only** (writes are blocked, even in YOLO) or **Trusted** (everything runs). A tool counts as read-only if the server says so (`readOnlyHint`) or its name is a read verb (get, list, search, fetch…); anything unclear counts as a write. Plan mode never allows connector writes.

@@ -1399,8 +1399,16 @@ function cnDraw() {
     h('div.rttop', {}, h('span.nm', { text: c.name }), h('span.badge ' + (/^\d+ tools/.test(c.status) ? 'ok' : c.status === 'needs sign-in' ? 'run' : 'bad'), { text: /^\d+ tools/.test(c.status) ? c.status : c.status === 'needs sign-in' ? 'sign in' : 'problem' })),
     h('div.rtmeta', { text: c.url.replace(/^https:\/\//, '').slice(0, 60) + (c.source === 'env' ? ' · set on the server' : '') }),
     /^\d+ tools/.test(c.status) ? h('div.rtlast', { text: c.tools.join(', ') }) : c.status === 'needs sign-in' ? h('div.rtlast', { text: 'Tap Sign in, log in on the page that opens, then come back here.' }) : h('div.rtlast', { style: 'color:var(--bad)', text: c.status }),
+    /^\d+ tools/.test(c.status) ? cnPermRow(c) : null,
     c.source === 'app' ? h('div.rtbtns', {}, c.oauth ? h('button', { text: c.signed_in ? 'Sign in again' : 'Sign in', onclick: () => cnLogin(c.name) }) : null, h('button', { text: 'Remove', onclick: async () => { if (!(await confirmSheet('Remove ' + c.name + '?', 'The agent loses those tools.', 'Remove', true))) return; try { CN.list = (await api('/api/connectors/' + c.name, { method: 'DELETE' })).connectors; cnDraw(); closeSheet(); } catch (e) { toast(e.message, true); } } })) : null)),
     h('button.secondary', { text: 'Reconnect all', onclick: () => cnLoad(true) }));
+}
+const PERMS = [['ask', 'Ask before writes'], ['readonly', 'Read-only'], ['trusted', 'Trusted']];
+const PERM_HINT = { ask: 'Reading is automatic. Anything that creates, edits or deletes asks you first.', readonly: 'Reading only. Anything that would change data is blocked, even in YOLO.', trusted: 'Everything runs without asking. Only for apps you trust with your data.' };
+function cnPermRow(c) {
+  const writes = c.tools.length - c.reads;
+  return h('div.cnperm', {}, h('div.seg', {}, ...PERMS.map(([k, n]) => h('button' + (c.perm === k ? '.on' : ''), { text: n, onclick: async () => { try { CN.list = (await api('/api/connectors/' + encodeURIComponent(c.name), { method: 'PATCH', body: { perm: k } })).connectors; cnDraw(); } catch (e) { toast(e.message, true); } } }))),
+    h('div.rtmeta', { text: `${PERM_HINT[c.perm] || ''} (${c.reads} read tools, ${writes} that change things)` }));
 }
 async function cnLogin(name) {
   const body = h('div', {}, h('div.dim', { text: 'Preparing the sign-in page…' }));

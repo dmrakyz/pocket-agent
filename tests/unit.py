@@ -276,6 +276,36 @@ async def memory_test():
     print("PASS memory: notes, secrets refused, prompt, tools, import parsing, distill")
 asyncio.run(memory_test())
 
+# connector permissions: read/write classification and per-connector policy
+async def perm_test():
+    from app import mcp as mcpmod, perms
+    m = mcpmod.MCP()
+    def add(srv, name, ann=None): m.tools[f"mcp__{srv}__{name}"] = {"server": {"name": srv}, "name": name, "def": {"name": name, "description": "", "annotations": ann or {}}}
+    for n in ("notion-search", "notion-fetch", "notion-get-comments", "list_issues", "find_organizations"): add("a", n)
+    for n in ("notion-create-pages", "notion-update-page", "save_issue", "delete_thing", "analyze_with_seer"): add("a", n)
+    add("a", "mystery", {"readOnlyHint": True}); add("a", "notion-search-and-delete", {"destructiveHint": True})
+    kinds = {n.split("__")[2]: m.kind(n) for n in m.tools}
+    assert all(kinds[n] == "read" for n in ("notion-search", "notion-fetch", "notion-get-comments", "list_issues", "find_organizations", "mystery")), kinds
+    assert all(kinds[n] == "write" for n in ("notion-create-pages", "notion-update-page", "save_issue", "delete_thing", "analyze_with_seer", "notion-search-and-delete")), kinds
+    perms.MCP = m
+    try:
+        S = lambda mode="ask", **k: dict({"mode": mode}, **k)
+        W, R = "mcp__a__notion-create-pages", "mcp__a__notion-search"
+        await kv.put("connector_perms", {})
+        assert perms.decide(S(), R, {})[0] == "allow" and perms.decide(S(), W, {})[0] == "ask"
+        assert perms.decide(S("yolo"), W, {})[0] == "allow" and perms.decide(S("plan"), W, {})[0] == "deny" and perms.decide(S("plan"), R, {})[0] == "allow"
+        await kv.put("connector_perms", {"a": "readonly"})
+        assert perms.decide(S("yolo"), W, {})[0] == "deny" and "read-only" in perms.decide(S("yolo"), W, {})[1], "read-only beats YOLO"
+        assert perms.decide(S("yolo"), R, {})[0] == "allow"
+        await kv.put("connector_perms", {"a": "trusted"})
+        assert perms.decide(S(), W, {})[0] == "allow"
+        assert perms.decide(S("plan"), W, {})[0] == "deny", "trusted does not override plan mode"
+        await kv.put("connector_perms", {})
+    finally:
+        perms.MCP = None
+    print("PASS connector permissions: read/write classification, ask/read-only/trusted")
+asyncio.run(perm_test())
+
 # connectors: lazy tool loading (nothing is sent until connector_search switches tools on)
 async def lazy_test():
     from app import mcp as mcpmod

@@ -437,3 +437,5 @@ label.chk { display: flex; align-items: center; gap: 10px; font-size: 14px; flex
 label.memrow { flex-direction: row; gap: 12px; align-items: flex-start; }
 
 .notice .notice-btn { display: block; margin: 8px auto 0; padding: 7px 14px; border-radius: 999px; border: 1px solid var(--line); background: var(--panel2); color: var(--accent); font-size: 13.5px; font-weight: 600; }
+
+.cnperm { display: flex; flex-direction: column; gap: 6px; margin-top: 2px; } .cnperm .seg button { font-size: 13px; padding: 7px 6px; }

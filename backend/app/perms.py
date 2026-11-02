@@ -5,6 +5,7 @@ import shlex
 from .tools import EDITS, READONLY
 
 MODES = ("ask", "auto", "plan", "yolo")
+MCP = None   # set by main: used to classify connector tools as read/write
 
 # Never allowed, in any mode (heuristic safety net, not a sandbox).
 HARD_DENY = [
@@ -94,6 +95,18 @@ def decide(session: dict, tool: str, args: dict) -> tuple[str, str]:
                 return "deny", why
     if tool == "exit_plan_mode":
         return "ask", "Approve this plan?"
+    if tool.startswith("mcp__") and MCP is not None:
+        srv, pol, kind = tool.split("__")[1], None, MCP.kind(tool)
+        pol = MCP.perm(srv)
+        if kind == "read":
+            return "allow", ""
+        if mode == "plan":
+            return "deny", "Plan mode is read-only. Research first, then call exit_plan_mode with your plan."
+        if pol == "readonly":
+            return "deny", f"The {srv} connector is set to read-only, so this changes nothing there. Tell the user what you wanted to do instead."
+        if pol == "trusted" or mode == "yolo" or matches_rule(session.get("allow", []), tool, args):
+            return "allow", ""
+        return "ask", ""
     if mode == "plan":
         if tool in READONLY:
             return "allow", ""
