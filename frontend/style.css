@@ -338,3 +338,27 @@ header, .sheet, .menu, .ctx { -webkit-backdrop-filter: saturate(1.4) blur(18px);
 .skel-msg { height: 54px; } .skel-row { height: 52px; margin: 6px 10px; }
 @keyframes shimmer { from { background-position: 100% 0; } to { background-position: -100% 0; } }
 .btn-link { display: block; text-align: center; padding: 14px; border-radius: 14px; background: var(--accent); color: var(--accent-ink); font-weight: 700; text-decoration: none; font-size: 16px; }
+
+/* grouped tool timeline */
+.tg { display: flex; flex-direction: column; gap: 6px; }
+.tg-head { display: flex; align-items: center; gap: 10px; align-self: flex-start; max-width: 100%; padding: 6px 4px; color: var(--dim); font-size: 15px; min-height: 36px; }
+.tg-head[hidden] { display: none; }
+.tg-ic { font: 600 13px var(--mono); width: 22px; }
+.tg-txt { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tg-head.bad .tg-txt { color: var(--bad); }
+.tg-chev { color: var(--dim); font-size: 18px; margin-left: 2px; }
+.tg-live, .tg-pin { display: flex; flex-direction: column; gap: 6px; }
+.tg-live:empty, .tg-pin:empty { display: none; }
+.steps { display: flex; flex-direction: column; gap: 2px; }
+.step { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 52px; padding: 8px 6px; text-align: left; border-radius: 12px; }
+.step:active { background: var(--panel2); }
+.step-ic { font: 600 14px var(--mono); width: 24px; text-align: center; color: var(--dim); }
+.step-txt { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.step-t { font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.step-s { font-size: 12px; color: var(--dim); }
+.step-st.bad { color: var(--bad); font-weight: 700; }
+.thought { font-size: 14px; color: var(--dim); padding: 8px 6px 8px 42px; border-left: 2px solid var(--line); margin: 2px 0 2px 17px; white-space: pre-wrap; max-height: 9em; overflow: hidden; }
+.detail { display: flex; flex-direction: column; gap: 10px; }
+.back { align-self: flex-start; font-size: 16px; color: var(--accent); padding: 6px 4px; min-height: 36px; }
+.tool-img { max-width: 100%; max-height: 260px; border-radius: 10px; display: block; margin: 8px 0; object-fit: contain; background: var(--bg); }
+.tool-img.big { max-height: none; }

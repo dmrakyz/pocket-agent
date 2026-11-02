@@ -247,13 +247,16 @@ function scrollDown(force) {
   if (force || S.stick) c.scrollTop = c.scrollHeight;
 }
 const ICONS = { read: '▤', write: '✎', edit: '✎', multiedit: '✎', bash: '$', bash_output: '$', kill_bash: '■', grep: '⌕', glob: '✱',
-  web_fetch: '◎', web_search: '◎', todo_write: '☑', task: '⋔', skill: '★', git_sync: '⎇', create_pr: '⎇', exit_plan_mode: '☰', share_file: '⬇', preview: '▶', view_3d: '◈' };
+  web_fetch: '◎', web_search: '◎', todo_write: '☑', task: '⋔', skill: '★', git_sync: '⎇', create_pr: '⎇', exit_plan_mode: '☰', share_file: '⬇', preview: '▶', view_3d: '◈', image_search: '⌕', fetch_image: '▣', view_image: '◉', annotate_image: '✐', models: '⋔' };
 function toolSummary(name, a) {
   a = a || {};
   switch (name) {
     case 'read': case 'write': case 'edit': case 'multiedit': return a.path || '';
     case 'bash': return (a.command || '').split('\n')[0];
-    case 'share_file': case 'preview': case 'view_3d': return a.path || '';
+    case 'share_file': case 'preview': case 'view_3d': case 'view_image': case 'annotate_image': return a.path || '';
+    case 'image_search': return a.query || '';
+    case 'fetch_image': return a.url || '';
+    case 'models': return 'list models';
     case 'grep': return '/' + (a.pattern || '') + '/' + (a.path ? ' ' + a.path : '');
     case 'glob': return a.pattern || '';
     case 'web_fetch': return a.url || '';
@@ -294,7 +297,7 @@ async function answer(id, body, card) {
 function fillCard(card, call, result, approval) {
   const name = call.function.name;
   const a = parseArgs(call);
-  const open = approval ? true : (card.dataset.open === '1' || !!(result && (result._file || result._preview || result._model)));
+  const open = approval ? true : (card.dataset.open === '1' || !!(result && (result._file || result._preview || result._model || result._image)));
   card.className = 'tool' + (result && result._error ? ' err' : '') + (approval ? ' ask' : '');
   card.replaceChildren();
   const state = result ? h('span.tool-state ' + (result._error ? 'bad' : 'ok'), { text: result._error ? '✕' : '✓' })
@@ -314,6 +317,7 @@ function fillCard(card, call, result, approval) {
     else if (name !== 'todo_write') body.append(h('div.lbl', { text: 'input' }), h('pre', { text: JSON.stringify(a, null, 2) }));
   }
   if (result && name !== 'exit_plan_mode' && !(result._diff && !result._error)) body.append(h('div.lbl', { text: 'output' }), h('pre', { text: result.content || '' }));
+  if (result && result._image) body.append(imgNode(result._image, call.id));
   if (result && result._preview) body.append(h('div', { style: 'padding:10px 12px' }, h('button.primary.small', { text: '▶ Open preview', onclick: () => openPreview(result._preview) })));
   if (result && result._model) body.append(h('div', { style: 'padding:10px 12px' }, h('button.primary.small', { text: '◈ Open 3D viewer', onclick: () => openModel(result._model) })));
   if (result && result._file) body.append(h('div', { style: 'padding:10px 12px' }, h('button.primary.small', { text: '⬇ Download ' + result._file.split('/').pop(), onclick: () => downloadPath(result._file) })));
@@ -351,10 +355,111 @@ function userNode(m, idx) {
 }
 function assistantNode(m, idx) {
   const n = h('div.msg-ai', { 'data-idx': idx });
-  if (m._reasoning) n.append(h('details.reasoning', {}, h('summary', { text: 'Thinking' }), h('div.rtext', { text: m._reasoning })));
+  const calls = m.tool_calls || [];
+  const thought = !m.content && calls.length ? m._reasoning : '';
+  if (m._reasoning && !thought) n.append(h('details.reasoning', {}, h('summary', { text: 'Thinking' }), h('div.rtext', { text: m._reasoning })));
   if (m.content) n.append(h('div.prose', { html: md(m.content) }));
-  for (const call of m.tool_calls || []) n.append(makeCard(call));
+  if (calls.length) {
+    const tg = h('div.tg', {}, h('button.tg-head', { onclick: () => openTG(tg) }), h('div.tg-live'), h('div.tg-pin'));
+    tg._cards = [];
+    for (const [i, call] of calls.entries()) {
+      const card = makeCard(call);
+      if (i === 0 && thought) card._thought = thought;
+      card._tg = tg; tg._cards.push(card);
+    }
+    n.append(tg); n._tg = tg;
+    refreshTG(tg);
+  }
   return n;
+}
+/* ---- tool calls collapse into one "Ran 6 commands" row; tap for the full timeline */
+const KIND = { bash: ['Ran', 'command', 'commands'], bash_output: ['Ran', 'command', 'commands'], kill_bash: ['Ran', 'command', 'commands'],
+  read: ['Read', 'file', 'files'], glob: ['Searched', 'folder', 'folders'], grep: ['Searched', 'code search', 'code searches'],
+  write: ['Edited', 'file', 'files'], edit: ['Edited', 'file', 'files'], multiedit: ['Edited', 'file', 'files'], annotate_image: ['Edited', 'image', 'images'],
+  web_fetch: ['Opened', 'page', 'pages'], web_search: ['Searched the web', 'time', 'times'], image_search: ['Searched images', 'time', 'times'],
+  fetch_image: ['Downloaded', 'image', 'images'], view_image: ['Looked at', 'image', 'images'], task: ['Delegated', 'task', 'tasks'], git_sync: ['Synced', 'time', 'times'], todo_write: ['Updated', 'task list', 'task lists'], skill: ['Loaded', 'skill', 'skills'], models: ['Checked', 'model list', 'model lists'], create_pr: ['Opened', 'pull request', 'pull requests'] };
+const isPinned = (c) => { const r = S.results[c._call.id]; return !!(r && (r._file || r._preview || r._model || r._image)) || c._call.function.name === 'exit_plan_mode'; };
+const isDone = (c) => !!S.results[c._call.id] && !S.pending[c._call.id];
+function tgLabel(cards) {
+  const by = new Map();
+  for (const c of cards) {
+    const k = KIND[c._call.function.name] || ['Used', 'tool', 'tools'];
+    const key = k[0] + '|' + k[2];
+    if (!by.has(key)) by.set(key, { k, n: 0 });
+    by.get(key).n++;
+  }
+  const one = ({ k, n }) => (/^(Searched the web|Searched images|Synced)$/.test(k[0]) ? (n === 1 ? k[0] : `${k[0]} ${n} times`) : `${k[0]} ${n === 1 ? 'a' : n} ${n === 1 ? k[1] : k[2]}`);
+  const parts = [...by.values()].sort((x, y) => y.n - x.n);
+  if (parts.length === 1) return one(parts[0]);
+  if (parts.length === 2) return one(parts[0]) + ', ' + one(parts[1]).replace(/^./, (ch) => ch.toLowerCase());
+  return `Used ${cards.length} tools`;
+}
+function refreshTG(tg) {
+  const cards = tg._cards;
+  const live = tg.querySelector('.tg-live'), pin = tg.querySelector('.tg-pin'), head = tg.querySelector('.tg-head');
+  const grouped = cards.filter((c) => !isPinned(c));
+  const running = grouped.some((c) => !isDone(c));
+  const failed = grouped.filter((c) => isDone(c) && S.results[c._call.id]._error).length;
+  for (const c of cards) {
+    if (isPinned(c) && isDone(c)) { if (c.parentNode !== pin) pin.append(c); }
+    else if (!isDone(c)) { if (c.parentNode !== live) live.append(c); }
+    else if (c.parentNode) c.remove();
+  }
+  const done = grouped.filter(isDone);
+  head.hidden = !done.length;
+  head.replaceChildren(h('span.tg-ic', { text: '>_' }), h('span.tg-txt', { text: tgLabel(done) + (failed ? ` · ${failed} failed` : '') }), h('span.tg-chev', { text: '›' }));
+  head.classList.toggle('bad', !!failed);
+  tg._label = tgLabel(done);
+}
+function openTG(tg) {
+  const done = tg._cards.filter((c) => isDone(c) && !isPinned(c));
+  const list = h('div.steps');
+  const show = () => {
+    list.replaceChildren();
+    for (const c of done) {
+      const call = c._call, name = call.function.name, a = parseArgs(call), r = S.results[call.id];
+      if (c._thought) list.append(h('div.thought', { text: c._thought.trim().slice(0, 400) }));
+      list.append(h('button.step', { onclick: () => detail(c) }, h('span.step-ic', { text: ICONS[name] || '⚙' }),
+        h('span.step-txt', {}, h('span.step-t', { text: a.description || toolSummary(name, a) || name }), h('span.step-s', { text: name })),
+        h('span.step-st' + (r._error ? '.bad' : ''), { text: r._error ? '✕' : '' }), h('span.tg-chev', { text: '›' })));
+    }
+  };
+  const detail = (c) => {
+    const call = c._call, a = parseArgs(call);
+    const view = h('div.tool'); view.dataset.open = '1';
+    fillCard(view, call, S.results[call.id], null);
+    const full = h('div.detail', {}, h('button.back', { text: '‹ All steps', onclick: () => { sheet(tg._label, list); } }));
+    if (a.description) full.append(h('div.lbl', { text: 'Description' }), h('div.dim', { text: a.description }));
+    full.append(view);
+    sheet(toolSummary(call.function.name, a).slice(0, 60) || call.function.name, full);
+  };
+  show();
+  sheet(tg._label, list);
+}
+function mergeGroups() {
+  let prev = null;
+  for (const n of [...msgsEl().children]) {
+    if (!n.classList.contains('msg-ai') || !n._tg) { prev = null; continue; }
+    if (prev && n.firstElementChild === n._tg) {
+      for (const c of n._tg._cards) { prev._tg._cards.push(c); c._tg = prev._tg; }
+      n._tg._cards = [];
+      n.remove();
+      refreshTG(prev._tg);
+      continue;
+    }
+    prev = n.lastElementChild === n._tg ? n : null;
+  }
+}
+function imgNode(path, id) {
+  const img = h('img.tool-img', { alt: path });
+  S.imgs = S.imgs || {};
+  const key = S.cur.id + '|' + id;
+  const set = (u) => { img.src = u; };
+  if (S.imgs[key]) set(S.imgs[key]);
+  else fetch(`${S.api}/api/sessions/${S.cur.id}/download?path=${encodeURIComponent(path)}`, { headers: { Authorization: 'Bearer ' + S.token } })
+    .then((r) => { if (!r.ok) throw new Error(); return r.blob(); }).then((b) => { S.imgs[key] = URL.createObjectURL(b); set(S.imgs[key]); }).catch(() => { img.replaceWith(h('div.dim', { text: 'Could not load ' + path })); });
+  img.onclick = () => img.classList.toggle('big');
+  return img;
 }
 function renderChat(forceScroll) {
   const box = msgsEl();
@@ -371,6 +476,7 @@ function renderChat(forceScroll) {
       box.append(userNode(m, i));
     } else if (m.role === 'assistant') box.append(assistantNode(m, i));
   });
+  mergeGroups();
   renderTodos(); renderSubs(); renderQueue();
   renderLive();
   for (const ev of Object.values(S.pending)) ensureApprovalCard(ev);
@@ -486,10 +592,11 @@ function handle(ev) {
       if (m.role === 'tool') {
         S.results[m.tool_call_id] = m;
         const card = S.cards[m.tool_call_id];
-        if (card) fillCard(card, card._call, m, null);
+        if (card) { fillCard(card, card._call, m, null); if (card._tg) refreshTG(card._tg); }
       } else if (m.role === 'assistant') {
         const n = assistantNode(m);
         if (S.live) msgsEl().insertBefore(n, S.live); else msgsEl().append(n);
+        mergeGroups();
       }
       renderLive(); scrollDown(); break;
     }

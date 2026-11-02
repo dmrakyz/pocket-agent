@@ -16,7 +16,7 @@ from urllib.parse import urlparse
 
 import httpx
 
-from . import config, workspace
+from . import config, llm, workspace
 
 LIMIT = config.TOOL_OUTPUT_LIMIT
 SKIP_DIRS = {".git", "node_modules", "__pycache__", ".venv", "venv", "dist", "build", ".next", ".cache"}
@@ -106,8 +106,8 @@ BASE_TOOLS = [
             "content": S, "status": {"type": "string", "enum": ["pending", "in_progress", "completed"]}},
             "required": ["content", "status"]}}}, ["todos"]),
     _fn("task", "Delegate a self-contained task to a sub-agent with fresh context; it returns only its final report. "
-        "Emit SEVERAL task calls in one message to run them in parallel. Optionally pick a cheaper/faster model "
-        "(e.g. 'lightning') for easy work. Sub-agents are read-only unless can_edit is true (then give parallel "
+        "Emit SEVERAL task calls in one message to run them in parallel. Optionally pick a model: a cheaper/faster one "
+        "(e.g. 'lightning') for easy work, or a stronger/different one (see the models tool) when you are stuck. Sub-agents are read-only unless can_edit is true (then give parallel "
         "agents disjoint files).",
         {"description": S, "prompt": S, "model": {"type": "string", "description": "optional, e.g. 'lightning' or provider:model-id"},
          "can_edit": {"type": "boolean"}}, ["description", "prompt"]),
@@ -120,6 +120,25 @@ BASE_TOOLS = [
         "in the app. Use it after you generate or export a model. Tip: python3 has trimesh and manifold3d for building "
         "meshes (primitives, boolean union/difference, export to STL).",
         {"path": {"type": "string", "description": "e.g. part.stl"}}, ["path"]),
+    _fn("image_search", "Search the web for images. Returns image URLs, titles and source pages. Follow up with "
+        "fetch_image to download one into the workspace.",
+        {"query": S, "max_results": {"type": "integer", "description": "default 6, max 10"}}, ["query"]),
+    _fn("fetch_image", "Download an image from a URL into the workspace (verified as a real image, max 15 MB) and show it in the chat.",
+        {"url": S, "path": {"type": "string", "description": "where to save it, e.g. images/cat.jpg (default: images/<name from url>)"}}, ["url"]),
+    _fn("view_image", "Look at an image in the workspace and answer a question about it, using a vision-capable model "
+        "(you may not see images yourself). Ask for pixel coordinates when you plan to annotate: e.g. 'give bounding boxes "
+        "of the red car as x,y,width,height in pixels'.",
+        {"path": S, "question": {"type": "string", "description": "what to look for; default: describe it in detail"}}, ["path"]),
+    _fn("annotate_image", "Draw on / edit an image with exact operations and save the result (the original is kept). "
+        "ops is a list applied in order, coordinates in pixels from the top-left. Types: "
+        "rect{x,y,w,h,color,width,fill?}, ellipse{x,y,w,h,color,width,fill?}, line{x1,y1,x2,y2,color,width}, "
+        "arrow{x1,y1,x2,y2,color,width}, highlight{x,y,w,h,color} (translucent marker), "
+        "text{x,y,text,size,color,bg?}, blur{x,y,w,h,radius}, pixelate{x,y,w,h,block}, crop{x,y,w,h}, "
+        "resize{width?,height?}, rotate{degrees}. Colors: names or #rrggbb.",
+        {"path": S, "ops": {"type": "array", "items": {"type": "object"}}, "out": {"type": "string", "description": "output path (default <name>_edited.png)"}},
+        ["path", "ops"]),
+    _fn("models", "List the models you can hand work to with the task tool, with size hints. Use it when you are stuck "
+        "(same error repeating, going in circles) to pick a stronger or differently-skilled model.", {}, []),
     _fn("skill", "Load the full instructions of a named skill listed in your system prompt.", {"name": S}, ["name"]),
     _fn("git_sync", "Commit all workspace changes and push them to the session's GitHub branch. "
         "Do this after finishing meaningful work.", {"message": S}, []),
@@ -129,8 +148,8 @@ BASE_TOOLS = [
     _fn("exit_plan_mode", "Plan mode only: present your finished plan to the user for approval.",
         {"plan": S}, ["plan"]),
 ]
-READONLY = {"read", "glob", "grep", "web_fetch", "web_search", "todo_write", "bash_output", "skill", "task", "share_file", "preview", "view_3d"}
-EDITS = {"write", "edit", "multiedit"}
+READONLY = {"read", "glob", "grep", "web_fetch", "web_search", "image_search", "view_image", "models", "todo_write", "bash_output", "skill", "task", "share_file", "preview", "view_3d"}
+EDITS = {"write", "edit", "multiedit", "fetch_image", "annotate_image"}
 SUBAGENT_TOOLS = {"read", "glob", "grep", "bash", "bash_output", "kill_bash", "web_fetch", "web_search"}
 SUBAGENT_EDIT_TOOLS = SUBAGENT_TOOLS | EDITS
 
@@ -545,6 +564,240 @@ async def t_view_3d(ctx: Ctx, a: dict):
     return {"text": f"3D viewer ready for {ctx.rel(p)} ({p.stat().st_size} bytes). The user can open it from a card in this chat.", "model": ctx.rel(p)}
 
 
+# ---------------------------------------------------------------- images
+IMG_MAX = 15 * 1024 * 1024
+
+
+async def t_image_search(ctx: Ctx, a: dict):
+    q, n = a["query"], min(int(a.get("max_results") or 6), 10)
+
+    def go():
+        from ddgs import DDGS
+        return list(DDGS().images(q, max_results=n))
+    try:
+        rows = await asyncio.to_thread(go)
+    except Exception as e:  # noqa: BLE001
+        raise ToolError(f"image search failed ({type(e).__name__}: {e}); DuckDuckGo may be rate-limiting, retry shortly")
+    if not rows:
+        return "no images found"
+    return "\n\n".join(f"{i}. {x.get('title', '')[:100]}\n   image: {x.get('image', '')}\n   page: {x.get('url', '')}\n   {x.get('width', '?')}x{x.get('height', '?')}"
+                       for i, x in enumerate(rows, 1))
+
+
+def _open_image(p: Path):
+    from PIL import Image
+    im = Image.open(p)
+    im.load()
+    return im
+
+
+async def t_fetch_image(ctx: Ctx, a: dict):
+    import io
+    from PIL import Image
+    url = a["url"]
+    async with httpx.AsyncClient(timeout=30, follow_redirects=False, transport=_img_transport,
+                                 headers={"User-Agent": "Mozilla/5.0 (compatible; MobileAgent/1.0)"}) as c:
+        for _ in range(6):
+            await asyncio.to_thread(_check_public, url)
+            async with c.stream("GET", url) as r:
+                if r.is_redirect and r.headers.get("location"):
+                    url = str(httpx.URL(url).join(r.headers["location"]))
+                    continue
+                if r.status_code >= 400:
+                    raise ToolError(f"HTTP {r.status_code}")
+                buf = bytearray()
+                async for chunk in r.aiter_bytes():
+                    buf.extend(chunk)
+                    if len(buf) > IMG_MAX:
+                        raise ToolError("image is over 15 MB")
+            break
+        else:
+            raise ToolError("too many redirects")
+    try:
+        Image.open(io.BytesIO(bytes(buf))).verify()
+        fmt = (Image.open(io.BytesIO(bytes(buf))).format or "PNG").lower()
+    except Exception:  # noqa: BLE001
+        raise ToolError("that URL did not return a valid image (it may be a web page; use web_fetch to find the real image link)")
+    ext = {"jpeg": "jpg"}.get(fmt, fmt)
+    name = a.get("path") or "images/" + (re.sub(r"[^\w.-]", "_", urlparse(url).path.rsplit("/", 1)[-1])[:60] or "image")
+    if not name.lower().endswith((".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp")):
+        name += "." + ext
+    p = ctx.resolve(name)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_bytes(bytes(buf))
+    w, h = Image.open(io.BytesIO(bytes(buf))).size
+    return {"text": f"saved {ctx.rel(p)} ({w}x{h}, {len(buf) // 1024} KB, {fmt})", "image": ctx.rel(p)}
+
+
+_img_transport = None   # tests inject a fake transport
+
+
+def _vision_ready(img_path: Path, max_side: int = 1280) -> str:
+    import base64
+    import io
+    im = _open_image(img_path).convert("RGB")
+    im.thumbnail((max_side, max_side))
+    b = io.BytesIO()
+    im.save(b, "JPEG", quality=85)
+    return "data:image/jpeg;base64," + base64.b64encode(b.getvalue()).decode()
+
+
+VISION_HINTS = ("vl", "vision", "multimodal", "-vlm", "pixtral", "gemma-3", "llama-3.2-90b", "llama-3.2-11b", "llama-4", "phi-4-multimodal")
+
+
+async def vision_model() -> str:
+    if config.VISION_MODEL:
+        return config.VISION_MODEL
+    ms = await llm.list_models()
+    return llm.pick(ms, *VISION_HINTS) or ""
+
+
+async def t_view_image(ctx: Ctx, a: dict):
+    p = ctx.resolve(a["path"], must_exist=True)
+    if p.suffix.lower() not in (".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"):
+        raise ToolError("not an image file")
+    ref = await vision_model()
+    if not ref:
+        raise ToolError("no vision-capable model is available on your providers. Set VISION_MODEL (e.g. a nemotron VL or llama vision model) in Render.")
+    q = a.get("question") or "Describe this image in detail."
+    w, h = _open_image(p).size
+    data = await asyncio.to_thread(_vision_ready, p)
+    msgs = [{"role": "user", "content": [{"type": "text", "text": f"The image is {w}x{h} pixels. If you give coordinates use this ORIGINAL pixel scale, origin top-left. {q}"},
+                                         {"type": "image_url", "image_url": {"url": data}}]}]
+
+    async def nop(*_a):
+        return None
+    resp = await llm.chat(ref, msgs, [], nop, nop, nop, thinking=False)
+    return f"[answer from {ref.split(':', 1)[-1]}; image is {w}x{h}px]\n" + ((resp["message"].get("content") or "").strip() or "(empty reply)")
+
+
+def _color(c, alpha=255):
+    from PIL import ImageColor
+    try:
+        r, g, b = ImageColor.getrgb(str(c or "red"))[:3]
+    except ValueError:
+        raise ValueError(f"unknown color {c!r}")
+    return (r, g, b, alpha)
+
+
+def _font(size):
+    from PIL import ImageFont
+    for f in ("DejaVuSans-Bold.ttf", "DejaVuSans.ttf", "Arial.ttf"):
+        try:
+            return ImageFont.truetype(f, size)
+        except OSError:
+            continue
+    try:
+        return ImageFont.load_default(size)
+    except TypeError:
+        return ImageFont.load_default()
+
+
+def _apply_ops(im, ops):
+    import math
+    from PIL import Image, ImageDraw, ImageFilter
+    im = im.convert("RGBA")
+    for n, op in enumerate(ops, 1):
+        k = str(op.get("type", "")).lower()
+        try:
+            def f(key, d=0):
+                return float(op.get(key, d))
+            x, y, w, h = f("x"), f("y"), f("w"), f("h")
+            wid = max(1, int(f("width", 4)))
+            if k in ("rect", "ellipse", "highlight"):
+                layer = Image.new("RGBA", im.size, (0, 0, 0, 0))
+                d = ImageDraw.Draw(layer)
+                box = [x, y, x + w, y + h]
+                if k == "highlight":
+                    d.rectangle(box, fill=_color(op.get("color", "yellow"), 100))
+                else:
+                    fill = _color(op["fill"], 90) if op.get("fill") else None
+                    (d.rectangle if k == "rect" else d.ellipse)(box, outline=_color(op.get("color", "red")), width=wid, fill=fill)
+                im = Image.alpha_composite(im, layer)
+            elif k in ("line", "arrow"):
+                d = ImageDraw.Draw(im)
+                x1, y1, x2, y2 = f("x1"), f("y1"), f("x2"), f("y2")
+                col = _color(op.get("color", "red"))
+                d.line([x1, y1, x2, y2], fill=col, width=wid)
+                if k == "arrow":
+                    ang = math.atan2(y2 - y1, x2 - x1)
+                    L = max(14, wid * 4)
+                    d.polygon([(x2, y2), (x2 - L * math.cos(ang - 0.45), y2 - L * math.sin(ang - 0.45)),
+                               (x2 - L * math.cos(ang + 0.45), y2 - L * math.sin(ang + 0.45))], fill=col)
+            elif k == "text":
+                d = ImageDraw.Draw(im)
+                fnt = _font(int(f("size", 28)))
+                txt = str(op.get("text", ""))
+                if op.get("bg"):
+                    bb = d.textbbox((x, y), txt, font=fnt)
+                    d.rectangle([bb[0] - 6, bb[1] - 4, bb[2] + 6, bb[3] + 4], fill=_color(op["bg"], 220))
+                d.text((x, y), txt, font=fnt, fill=_color(op.get("color", "white") if op.get("bg") else op.get("color", "red")))
+            elif k in ("blur", "pixelate"):
+                box = (int(x), int(y), int(x + w), int(y + h))
+                reg = im.crop(box)
+                if k == "blur":
+                    reg = reg.filter(ImageFilter.GaussianBlur(max(1, f("radius", 12))))
+                else:
+                    b = max(2, int(f("block", 12)))
+                    reg = reg.resize((max(1, reg.width // b), max(1, reg.height // b)), Image.NEAREST).resize(reg.size, Image.NEAREST)
+                im.paste(reg, box[:2])
+            elif k == "crop":
+                im = im.crop((int(x), int(y), int(x + w), int(y + h)))
+            elif k == "resize":
+                tw, th = op.get("width"), op.get("height")
+                if not tw and not th:
+                    raise ValueError("resize needs width and/or height")
+                if not th:
+                    th = round(im.height * float(tw) / im.width)
+                if not tw:
+                    tw = round(im.width * float(th) / im.height)
+                im = im.resize((max(1, int(tw)), max(1, int(th))), Image.LANCZOS)
+            elif k == "rotate":
+                im = im.rotate(-f("degrees"), expand=True)
+            else:
+                raise ValueError(f"unknown op type {k!r}")
+        except (KeyError, TypeError, ValueError) as e:
+            raise ToolError(f"op {n} ({k or '?'}) is invalid: {e}")
+    return im
+
+
+async def t_annotate_image(ctx: Ctx, a: dict):
+    p = ctx.resolve(a["path"], must_exist=True)
+    ops = a.get("ops")
+    if not isinstance(ops, list) or not ops:
+        raise ToolError("ops must be a non-empty list")
+    if len(ops) > 60:
+        raise ToolError("at most 60 operations per call")
+    out = ctx.resolve(a.get("out") or ctx.rel(p.with_name(p.stem + "_edited.png")))
+    im = await asyncio.to_thread(lambda: _apply_ops(_open_image(p), ops))
+    out.parent.mkdir(parents=True, exist_ok=True)
+    fmt = "JPEG" if out.suffix.lower() in (".jpg", ".jpeg") else "PNG"
+    await asyncio.to_thread(lambda: (im.convert("RGB") if fmt == "JPEG" else im).save(out, fmt))
+    return {"text": f"saved {ctx.rel(out)} ({im.width}x{im.height}); original untouched", "image": ctx.rel(out)}
+
+
+def _size_hint(mid: str) -> str:
+    m = re.search(r"(\d+(?:\.\d+)?)\s*b(?!it)", mid.lower())
+    tags = []
+    if m:
+        tags.append(f"~{m.group(1)}B params")
+    if any(k in mid.lower() for k in VISION_HINTS):
+        tags.append("may see images")
+    if "code" in mid.lower():
+        tags.append("code")
+    if any(k in mid.lower() for k in ("nano", "lightning", "mini", "small", "flash")):
+        tags.append("fast/cheap")
+    return ", ".join(tags)
+
+
+async def t_models(ctx: Ctx, a: dict):
+    ms = [m for m in await llm.list_models() if not m.get("error")]
+    cur = ctx.session.get("model")
+    lines = [f"- {m['ref']}" + (" (you)" if m["ref"] == cur else "") + (f"  [{_size_hint(m['id'])}]" if _size_hint(m["id"]) else "") for m in ms[:80]]
+    return ("Pass any of these as `model` to the task tool (a short name like 'ultra' also works). Bigger usually means "
+            "stronger but slower; hints are guesses from the name.\n" + "\n".join(lines))
+
+
 async def t_exit_plan_mode(ctx: Ctx, a: dict):
     return "Plan approved. You may now edit files and run commands."
 
@@ -554,6 +807,8 @@ HANDLERS: dict[str, Callable[[Ctx, dict], Awaitable[Any]]] = {
     "bash": t_bash, "bash_output": t_bash_output, "kill_bash": t_kill_bash, "web_fetch": t_web_fetch,
     "web_search": t_web_search, "todo_write": t_todo_write, "task": t_task, "skill": t_skill,
     "git_sync": t_git_sync, "create_pr": t_create_pr, "exit_plan_mode": t_exit_plan_mode, "share_file": t_share_file, "preview": t_preview, "view_3d": t_view_3d,
+    "image_search": t_image_search, "fetch_image": t_fetch_image, "view_image": t_view_image,
+    "annotate_image": t_annotate_image, "models": t_models,
 }
 
 

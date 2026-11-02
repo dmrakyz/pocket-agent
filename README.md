@@ -114,3 +114,9 @@ This server runs shell commands, on the internet, in the same container as your 
 ## OAuth connectors
 
 In Settings -> Connectors choose "Sign in (OAuth)". The app discovers the server's login endpoints, registers itself, and shows a "Continue to sign in" link. After you approve on the service's own page, the callback lands on your Render URL (`/oauth/callback`), tokens are stored in the private state repo and refreshed automatically. If a refresh fails the connector shows "sign in" again. Works with servers that support dynamic client registration (most hosted MCP servers do); servers that need a pre-registered client are not supported yet.
+
+## Timeline, images and model roster
+
+- Consecutive tool calls collapse into one row ("Ran 6 commands"). Tap it for the step list, tap a step for its full input and output. Running calls, approvals, previews and images stay visible in the chat.
+- Image tools: `image_search`, `fetch_image` (verified, 15 MB cap, public hosts only), `view_image` (asks a vision-capable model, auto-picked or `VISION_MODEL`), `annotate_image` (rect, ellipse, line, arrow, highlight, text, blur, pixelate, crop, resize, rotate; originals are never overwritten).
+- `models` lists the models the agent can delegate to. If it repeats itself or fails several times in a row it is told once to call `models` and hand the work to a different model with `task`.

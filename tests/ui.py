@@ -96,17 +96,25 @@ try:
         time.sleep(1.0)
         check("agent run finished via UI", p.evaluate("window.__agent.run.running") is False)
         check("approval UI was used", approved >= 2, str(approved))
-        cards = p.query_selector_all(".tool")
-        check("tool cards rendered", len(cards) >= 8, str(len(cards)))
+        heads = p.query_selector_all(".tg-head:not([hidden])")
+        check("tool calls collapse into grouped rows", len(heads) >= 1 and all(any(w in h.inner_text() for w in ("Ran", "Edited", "Read", "Used")) for h in heads), str([h.inner_text() for h in heads]))
+        check("grouped cards are not dumped into the chat", len(p.query_selector_all("#msgs > .msg-ai .tg-head ~ .tg-live .tool")) == 0)
         check("page did not scroll under the header", p.evaluate("document.querySelector('#app').scrollTop") == 0 and p.is_visible("header"))
         p.screenshot(path=f"{OUT}/5-done.png")
-        # open the edit card to see the diff
-        edit_head = p.query_selector(".tool:has(.tool-name:text-is('edit')) .tool-head")
-        if edit_head:
-            edit_head.click()
-            p.wait_for_selector(".diff .add")
+        # open the timeline, then the edit step to see the diff
+        p.locator(".tg-head:not([hidden])").first.click()
+        p.wait_for_selector("#sheet.open .step"); p.wait_for_timeout(450)
+        check("timeline lists the steps", len(p.query_selector_all("#sheet-body .step")) >= 4, str(len(p.query_selector_all("#sheet-body .step"))))
+        p.screenshot(path=f"{OUT}/5b-timeline.png")
+        edit_step = p.query_selector("#sheet-body .step:has(.step-s:text-is('edit'))")
+        if edit_step:
+            edit_step.click()
+            p.wait_for_selector("#sheet-body .diff .add")
             check("diff rendered with additions", True)
             p.screenshot(path=f"{OUT}/6-diff.png")
+            p.click("#sheet-body .back")
+            check("back returns to the step list", len(p.query_selector_all("#sheet-body .step")) >= 1)
+        p.click("#sheet-close"); p.wait_for_timeout(300)
         p.click("#btn-menu")
         p.wait_for_selector("#drawer.open")
         p.screenshot(path=f"{OUT}/7-drawer.png")
@@ -324,7 +332,7 @@ try:
         # reload page: state restores from server
         p.reload()
         p.wait_for_selector(".tool")
-        check("reload restores history", len(p.query_selector_all(".tool")) >= 8)
+        check("reload restores history", len(p.query_selector_all(".tg-head:not([hidden])")) >= 1)
         # update banner: a stamped (old) build while version.json announces a newer one
         p2 = ctx.new_page()
         p2.add_init_script("window.APP_VERSION='1'; window.APP_COMMIT='aaaaaaa';")

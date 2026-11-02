@@ -25,6 +25,7 @@ GIT_USER_NAME = env("GIT_USER_NAME", "Mobile Agent")
 GIT_USER_EMAIL = env("GIT_USER_EMAIL", "agent@users.noreply.github.com")
 
 DEFAULT_MODEL = env("DEFAULT_MODEL")        # "provider:model-id"; auto-picked if empty
+VISION_MODEL = env("VISION_MODEL")            # model used by view_image; auto-picked if empty
 FALLBACK_MODEL = env("FALLBACK_MODEL")      # used when the main model keeps failing; auto-picked if empty
 COMPACT_AT_TOKENS = int(env("COMPACT_AT_TOKENS", "120000"))
 MAX_STEPS = int(env("MAX_STEPS", "60"))     # tool-loop iterations per user turn

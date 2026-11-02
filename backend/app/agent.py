@@ -297,6 +297,28 @@ async def gated_execute(run: Run, s: dict, ctx: tools.Ctx, call: dict, allowed: 
     return res
 
 
+def stuck_hint(run, calls, s) -> str:
+    """Detect a model going in circles (same failing call repeated, or a long run of errors) and suggest delegating once."""
+    last = s["messages"][-len(calls):]
+    errs = sum(1 for m in last if m.get("_error"))
+    run.err_streak = (getattr(run, "err_streak", 0) + errs) if errs == len(calls) else 0
+    sigs = getattr(run, "sigs", [])
+    for c in calls:
+        sigs.append((c["function"]["name"], c["function"].get("arguments", "")))
+    run.sigs = sigs = sigs[-12:]
+    repeated = any(sigs.count(x) >= 3 for x in sigs[-3:])
+    step = getattr(run, "step_n", 0) + 1
+    run.step_n = step
+    if (run.err_streak >= 4 or repeated) and step - getattr(run, "hint_at", -99) >= 10 and not getattr(run, "in_sub", False):
+        run.hint_at = step
+        run.err_streak = 0
+        return ("[stuck check] You are repeating yourself or failing repeatedly. Do not try the same thing again. "
+                "Call the `models` tool, then hand the problem to a different (usually larger) model with the `task` tool "
+                "(set `model`, give it the full context in `prompt`, `can_edit` true if it must change files), "
+                "or change your approach.")
+    return ""
+
+
 async def resolve_model(req: Optional[str], default: str) -> str:
     if not req:
         return default
@@ -468,7 +490,12 @@ async def run_turn(s: dict, run: Run):
                     tm["_preview"] = res["preview"]
                 if res.get("model"):
                     tm["_model"] = res["model"]
+                if res.get("image"):
+                    tm["_image"] = res["image"]
                 await commit_message(run, s, tm)
+            hint = stuck_hint(run, calls, s)
+            if hint:
+                await commit_message(run, s, {"role": "user", "_synthetic": True, "content": hint})
             if any(c["function"]["name"] == "exit_plan_mode" and s.get("mode") == "plan" for c in calls):
                 # plan was denied (mode still plan): stop and let the user respond
                 break

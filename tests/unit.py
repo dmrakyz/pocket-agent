@@ -161,3 +161,53 @@ async def oauth_test():
     await oauth.forget("fake"); assert not oauth.signed_in("fake")
     print("PASS oauth discovery, PKCE, refresh, sign-in expiry")
 asyncio.run(oauth_test())
+
+
+# images + model roster + stuck detector
+import io, tempfile
+from pathlib import Path
+from PIL import Image
+from app import tools as T, agent as AG
+async def image_test():
+    root = Path(tempfile.mkdtemp()); sess = {"model": "nvidia:nvidia/big-550b"}
+    ctx = T.Ctx(sess, root, lambda e: asyncio.sleep(0), None, None)
+    T._check_public = lambda url: None
+    png = io.BytesIO(); Image.new("RGB", (200, 100), "white").save(png, "PNG")
+    T._img_transport = httpx.MockTransport(lambda req: httpx.Response(200, content=png.getvalue(), headers={"content-type": "image/png"}) if req.url.path.endswith(".png") else httpx.Response(200, content=b"<html>nope</html>"))
+    r = await T.execute(ctx, "fetch_image", {"url": "https://img.example/a/cat.png"})
+    assert not r["error"] and r["image"] == "images/cat.png" and (root / "images/cat.png").exists(), r
+    r = await T.execute(ctx, "fetch_image", {"url": "https://img.example/page"})
+    assert r["error"] and "valid image" in r["text"], r
+    r = await T.execute(ctx, "annotate_image", {"path": "images/cat.png", "ops": [
+        {"type": "rect", "x": 10, "y": 10, "w": 50, "h": 30, "color": "#ff0000", "width": 3}, {"type": "highlight", "x": 100, "y": 10, "w": 60, "h": 20},
+        {"type": "arrow", "x1": 5, "y1": 90, "x2": 80, "y2": 60}, {"type": "text", "x": 90, "y": 60, "text": "hi", "size": 20, "bg": "black"},
+        {"type": "blur", "x": 0, "y": 0, "w": 20, "h": 20}, {"type": "pixelate", "x": 20, "y": 60, "w": 30, "h": 30}, {"type": "ellipse", "x": 150, "y": 50, "w": 40, "h": 40, "color": "blue"},
+        {"type": "crop", "x": 0, "y": 0, "w": 180, "h": 100}, {"type": "resize", "width": 90}]})
+    assert not r["error"], r
+    im = Image.open(root / "images/cat_edited.png"); assert im.size == (90, 50), im.size
+    assert Image.open(root / "images/cat.png").getpixel((12, 11)) == (255, 255, 255), "original must stay untouched"
+    px = Image.open(root / "images/cat_edited.png").convert("RGB").getpixel((5, 5)); assert px != (255, 255, 255), "rect outline drawn"
+    r = await T.execute(ctx, "annotate_image", {"path": "images/cat.png", "ops": [{"type": "zap"}]}); assert r["error"] and "unknown op" in r["text"]
+    r = await T.execute(ctx, "annotate_image", {"path": "../x.png", "ops": [{"type": "rect"}]}); assert r["error"] and "outside" in r["text"]
+    # view_image: uses a separate vision model, never the main one
+    async def fake_models(force=False): return [{"ref": "nvidia:nvidia/big-550b", "id": "nvidia/big-550b", "provider": "nvidia"}, {"ref": "nvidia:nvidia/nemotron-nano-12b-v2-vl", "id": "nvidia/nemotron-nano-12b-v2-vl", "provider": "nvidia"}]
+    T.llm.list_models = fake_models; seen = {}
+    async def fake_chat(ref, msgs, tl, *a, **k):
+        seen["ref"] = ref; seen["img"] = msgs[0]["content"][1]["image_url"]["url"][:22]; return {"message": {"content": "a white box at 10,10,50,30"}}
+    T.llm.chat = fake_chat
+    r = await T.execute(ctx, "view_image", {"path": "images/cat.png", "question": "where is it"})
+    assert not r["error"] and "nano-12b-v2-vl" in seen["ref"] and seen["img"].startswith("data:image/jpeg") and "10,10,50,30" in r["text"], (r, seen)
+    r = await T.execute(ctx, "models", {}); assert "nemotron-nano-12b-v2-vl" in r["text"] and "(you)" in r["text"] and "may see images" in r["text"], r
+    # stuck detector
+    class RunX: pass
+    run = RunX(); s = {"messages": []}
+    def call(i, name="bash", args="{}"): return {"id": str(i), "function": {"name": name, "arguments": args}}
+    hints = []
+    for i in range(6):
+        s["messages"].append({"role": "tool", "_error": True}); hints.append(AG.stuck_hint(run, [call(i, "bash", '{"command": "x%d"}' % i)], s))
+    assert any(hints) and hints.index(next(h for h in hints if h)) >= 3, hints
+    assert sum(1 for h in hints if h) == 1, "only one hint inside 10 steps"
+    run2 = RunX(); s2 = {"messages": [{"role": "tool"}]}
+    assert [AG.stuck_hint(run2, [call(1, "read", '{"p": 1}')], s2) for _ in range(3)][-1], "same call three times counts as going in circles"
+    print("PASS images, model roster, stuck detector")
+asyncio.run(image_test())
