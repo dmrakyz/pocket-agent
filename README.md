@@ -219,3 +219,9 @@ Ask the agent to build you a little tool ("make me a tip calculator", "a habit t
 - Apps run in a sandboxed iframe with a strict CSP: no network, opaque origin, no access to your token or the rest of the app.
 - They talk to the host through a tiny SDK (`agent.ask(prompt)`, `agent.get/set/del/keys`) over postMessage. Data is stored per app; AI calls are rate-limited.
 - Long-press an app in the drawer for rename / delete. Ask the agent to edit one and it rewrites the file.
+
+## Agent as an MCP server
+
+Settings → **Agent as MCP server** → make a token. You get an address like `https://your-app.onrender.com/mcp/mcp_…` (the token is in the URL, so it is shown once). Add it as a custom connector in Claude Desktop / claude.ai, `claude mcp add --transport http pocket-agent <address>` in Claude Code, or as a remote server in Cursor.
+
+Tools exposed: `ask_agent(prompt, chat_id?)`, `list_chats`, `read_chat`. Every call becomes a chat called "MCP" you can read in the app; pass the returned `chat_id` back to continue it. Approvals are refused (nobody can tap Allow), the token is separate from your login and revocable, 60 calls an hour. Anyone with the address can spend your model quota, so guard it like a password.

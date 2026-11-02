@@ -22,7 +22,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from starlette.background import BackgroundTask
 
 from .browser import browser, BrowserError
-from . import agent, apps, config, evals, forge, instagram, kv, llm, shortcut, mcp, memory, oauth, perms, push, routines, store, telegram, tools, usage, workspace
+from . import agent, apps, config, evals, forge, instagram, kv, llm, mcp_server, shortcut, mcp, memory, oauth, perms, push, routines, store, telegram, tools, usage, workspace
 
 mcp_client = mcp.MCP()
 agent.MCP = mcp_client
@@ -1088,6 +1088,61 @@ async def shortcut_token():
 @app.delete("/api/shortcut", dependencies=[Depends(auth)])
 async def shortcut_revoke():
     await shortcut.revoke()
+    return {"enabled": False}
+
+
+# ------------------------------------------------------------------ agent as an MCP server
+async def _mcp_serve(request: Request, tok: str):
+    h = request.headers.get("authorization", "")
+    tok = tok or (h[7:] if h.lower().startswith("bearer ") else "")
+    if not mcp_server.check(tok):
+        raise HTTPException(401, "bad or revoked MCP token")
+    if not mcp_server.rate_ok():
+        raise HTTPException(429, "too many requests this hour")
+    raw = await request.body()
+    if len(raw) > 2 * 1024 * 1024:
+        raise HTTPException(413, "too large")
+    try:
+        msg = json.loads(raw)
+    except Exception:  # noqa: BLE001
+        return JSONResponse(mcp_server._err(None, -32700, "parse error"), status_code=400)
+    if isinstance(msg, list):
+        outs = [r for r in [await mcp_server.handle(m) for m in msg] if r is not None]
+        return JSONResponse(outs) if outs else Response(status_code=202)
+    out = await mcp_server.handle(msg)
+    return JSONResponse(out) if out is not None else Response(status_code=202)
+
+
+@app.post("/mcp/{tok}")
+async def mcp_post_path(request: Request, tok: str):
+    return await _mcp_serve(request, tok)
+
+
+@app.post("/mcp")
+async def mcp_post_bearer(request: Request):
+    return await _mcp_serve(request, "")
+
+
+@app.get("/mcp/{tok}")
+@app.get("/mcp")
+async def mcp_get(tok: str = ""):
+    return Response(status_code=405, headers={"Allow": "POST"})   # no server-initiated stream
+
+
+@app.get("/api/mcp-server/status", dependencies=[Depends(auth)])
+async def mcp_server_status():
+    d = mcp_server.state()
+    return {"enabled": mcp_server.enabled(), "hint": d.get("hint", ""), "uses": d.get("uses", 0), "last": d.get("last", 0)}
+
+
+@app.post("/api/mcp-server/token", dependencies=[Depends(auth)])
+async def mcp_server_token():
+    return {"token": await mcp_server.new_token()}
+
+
+@app.delete("/api/mcp-server", dependencies=[Depends(auth)])
+async def mcp_server_revoke():
+    await mcp_server.revoke()
     return {"enabled": False}
 
 

@@ -1683,6 +1683,28 @@ async function openShortcut() {
   try { draw(await api('/api/shortcut/status')); } catch (e) { body.replaceChildren(h('div.dim', { style: 'color:var(--bad)', text: e.message })); }
 }
 
+async function openMcpServer() {
+  const body = h('div', {}, h('div.dim', { text: 'Loading…' }));
+  sheet('Agent as MCP server', body);
+  const copy = (t) => h('div.hookbox', { text: t, onclick: () => { try { navigator.clipboard.writeText(t); toast('Copied'); } catch { /* selectable anyway */ } } });
+  const draw = (st, token) => {
+    const url = token ? `${S.api}/mcp/${token}` : '';
+    const kids = [h('div.dim', { style: 'font-size:14px', text: 'Lets other apps (Claude Desktop, Cursor, another agent) use this agent as a tool. They get ask_agent, list_chats and read_chat. Each call opens a chat called "MCP" you can read later.' })];
+    if (token) kids.push(h('div.dim', { style: 'font-size:13px;color:var(--warn,#e8b04a)', text: 'Your server address contains the token. It is shown once, copy it now:' }), copy(url));
+    else if (st.enabled) kids.push(h('div.dim', { style: 'font-size:13px', text: `Token ${st.hint} · used ${st.uses} time${st.uses === 1 ? '' : 's'}. The address is ${S.api}/mcp/YOUR_TOKEN` }));
+    kids.push(h('button.primary', { text: st.enabled ? 'Make a new token (old one stops working)' : 'Make a token', onclick: async (e) => { e.currentTarget.disabled = true; try { const r = await api('/api/mcp-server/token', { body: {} }); draw({ enabled: true, hint: '', uses: 0 }, r.token); } catch (er) { toast(er.message, true); e.currentTarget.disabled = false; } } }));
+    if (st.enabled) kids.push(h('button.secondary', { text: 'Revoke', onclick: async () => { try { await api('/api/mcp-server', { method: 'DELETE' }); draw({ enabled: false }); } catch (er) { toast(er.message, true); } } }));
+    kids.push(h('div.dim', { style: 'font-size:13px;font-weight:600;margin-top:6px', text: 'Add it to a client' }));
+    kids.push(h('ol.dim', { style: 'padding-left:20px;font-size:13.5px;line-height:1.6' },
+      h('li', { text: 'Claude Desktop / claude.ai: Settings → Connectors → Add custom connector → paste the address above.' }),
+      h('li', { text: 'Claude Code: claude mcp add --transport http pocket-agent <address>' }),
+      h('li', { text: 'Cursor and others: add a remote (Streamable HTTP) server with the address.' })));
+    kids.push(h('div.dim', { style: 'font-size:12.5px', text: 'Nobody can tap Allow for a remote call, so it only uses actions that need no approval. Anyone with the address can use your agent (and your model quota), so treat it like a password. Up to 60 calls an hour. Render free sleeps: the first call after a nap can be slow.' }));
+    body.replaceChildren(...kids);
+  };
+  try { draw(await api('/api/mcp-server/status')); } catch (e) { body.replaceChildren(h('div.dim', { style: 'color:var(--bad)', text: e.message })); }
+}
+
 /* ============================================================ usage */
 async function openUsage() {
   const body = h('div', {}, h('div.dim', { text: 'Loading…' }));
@@ -1788,6 +1810,7 @@ function drawSettings() {
       row('◎', 'Instagram DMs', openInstagram),
       row('⌘', 'Back-tap assistant', openShortcut),
       row('⚒', 'Forged tools', openForge),
+      row('⇄', 'Agent as MCP server', openMcpServer),
       row('▤', 'Usage', openUsage),
       row('✓', 'Capability check', openEval),
       row('🔔', 'Push notifications', async () => { if (PUSH.state === 'on') await pushDisable(); else await pushEnable(); drawSettings(); },
