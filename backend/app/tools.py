@@ -821,6 +821,12 @@ async def t_models(ctx: Ctx, a: dict):
 MAX_ACTIVE_MCP = 30
 
 
+def activate(session: dict, hits: list):
+    new = {h[0] for h in hits}
+    act = [n for n in (session.get("mcp_active") or []) if n not in new]
+    session["mcp_active"] = (act + [h[0] for h in hits])[-MAX_ACTIVE_MCP:]
+
+
 async def t_connector_search(ctx: Ctx, a: dict):
     if not ctx.mcp or not ctx.mcp.tools:
         return "No connectors are set up. The user can add some under Connectors."
@@ -832,9 +838,7 @@ async def t_connector_search(ctx: Ctx, a: dict):
     if not hits:
         names = ", ".join(sorted({t["server"]["name"] for t in ctx.mcp.tools.values()}))
         return f"No tools matched {q!r}. Connectors: {names}. Try different words or pass a connector name."
-    act = [n for n in (ctx.session.get("mcp_active") or []) if n not in {h[0] for h in hits}]
-    act = (act + [h[0] for h in hits])[-MAX_ACTIVE_MCP:]
-    ctx.session["mcp_active"] = act
+    activate(ctx.session, hits)
     lines = [f"- {full}: {(d.get('description') or '').strip().splitlines()[0][:160] if (d.get('description') or '').strip() else ''}" for full, d in hits]
     return "Activated (callable now):\n" + "\n".join(lines)
 

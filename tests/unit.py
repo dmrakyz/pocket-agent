@@ -237,7 +237,13 @@ async def lazy_test():
     from app import agent as AG
     AG.MCP = m
     sysmsg = AG.build_system({"id": "lz1", "mode": "ask"}, Path(tempfile.mkdtemp()))
-    assert "NOT loaded yet" in sysmsg and "notion (2 tools)" in sysmsg and "notion-create-pages" not in sysmsg
+    assert "you DO have access" in sysmsg and "notion (2 tools)" in sysmsg and sysmsg.index("CONNECTED APPS") < sysmsg.index("Environment:") and "notion-create-pages" not in sysmsg
+    s2 = {"id": "lz2", "messages": [{"role": "user", "content": "add a page to notion called test"}]}
+    AG._autoload_connectors(s2)
+    assert "mcp__notion__notion-create-pages" in s2["mcp_active"] and not any("linear" in n for n in s2["mcp_active"]), s2.get("mcp_active")
+    s3 = {"id": "lz3", "messages": [{"role": "user", "content": "refactor my parser"}]}
+    AG._autoload_connectors(s3)
+    assert not s3.get("mcp_active"), "no app named, nothing loaded"
     AG.MCP = None
     print("PASS connector tools load lazily via connector_search")
 asyncio.run(lazy_test())

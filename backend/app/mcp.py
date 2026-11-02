@@ -66,7 +66,7 @@ class MCP:
         return env + [dict(x, source="app") for x in (kv.get("connectors", []) or []) if x.get("name") not in names]
 
     async def refresh(self) -> dict:
-        self.tools.clear()
+        old, fresh = self.tools, {}
         report = {}
         for srv in self.servers():
             try:
@@ -77,7 +77,7 @@ class MCP:
                 n = 0
                 for t in (res or {}).get("tools", []):
                     safe = re.sub(r"[^a-zA-Z0-9_-]", "_", t["name"])
-                    self.tools[f"mcp__{srv['name']}__{safe}"] = {"server": srv, "name": t["name"], "def": t}
+                    fresh[f"mcp__{srv['name']}__{safe}"] = {"server": srv, "name": t["name"], "def": t}
                     n += 1
                 report[srv["name"]] = f"{n} tools"
             except NeedsSignIn:
@@ -86,6 +86,9 @@ class MCP:
                 report[srv["name"]] = "needs sign-in" if e.response.status_code == 401 and srv.get("oauth") else f"error: HTTP {e.response.status_code}"
             except Exception as e:  # noqa: BLE001
                 report[srv["name"]] = f"error: {type(e).__name__}: {e}"
+            if srv["name"] not in {v["server"]["name"] for v in fresh.values()}:   # a hiccup must not make a server's tools vanish
+                fresh.update({k: v for k, v in old.items() if v["server"]["name"] == srv["name"]})
+        self.tools = fresh
         self.report = report
         return report
 

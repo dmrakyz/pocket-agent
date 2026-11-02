@@ -107,6 +107,12 @@ never invent one. Don't write "saved to X" or "use share_file" when a card does 
 
 def build_system(s: dict, root: Path, sub: bool = False, can_edit: bool = False) -> str:
     parts = [BASE_PROMPT]
+    if MCP is not None and MCP.tools and not sub:
+        cs = ", ".join(f"{n} ({c} tools)" for n, c in MCP.counts().items())
+        parts.append("\nCONNECTED APPS: you DO have access to the user's " + cs + ". Their tools are loaded on demand: call "
+                     "`connector_search` (describe the action, or pass the app name) and the matching tools switch on for your next step. "
+                     "For any request that involves one of these apps, do that first. Never tell the user you lack an integration or API "
+                     "access for these apps, and don't write scripts or drive the browser to reach them.")
     if not sub:
         parts.append(SHOW_PROMPT)
     if sub:
@@ -133,11 +139,6 @@ def build_system(s: dict, root: Path, sub: bool = False, can_edit: bool = False)
     if sk and not sub:
         parts.append("\nSkills available (load with the `skill` tool when relevant):\n" + "\n".join(
             f"- {n}: {tools.skill_description(p)}" for n, p in sk.items()))
-    if MCP is not None and MCP.tools and not sub:
-        cs = ", ".join(f"{n} ({c} tools)" for n, c in MCP.counts().items())
-        parts.append("\nConnected apps (extra tools, NOT loaded yet): " + cs + ". When a request touches one of them, call "
-                     "`connector_search` first (describe the action, or pass the app name); the matching tools switch on for your next step. "
-                     "Don't guess tool names.")
     if s.get("todos") and not sub:
         parts.append("\nCurrent todo list:\n" + "\n".join(f"- [{t['status']}] {t['content']}" for t in s["todos"]))
     return "\n".join(parts)
@@ -439,6 +440,22 @@ async def commit_message(run: Run, s: dict, msg: dict):
     await run.emit({"type": "message", "message": msg})
 
 
+def _autoload_connectors(s: dict):
+    """If the user's message names a connected app ("add a page to notion"), switch that app's matching tools on right away,
+    so it works even when the model forgets to call connector_search."""
+    if MCP is None or not MCP.tools:
+        return
+    for m in reversed(s["messages"]):
+        if m.get("role") == "user" and not m.get("_synthetic"):
+            c = m.get("content")
+            text = c if isinstance(c, str) else " ".join(p.get("text", "") for p in c if isinstance(p, dict)) if isinstance(c, list) else ""
+            hits = MCP.search(text, 10) if text.strip() else []
+            named = {w for w in re.findall(r"[a-z0-9]+", text.lower())} & {t["server"]["name"].lower() for t in MCP.tools.values()}
+            if hits and named:
+                tools.activate(s, hits)
+            return
+
+
 async def run_turn(s: dict, run: Run):
     status = "done"
     ws: Optional[Path] = None
@@ -447,6 +464,7 @@ async def run_turn(s: dict, run: Run):
             workspace.ws_path(s["id"]) / ".git").exists() else None
         ws = await workspace.ensure_workspace(s)
         repair_history(s)
+        _autoload_connectors(s)
         sha = await workspace.commit_all(ws, "checkpoint: before turn")
         for m in reversed(s["messages"]):
             if m.get("role") == "user":
