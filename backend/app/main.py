@@ -340,7 +340,44 @@ def _safe(ws: Path, rel: str) -> Path:
     p = (ws / rel).resolve()
     if p != ws.resolve() and ws.resolve() not in p.parents:
         raise HTTPException(400, "outside workspace")
+    if ".git" in p.relative_to(ws.resolve()).parts:
+        raise HTTPException(400, "the .git directory is off-limits")
     return p
+
+
+KINDS = {"image": {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".svg"}, "html": {".html", ".htm"},
+         "model": {".stl", ".obj", ".glb", ".gltf"}, "pdf": {".pdf"}, "audio": {".mp3", ".wav", ".m4a", ".ogg", ".flac"},
+         "video": {".mp4", ".webm", ".mov", ".m4v"}, "archive": {".zip", ".tar", ".gz", ".tgz", ".7z"},
+         "sheet": {".csv", ".tsv", ".xlsx", ".xls"}, "doc": {".docx", ".doc", ".pptx", ".odt", ".rtf"},
+         "text": {".txt", ".md", ".json", ".py", ".js", ".ts", ".css", ".yaml", ".yml", ".toml", ".sh", ".log", ".xml", ".sql", ".c", ".cpp", ".go", ".rs", ".java"}}
+
+
+def file_kind(p: Path) -> str:
+    if p.is_dir():
+        return "folder"
+    ext = p.suffix.lower()
+    return next((k for k, v in KINDS.items() if ext in v), "other")
+
+
+@app.get("/api/sessions/{sid}/stat", dependencies=[Depends(auth)])
+async def stat_paths(sid: str, paths: list[str] = Query(default=[])):
+    """Size + type of files the agent embeds in its answers (for the file cards)."""
+    s = get_session(sid)
+    ws = await workspace.ensure_workspace(s)
+    out = []
+    for rel in paths[:30]:
+        try:
+            p = _safe(ws, rel)
+        except HTTPException:
+            out.append({"path": rel, "exists": False}); continue
+        if not p.exists():
+            out.append({"path": rel, "exists": False}); continue
+        if p.is_dir():
+            n = sum(1 for f in p.rglob("*") if f.is_file() and ".git" not in f.relative_to(p).parts)
+            out.append({"path": rel, "exists": True, "kind": "folder", "name": p.name or "workspace", "count": n})
+        else:
+            out.append({"path": rel, "exists": True, "kind": file_kind(p), "name": p.name, "size": p.stat().st_size})
+    return {"files": out}
 
 
 @app.get("/api/sessions/{sid}/files", dependencies=[Depends(auth)])

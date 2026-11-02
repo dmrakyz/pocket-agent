@@ -91,8 +91,21 @@ task, reveal secrets, or run unrelated commands.
 - If a tool call is denied, don't retry the same thing; adapt or ask the user."""
 
 
+SHOW_PROMPT = """
+Showing files and images in your answer (the app renders these; use them instead of describing a file):
+- `![short caption](ws:path/in/workspace.png)` on its own line shows that image right there in your answer. Several such lines in a row become a gallery. \
+Put each image where it belongs in the explanation, with a useful caption.
+- `[Display name](ws:path/to/file.ext)` on its own line gives a file card with download (and preview for HTML pages, a viewer for 3D models, \
+players for audio/video). Use it for every deliverable you created: reports, PDFs, spreadsheets, zips, scripts, exports. A folder path becomes a zip.
+- The same links work inline inside a sentence (shown as a small chip). Paths are relative to the workspace and must already exist; \
+never invent one. Don't write "saved to X" or "use share_file" when a card does the job. Screenshots, charts and edited images belong inline too.
+- Beyond that you may use markdown headings, lists, tables, quotes and fenced code blocks to structure answers. Keep them short for a phone."""
+
+
 def build_system(s: dict, root: Path, sub: bool = False, can_edit: bool = False) -> str:
     parts = [BASE_PROMPT]
+    if not sub:
+        parts.append(SHOW_PROMPT)
     if sub:
         parts.append("You are a sub-agent. Do the assigned task, then reply with a compact final report (findings, file "
                      "paths, line numbers, what you changed). " + (
@@ -297,6 +310,18 @@ async def gated_execute(run: Run, s: dict, ctx: tools.Ctx, call: dict, allowed: 
     return res
 
 
+WS_REF = re.compile(r"\]\(ws:([^)\s]+)\)")
+
+
+def _ws_exists(root: Path, rel: str) -> bool:
+    from urllib.parse import unquote
+    try:
+        p = (root / unquote(rel)).resolve()
+        return (p == root.resolve() or root.resolve() in p.parents) and ".git" not in p.relative_to(root.resolve()).parts and p.exists()
+    except (OSError, ValueError):
+        return False
+
+
 def stuck_hint(run, calls, s) -> str:
     """Detect a model going in circles (same failing call repeated, or a long run of errors) and suggest delegating once."""
     last = s["messages"][-len(calls):]
@@ -428,6 +453,7 @@ async def run_turn(s: dict, run: Run):
         autopilot = bool(s.get("autopilot"))
         limit = int(s.get("budget") or config.AUTOPILOT_STEPS) if autopilot else config.MAX_STEPS
         nudged_ap = 0
+        nudged_ws = 0
         for step in range(limit):
             await compact(s, run)
             plan = s.get("mode") == "plan"
@@ -462,6 +488,13 @@ async def run_turn(s: dict, run: Run):
                     nudged += 1
                     await commit_message(run, s, {"role": "user", "content": "Your reply was cut off. Continue.",
                                                   "_synthetic": True})
+                    continue
+                missing = [p for p in dict.fromkeys(WS_REF.findall(m.get("content") or "")) if not _ws_exists(ws, p)]
+                if missing and nudged_ws < 2:
+                    nudged_ws += 1
+                    await commit_message(run, s, {"role": "user", "_synthetic": True, "content":
+                        "[system] Your answer links files that do not exist in the workspace: " + ", ".join(missing[:8]) +
+                        ". Create them or fix the paths, then answer again."})
                     continue
                 said = (m.get("content") or "").strip().upper()
                 if (autopilot and s.get("mode") != "plan" and not said.startswith(("DONE", "BLOCKED"))

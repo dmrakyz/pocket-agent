@@ -126,3 +126,7 @@ In Settings -> Connectors choose "Sign in (OAuth)". The app discovers the server
 A real headless Chromium (Playwright) runs on the server. The agent uses `browser_read` (open, snapshot, screenshot, scroll, back, reload, tab) and `browser_act` (click, type, press, eval; asks first in Ask mode). Pages come back as a text snapshot with numbered clickable elements. Each chat gets its own isolated profile (cookies, logins) that is dropped after 5 idle minutes. Every request the page makes goes through the public-internet guard, so it cannot reach private networks. Open the Browser screen from the chat menu (or a browser step) to watch the live page, tap to click, type, scroll and enter addresses yourself, for example to log in. Page content is treated as untrusted.
 
 Memory: Chromium is heavy for Render's free 512 MB. Only one chat's browser runs at a time (`BROWSER_MAX_CONTEXTS`, `BROWSER_IDLE_SECONDS`). If Render restarts mid-browse, use a larger instance.
+
+## Docked browser
+
+While a page is open, a browser button appears in the chat header (a pulsing dot while the agent is using it). Tap it to split the screen: the live page on top, the chat below. Drag the handle to resize, tap the expand arrow for full screen, the down arrow to hide it (the page stays alive), and the X to close it. Clicks fall back to a direct DOM click when overlays block a normal one, and failed actions return the current page so the agent can see what happened. A server restart or redeploy wipes open pages; the agent is told to reopen.

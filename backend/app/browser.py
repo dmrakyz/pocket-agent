@@ -37,6 +37,10 @@ SNAP_JS = """() => {
 }"""
 
 
+NO_PAGE = ("no page is open: the browser was closed, idled out (5 min) or the server restarted/redeployed, which wipes it. "
+           "Call browser_read with action 'open' and the url you want, then continue (logins and form text are gone).")
+
+
 class BrowserError(Exception):
     pass
 
@@ -186,7 +190,7 @@ class Browser:
     async def snapshot(self, sid: str) -> str:
         st = await self.state(sid, create=False)
         if not st:
-            raise BrowserError("no page is open; use browser_read with action 'open' first")
+            raise BrowserError(NO_PAGE)
         d = await st["page"].evaluate(SNAP_JS)
         head = f"Page: {d['title'] or '(no title)'}\nURL: {d['url']}\nScroll: {d['y']}/{max(0, d['h'] - d['vh'])} px"
         els = "\n".join(d["elements"]) or "(no interactive elements in view)"
@@ -206,7 +210,7 @@ class Browser:
     async def shot(self, sid: str, full: bool = False, fmt: str = "jpeg") -> bytes:
         st = await self.state(sid, create=False)
         if not st:
-            raise BrowserError("no page is open")
+            raise BrowserError(NO_PAGE)
         kw = {"type": "jpeg", "quality": 70} if fmt == "jpeg" else {"type": "png"}
         return await st["page"].screenshot(full_page=full, **kw)
 
@@ -216,11 +220,17 @@ class Browser:
     async def click(self, sid: str, ref=None, x=None, y=None):
         st = await self.state(sid, create=False)
         if not st:
-            raise BrowserError("no page is open")
+            raise BrowserError(NO_PAGE)
         page = st["page"]
         try:
             if ref is not None:
-                await self._target(page, ref).click(timeout=8000)
+                loc = self._target(page, ref)
+                try:
+                    await loc.click(timeout=5000)
+                except Exception:  # noqa: BLE001
+                    # pages with overlays/animations (YouTube, cookie banners) fail Playwright's "is it clickable" checks even
+                    # though the click works: click the element itself in the DOM (a forced coordinate click can hit the overlay).
+                    await loc.evaluate("el => el.click()", timeout=3000)
             elif x is not None and y is not None:
                 await page.mouse.click(float(x), float(y))
             else:
@@ -228,13 +238,13 @@ class Browser:
         except BrowserError:
             raise
         except Exception as e:  # noqa: BLE001
-            raise BrowserError(f"click failed: {str(e).splitlines()[0][:180]}. Take a fresh snapshot; refs change after the page changes.")
+            raise BrowserError(f"click failed: {str(e).splitlines()[0][:160].rstrip('.')}. The page may still have reacted; see the current page below. Refs change after the page changes.")
         await self._settle(st["page"])
 
     async def type(self, sid: str, text: str, ref=None, submit: bool = False):
         st = await self.state(sid, create=False)
         if not st:
-            raise BrowserError("no page is open")
+            raise BrowserError(NO_PAGE)
         page = st["page"]
         try:
             if ref is not None:
@@ -255,7 +265,7 @@ class Browser:
     async def press(self, sid: str, key: str):
         st = await self.state(sid, create=False)
         if not st:
-            raise BrowserError("no page is open")
+            raise BrowserError(NO_PAGE)
         try:
             await st["page"].keyboard.press(key)
         except Exception as e:  # noqa: BLE001
@@ -265,7 +275,7 @@ class Browser:
     async def scroll(self, sid: str, direction: str = "down", amount: int = 0):
         st = await self.state(sid, create=False)
         if not st:
-            raise BrowserError("no page is open")
+            raise BrowserError(NO_PAGE)
         dy = int(amount) or int(VIEW_H * 0.8)
         await st["page"].mouse.wheel(0, dy if direction == "down" else -dy)
         await asyncio.sleep(0.4)
@@ -273,21 +283,21 @@ class Browser:
     async def back(self, sid: str):
         st = await self.state(sid, create=False)
         if not st:
-            raise BrowserError("no page is open")
+            raise BrowserError(NO_PAGE)
         await st["page"].go_back(timeout=15000, wait_until="domcontentloaded")
         await self._settle(st["page"])
 
     async def reload(self, sid: str):
         st = await self.state(sid, create=False)
         if not st:
-            raise BrowserError("no page is open")
+            raise BrowserError(NO_PAGE)
         await st["page"].reload(timeout=20000, wait_until="domcontentloaded")
         await self._settle(st["page"])
 
     async def evaluate(self, sid: str, js: str):
         st = await self.state(sid, create=False)
         if not st:
-            raise BrowserError("no page is open")
+            raise BrowserError(NO_PAGE)
         try:
             return await st["page"].evaluate(js)
         except Exception as e:  # noqa: BLE001

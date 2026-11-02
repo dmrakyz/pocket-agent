@@ -44,6 +44,8 @@ function inline(s) {
   const codes = [];
   s = s.replace(/`([^`\n]+)`/g, (_, c) => { codes.push(c); return '\u0000' + (codes.length - 1) + '\u0000'; });
   s = s.replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>').replace(/(^|[^*\w])\*([^*\n]+)\*(?!\w)/g, '$1<em>$2</em>');
+  s = s.replace(/!\[([^\]]*)\]\(ws:([^)\s]+)\)/g, (_, alt, p) => `<a class="ws-chip" data-ws="${p}" data-label="${alt}">\u25A3 ${alt || p.split('/').pop()}</a>`);
+  s = s.replace(/\[([^\]]+)\]\(ws:([^)\s]+)\)/g, (_, label, p) => `<a class="ws-chip" data-ws="${p}" data-label="${label}">\uD83D\uDCCE ${label}</a>`);
   s = s.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
   return s.replace(/\u0000(\d+)\u0000/g, (_, i) => '<code>' + codes[i] + '</code>');
 }
@@ -54,7 +56,7 @@ function md(src) {
   const lines = String(src).replace(/\r\n/g, '\n').split('\n');
   const out = [];
   let i = 0;
-  const isBlockStart = (l) => /^\s*```/.test(l) || /^#{1,4}\s/.test(l) || /^\s*>/.test(l) || /^\s*([-*+]|\d+\.)\s+/.test(l) || /^\s*([-*_])\1\1+\s*$/.test(l);
+  const isBlockStart = (l) => /^\s*!?\[[^\]]*\]\(ws:[^)\s]+\)\s*$/.test(l) || /^\s*```/.test(l) || /^#{1,4}\s/.test(l) || /^\s*>/.test(l) || /^\s*([-*+]|\d+\.)\s+/.test(l) || /^\s*([-*_])\1\1+\s*$/.test(l);
   while (i < lines.length) {
     const l = lines[i];
     let m;
@@ -64,6 +66,14 @@ function md(src) {
       while (i < lines.length && !/^\s*```\s*$/.test(lines[i])) buf.push(lines[i++]);
       i++;
       out.push(codeBlock(buf.join('\n'), m[1]));
+    } else if (/^\s*!\[[^\]]*\]\(ws:[^)\s]+\)\s*$/.test(l)) {
+      const figs = [];
+      while (i < lines.length && (m = lines[i].match(/^\s*!\[([^\]]*)\]\(ws:([^)\s]+)\)\s*$/))) { figs.push(`<figure class="ws-img" data-ws="${esc(m[2])}" data-label="${esc(m[1])}"><div class="ws-ph"></div>${m[1] ? `<figcaption>${esc(m[1])}</figcaption>` : ''}</figure>`); i++; }
+      out.push(`<div class="ws-gal n${Math.min(figs.length, 4)}">${figs.join('')}</div>`);
+    } else if (/^\s*\[[^\]]+\]\(ws:[^)\s]+\)\s*$/.test(l)) {
+      const cards = [];
+      while (i < lines.length && (m = lines[i].match(/^\s*\[([^\]]+)\]\(ws:([^)\s]+)\)\s*$/))) { cards.push(`<div class="ws-card" data-ws="${esc(m[2])}" data-label="${esc(m[1])}"></div>`); i++; }
+      out.push(cards.join(''));
     } else if ((m = l.match(/^(#{1,4})\s+(.*)$/))) {
       out.push(`<h${m[1].length}>${inline(m[2])}</h${m[1].length}>`); i++;
     } else if (/^\s*([-*_])\1\1+\s*$/.test(l)) {
@@ -98,6 +108,108 @@ function md(src) {
   }
   return out.join('');
 }
+
+/* ============================================================ files + images embedded in answers (ws: links) */
+const WS = { blobs: {}, urls: {}, stats: {} };
+const wsPath = (p) => { try { return decodeURIComponent(p); } catch { return p; } };
+const fmtSize = (n) => (n == null ? '' : n < 1024 ? n + ' B' : n < 1048576 ? Math.round(n / 1024) + ' KB' : (n / 1048576).toFixed(1) + ' MB');
+async function wsBlob(path) {
+  const key = S.cur.id + '|' + path;
+  if (WS.blobs[key]) return WS.blobs[key];
+  const p = fetch(`${S.api}/api/sessions/${S.cur.id}/download?path=${encodeURIComponent(path)}`, { headers: { Authorization: 'Bearer ' + S.token } })
+    .then((r) => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.blob(); }).then((b) => { const u = URL.createObjectURL(b); WS.urls[key] = u; return u; });
+  WS.blobs[key] = p;
+  p.catch(() => { delete WS.blobs[key]; });
+  return p;
+}
+async function wsStat(paths) {
+  const need = paths.filter((p) => !WS.stats[S.cur.id + '|' + p]);
+  if (need.length) {
+    try {
+      const r = await api(`/api/sessions/${S.cur.id}/stat?` + need.map((p) => 'paths=' + encodeURIComponent(p)).join('&'));
+      for (const f of r.files) WS.stats[S.cur.id + '|' + f.path] = f;
+    } catch { /* offline */ }
+  }
+  return paths.map((p) => WS.stats[S.cur.id + '|' + p] || { path: p, exists: false });
+}
+const KIND_IC = { image: '\u25A3', html: '\u25B6', model: '\u25C8', pdf: '\u2630', audio: '\u266A', video: '\u25B7', archive: '\u29C9', sheet: '\u25A6', doc: '\u2630', text: '\u2261', folder: '\u25A4', other: '\u25A2' };
+function fileCardNode(path, label, st) {
+  const card = h('div.ws-card', { 'data-ws': path });
+  const draw = (f) => {
+    card.replaceChildren();
+    if (!f.exists) { card.append(h('div.ws-ico', { text: '?' }), h('div.ws-meta', {}, h('div.ws-name', { text: label || path.split('/').pop() }), h('div.ws-sub', { text: 'file not found' }))); card.classList.add('missing'); return; }
+    const kind = f.kind, btns = h('div.ws-btns');
+    if (kind === 'image') btns.append(h('button', { text: 'View', onclick: () => openLightbox([path], 0) }));
+    if (kind === 'html') btns.append(h('button', { text: 'Preview', onclick: () => openPreview(path) }));
+    if (kind === 'model') btns.append(h('button', { text: 'Open 3D', onclick: () => openModel(path) }));
+    if (kind === 'text' || kind === 'sheet') btns.append(h('button', { text: 'View', onclick: () => fileViewer(path) }));
+    if (kind === 'audio' || kind === 'video') btns.append(h('button', { text: 'Play', onclick: async (e) => { const b = e.currentTarget; b.disabled = true; try { const u = await wsBlob(path); const m = h(kind === 'audio' ? 'audio' : 'video', { src: u, controls: true, playsinline: true }); card.append(m); m.play().catch(() => {}); b.remove(); } catch { toast('Could not load the file', true); b.disabled = false; } } }));
+    btns.append(h('button.dl', { text: kind === 'folder' ? 'Download .zip' : 'Download', onclick: () => downloadPath(path) }));
+    card.append(h('div.ws-ico', { text: KIND_IC[kind] || KIND_IC.other }),
+      h('div.ws-meta', {}, h('div.ws-name', { text: label || f.name }), h('div.ws-sub', { text: kind === 'folder' ? `folder · ${f.count} files` : [f.name !== (label || f.name) ? f.name : '', fmtSize(f.size)].filter(Boolean).join(' · ') })), btns);
+  };
+  if (st) draw(st); else { card.append(h('div.ws-ico', { text: '…' }), h('div.ws-meta', {}, h('div.ws-name', { text: label || path.split('/').pop() }))); wsStat([path]).then(([f]) => draw(f)); }
+  return card;
+}
+async function fileViewer(path) {
+  const pre = h('div.codeview', { text: 'Loading…' });
+  sheet(path.split('/').pop(), pre, h('button.secondary', { text: '\u2B07 Download', onclick: () => downloadPath(path) }));
+  try { const d = await api(`/api/sessions/${S.cur.id}/file?path=${encodeURIComponent(path)}`); pre.textContent = d.binary ? `(binary file, ${d.size} bytes)` : d.text + (d.truncated ? '\n… truncated' : ''); } catch (e) { pre.textContent = e.message; }
+}
+function hydrateWs(root) {
+  if (!S.cur) return;
+  for (const fig of root.querySelectorAll('figure.ws-img')) {
+    const path = wsPath(fig.dataset.ws), key = S.cur.id + '|' + path;
+    const done = (u) => {
+      const img = h('img', { src: u, alt: fig.dataset.label || path, onclick: () => {
+        const group = [...(fig.closest('.ws-gal') || fig).parentNode.querySelectorAll('figure.ws-img')].map((f) => wsPath(f.dataset.ws));
+        openLightbox(group, Math.max(0, group.indexOf(path)));
+      } });
+      const ph = fig.querySelector('.ws-ph'); if (ph) ph.replaceWith(img);
+    };
+    if (WS.urls[key]) done(WS.urls[key]);
+    else wsBlob(path).then(done).catch(() => { const ph = fig.querySelector('.ws-ph'); if (ph) ph.replaceWith(h('div.ws-miss', { text: 'image not found: ' + path })); });
+  }
+  const cards = [...root.querySelectorAll('div.ws-card[data-ws]')];
+  if (cards.length) wsStat(cards.map((c) => wsPath(c.dataset.ws))).then((fs) => cards.forEach((c, i) => c.replaceWith(fileCardNode(wsPath(c.dataset.ws), c.dataset.label, fs[i]))));
+  for (const chip of root.querySelectorAll('a.ws-chip')) {
+    chip.onclick = async () => {
+      const path = wsPath(chip.dataset.ws), [f] = await wsStat([path]);
+      if (!f.exists) { toast('File not found: ' + path, true); return; }
+      if (f.kind === 'image') openLightbox([path], 0);
+      else sheet(chip.dataset.label || f.name, fileCardNode(path, chip.dataset.label, f));
+    };
+  }
+}
+function prose(text, extra = '') {
+  const n = h('div.prose' + extra, { html: md(text) });
+  hydrateWs(n);
+  return n;
+}
+/* lightbox: full-screen image viewer, swipe between images, tap to zoom */
+const LB = { paths: [], i: 0, x0: 0 };
+function openLightbox(paths, i) {
+  LB.paths = paths; LB.i = i;
+  let el = $('#lightbox');
+  if (!el) {
+    el = h('div', { id: 'lightbox' }, h('div.lb-top', {}, h('button.lb-x', { 'aria-label': 'Close', text: '\u2715', onclick: closeLightbox }), h('span.lb-count'), h('button.lb-dl', { text: 'Download', onclick: () => downloadPath(LB.paths[LB.i]) })), h('div.lb-stage', {}, h('img.lb-img', { alt: '' })), h('div.lb-cap'));
+    el.addEventListener('touchstart', (e) => { LB.x0 = e.touches[0].clientX; }, { passive: true });
+    el.addEventListener('touchend', (e) => { const dx = e.changedTouches[0].clientX - LB.x0; if (Math.abs(dx) > 60 && !el.classList.contains('zoom')) lbStep(dx < 0 ? 1 : -1); }, { passive: true });
+    el.querySelector('.lb-img').onclick = () => el.classList.toggle('zoom');
+    document.addEventListener('keydown', (e) => { if ($('#lightbox') && !$('#lightbox').hidden) { if (e.key === 'Escape') closeLightbox(); if (e.key === 'ArrowRight') lbStep(1); if (e.key === 'ArrowLeft') lbStep(-1); } });
+    document.body.append(el);
+  }
+  el.hidden = false; el.classList.remove('zoom'); lbShow();
+}
+function lbStep(d) { const n = LB.paths.length; if (n < 2) return; LB.i = (LB.i + d + n) % n; $('#lightbox').classList.remove('zoom'); lbShow(); }
+async function lbShow() {
+  const el = $('#lightbox'), path = LB.paths[LB.i];
+  el.querySelector('.lb-count').textContent = LB.paths.length > 1 ? `${LB.i + 1} / ${LB.paths.length}` : '';
+  el.querySelector('.lb-cap').textContent = path.split('/').pop();
+  const img = el.querySelector('.lb-img'); img.removeAttribute('src');
+  try { const u = await wsBlob(path); if (LB.paths[LB.i] === path) img.src = u; } catch { toast('Could not load the image', true); }
+}
+function closeLightbox() { const el = $('#lightbox'); if (el) el.hidden = true; }
 
 /* ============================================================ state + api */
 const S = {
@@ -203,6 +315,7 @@ async function loadSessions() {
 }
 async function openSession(id) {
   closeDrawer();
+  if (!S.cur || S.cur.id !== id) { closeBrowser(); BR.alive = 0; brSyncButton(); }
   if (S.abort) S.abort.abort();
   S.streaming = false;
   if (!S.cur || S.cur.id !== id) { $('#empty').hidden = true; msgsEl().replaceChildren(skeleton(3)); }
@@ -214,6 +327,7 @@ async function openSession(id) {
   S.finished = !d.run.running;
   S.subs = d.run.subs || [];
   store.set('cur', id); history.replaceState(null, '', '#chat=' + id);
+  brRefreshAlive();
   renderChat(true);
   renderList();
   if (d.run.running) attach();
@@ -323,7 +437,7 @@ function fillCard(card, call, result, approval) {
   if (result && result._image) body.append(imgNode(result._image, call.id));
   if (result && result._preview) body.append(h('div', { style: 'padding:10px 12px' }, h('button.primary.small', { text: '▶ Open preview', onclick: () => openPreview(result._preview) })));
   if (result && result._model) body.append(h('div', { style: 'padding:10px 12px' }, h('button.primary.small', { text: '◈ Open 3D viewer', onclick: () => openModel(result._model) })));
-  if (result && result._file) body.append(h('div', { style: 'padding:10px 12px' }, h('button.primary.small', { text: '⬇ Download ' + result._file.split('/').pop(), onclick: () => downloadPath(result._file) })));
+  if (result && result._file) body.append(h('div', { style: 'padding:10px 12px' }, fileCardNode(result._file)));
   card.append(body);
   if (approval) {
     const note = h('input', { type: 'text', placeholder: name === 'exit_plan_mode' ? 'What should change? (optional)' : 'Note to the agent if you deny (optional)' });
@@ -361,7 +475,7 @@ function assistantNode(m, idx) {
   const calls = m.tool_calls || [];
   const thought = !m.content && calls.length ? m._reasoning : '';
   if (m._reasoning && !thought) n.append(h('details.reasoning', {}, h('summary', { text: 'Thinking' }), h('div.rtext', { text: m._reasoning })));
-  if (m.content) n.append(h('div.prose', { html: md(m.content) }));
+  if (m.content) n.append(prose(m.content));
   if (calls.length) {
     const tg = h('div.tgrp', {}, h('button.tg-head', { onclick: () => openTG(tg) }), h('div.tg-live'), h('div.tg-pin'));
     tg._cards = [];
@@ -498,7 +612,7 @@ function renderLive() {
     const p = S.partial;
     S.live.replaceChildren();
     if (p.reasoning) S.live.append(h('details.reasoning', { open: !p.text }, h('summary', { text: 'Thinking…' }), h('div.rtext', { text: p.reasoning })));
-    if (p.text) S.live.append(h('div.prose', { html: md(p.text) }));
+    if (p.text) S.live.append(prose(p.text));
     if (!p.text && !p.reasoning) S.live.append(h('div.live-dots', {}, h('i'), h('i'), h('i')));
     if (S.statusEl) msgsEl().append(S.statusEl);
     msgsEl().append(S.live);
@@ -596,6 +710,7 @@ function handle(ev) {
         S.results[m.tool_call_id] = m;
         const card = S.cards[m.tool_call_id];
         if (card) { fillCard(card, card._call, m, null); if (card._tg) refreshTG(card._tg); }
+        if (m._browser) brRefreshAlive();
       } else if (m.role === 'assistant') {
         const n = assistantNode(m);
         if (S.live) msgsEl().insertBefore(n, S.live); else msgsEl().append(n);
@@ -623,7 +738,7 @@ function handle(ev) {
     case 'notice': setStatus(ev.text); break;
     case 'error': toast(ev.text, true, 8000); msgsEl().append(h('div.notice.err', { text: ev.text })); scrollDown(); break;
     case 'reload': reloadCurrent(); break;
-    case 'done': finishRun(); break;
+    case 'done': finishRun(); brRefreshAlive(); break;
     default: break;
   }
 }
@@ -1108,10 +1223,24 @@ function sendPresence() {
   fetch(S.api + '/api/presence', { method: 'POST', headers: { Authorization: 'Bearer ' + S.token, 'Content-Type': 'application/json' }, body: JSON.stringify({ visible: v }), keepalive: true }).catch(() => {});
 }
 
-/* ============================================================ browser screen */
-const BR = { timer: 0, busy: false, info: null, url: '' };
+/* ============================================================ browser: docked split view (+ full screen) */
+const BR = { timer: 0, alive: 0, busy: false, info: null, url: '', poll: 0 };
+const brOpen = () => !$('#browserpage').hidden;
+function brSyncButton() {
+  const b = $('#btn-browser');
+  b.hidden = !(BR.alive || brOpen());
+  b.classList.toggle('on', brOpen());
+  b.classList.toggle('busy', !!(BR.alive && S.run && S.run.running));
+}
+async function brRefreshAlive() {
+  if (!S.cur) { BR.alive = 0; brSyncButton(); return; }
+  const id = S.cur.id;
+  try { const r = await api(`/api/sessions/${id}/browser`); if (S.cur && S.cur.id === id) { BR.info = r.info; BR.alive = r.info ? 1 : 0; } } catch { /* offline */ }
+  if (brOpen() && document.activeElement !== $('#br-url')) $('#br-url').value = BR.info ? BR.info.url : '';
+  brSyncButton();
+}
 async function brFetchShot() {
-  if (BR.busy || !S.cur || $('#browserpage').hidden) return;
+  if (BR.busy || !S.cur || !brOpen()) return;
   BR.busy = true;
   try {
     const r = await fetch(`${S.api}/api/sessions/${S.cur.id}/browser/shot?t=${Date.now()}`, { headers: { Authorization: 'Bearer ' + S.token } });
@@ -1120,37 +1249,47 @@ async function brFetchShot() {
   } catch { /* offline */ }
   BR.busy = false;
 }
-async function brInfo() {
-  try { BR.info = (await api(`/api/sessions/${S.cur.id}/browser`)).info; } catch { BR.info = null; }
-  if (document.activeElement !== $('#br-url')) $('#br-url').value = BR.info ? BR.info.url : '';
-}
 async function brAct(body) {
-  try { const r = await api(`/api/sessions/${S.cur.id}/browser/act`, { body }); BR.info = r.info; if (document.activeElement !== $('#br-url')) $('#br-url').value = r.info ? r.info.url : ''; }
+  try { const r = await api(`/api/sessions/${S.cur.id}/browser/act`, { body }); BR.info = r.info; BR.alive = r.info ? 1 : 0; if (document.activeElement !== $('#br-url')) $('#br-url').value = r.info ? r.info.url : ''; }
   catch (e) { toast(e.message, true); }
-  brFetchShot();
+  brSyncButton(); brFetchShot();
 }
+function brHeight() { const main = $('#main').clientHeight || window.innerHeight; return Math.max(170, Math.min(+store.get('brh', 0) || Math.round(main * 0.44), Math.round(main * 0.72))); }
+function brLayout() { const p = $('#browserpage'); p.style.setProperty('--br-h', brHeight() + 'px'); }
 async function openBrowser() {
   if (!S.cur) { toast('Open a chat first', true); return; }
-  $('#browserpage').hidden = false;
-  $('#br-img').hidden = true; $('#br-empty').hidden = false;
-  await brInfo(); await brFetchShot();
+  const p = $('#browserpage');
+  p.hidden = false; p.classList.add('dock'); p.classList.remove('full'); brLayout();
+  $('#br-full').textContent = '⤢';
+  brSyncButton();
+  await brRefreshAlive(); await brFetchShot();
   clearInterval(BR.timer);
-  BR.timer = setInterval(() => { if (!document.hidden) { brFetchShot(); if (Math.random() < 0.3) brInfo(); } }, 1200);
+  BR.timer = setInterval(() => { if (!document.hidden && brOpen()) { brFetchShot(); if (Math.random() < 0.3) brRefreshAlive(); } }, 1200);
+  if (S.stick) scrollDown(true);
 }
-function closeBrowser() { $('#browserpage').hidden = true; clearInterval(BR.timer); }
+function closeBrowser() { $('#browserpage').hidden = true; $('#browserpage').classList.remove('full'); clearInterval(BR.timer); brSyncButton(); }
+function toggleBrowser() { if (brOpen()) closeBrowser(); else openBrowser(); }
 function initBrowser() {
-  $('#br-back').onclick = closeBrowser;
+  $('#btn-browser').onclick = toggleBrowser;
+  $('#br-back').onclick = () => { if ($('#browserpage').classList.contains('full')) { $('#browserpage').classList.replace('full', 'dock'); $('#br-full').textContent = '⤢'; } else closeBrowser(); };
+  $('#br-full').onclick = () => { const p = $('#browserpage'), full = p.classList.toggle('full'); p.classList.toggle('dock', !full); $('#br-full').textContent = full ? '⤡' : '⤢'; };
   $('#br-form').onsubmit = (e) => { e.preventDefault(); const v = $('#br-url').value.trim(); if (!v) return; $('#br-url').blur(); brAct({ type: 'goto', url: /^[\w-]+(\.[\w-]+)+(\/|$)|:\/\//.test(v) ? v : 'https://duckduckgo.com/?q=' + encodeURIComponent(v) }); };
   $('#br-reload').onclick = () => brAct({ type: 'reload' });
   $('#br-prev').onclick = () => brAct({ type: 'back' });
   $('#br-up').onclick = () => brAct({ type: 'scroll', direction: 'up' });
   $('#br-down').onclick = () => brAct({ type: 'scroll', direction: 'down' });
-  $('#br-close').onclick = async () => { await brAct({ type: 'close' }); $('#br-img').hidden = true; $('#br-empty').hidden = false; };
+  $('#br-close').onclick = async () => { await brAct({ type: 'close' }); BR.alive = 0; $('#br-img').hidden = true; $('#br-empty').hidden = false; closeBrowser(); };
   $('#br-type').onsubmit = (e) => { e.preventDefault(); const t = $('#br-text').value; $('#br-text').value = ''; if (t) brAct({ type: 'type', text: t, submit: true }); else brAct({ type: 'key', key: 'Enter' }); };
   $('#br-img').addEventListener('click', (e) => {
     const r = e.currentTarget.getBoundingClientRect(), w = (BR.info && BR.info.w) || 1000, hh = (BR.info && BR.info.h) || 760;
     brAct({ type: 'click', x: Math.round((e.clientX - r.left) / r.width * w), y: Math.round((e.clientY - r.top) / r.height * hh) });
   });
+  // drag the grip to resize the split
+  const grip = $('#br-grip'); let y0 = 0, h0 = 0, drag = false;
+  grip.addEventListener('pointerdown', (e) => { drag = true; y0 = e.clientY; h0 = $('#browserpage').offsetHeight; grip.setPointerCapture(e.pointerId); });
+  grip.addEventListener('pointermove', (e) => { if (!drag) return; const main = $('#main').clientHeight; const nh = Math.max(170, Math.min(h0 + e.clientY - y0, Math.round(main * 0.72))); $('#browserpage').style.setProperty('--br-h', nh + 'px'); store.set('brh', String(nh)); });
+  const end = () => { drag = false; }; grip.addEventListener('pointerup', end); grip.addEventListener('pointercancel', end);
+  setInterval(() => { if (S.cur && !document.hidden && (S.run.running || BR.alive)) brRefreshAlive(); }, 10000);
 }
 
 /* ============================================================ routines */

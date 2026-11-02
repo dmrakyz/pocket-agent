@@ -44,12 +44,13 @@ def scenario(msgs, model):
         return c[0]["text"] if isinstance(c, list) else (c or "")
 
     real = [i for i, m in enumerate(msgs) if m["role"] == "user" and not text_of(m).startswith("[autopilot]")
-            and not text_of(m).startswith("Your reply was cut off")]
+            and not text_of(m).startswith("Your reply was cut off") and not text_of(m).startswith("[system]")]
     last_user = real[-1]
     prompt = text_of(msgs[last_user])
     after = msgs[last_user + 1:]
     k = sum(1 for m in after if m["role"] == "tool")
     nudges = sum(1 for m in after if m["role"] == "user" and text_of(m).startswith("[autopilot]"))
+    ws_nudges = sum(1 for m in after if m["role"] == "user" and text_of(m).startswith("[system]"))
     last_tool = next((m["content"] for m in reversed(after) if m["role"] == "tool"), "")
     tool_texts = [m["content"] for m in after if m["role"] == "tool"]
 
@@ -115,6 +116,12 @@ def scenario(msgs, model):
         if k == 0:
             return "tools", [tool_call("write", {"path": "auto.txt", "content": "step1\n"})]
         return "text", "partial progress, more to do"
+    if "EMBED" in prompt:
+        if k == 0:
+            return "tools", [tool_call("bash", {"command": "mkdir -p pics && python3 -c \"from PIL import Image; Image.new('RGB',(320,200),'red').save('pics/a.png'); Image.new('RGB',(200,200),'blue').save('pics/b.png')\" && echo hello > report.txt"})]
+        if ws_nudges == 0:
+            return "text", "Here you go.\n\n![Red box](ws:pics/a.png)\n![Blue box](ws:pics/b.png)\n\nThe report: \n\n[Report](ws:report.txt)\n\nand a ghost ![x](ws:ghost.png)"
+        return "text", "Fixed.\n\n![Red box](ws:pics/a.png)\n![Blue box](ws:pics/b.png)\n\n[Report](ws:report.txt)\n\nSee also [the red one](ws:pics/a.png) inline."
     if "SHOWMODEL" in prompt:
         if k == 0:
             return "tools", [tool_call("bash", {"command": "python3 -c \"import trimesh; trimesh.creation.box((10,10,10)).export('cube.stl')\""})]

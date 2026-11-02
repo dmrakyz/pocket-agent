@@ -287,6 +287,18 @@ try:
     check("disabled routine's webhook is refused", httpx.post(B + rt["hook_path"]).status_code == 409)
     check("routine endpoints need login", httpx.Client(base_url=B).get("/api/routines").status_code == 401)
     check("routine delete works", c2.delete(f"/api/routines/{rt['id']}").json()["ok"] and not c2.get("/api/routines").json()["routines"])
+    # embedded files/images in answers
+    es = c2.post("/api/sessions", json={"mode": "yolo"}).json()["id"]
+    evs = run_turn(c2, es, "EMBED please")
+    hist = c2.get(f"/api/sessions/{es}").json()["session"]["messages"]
+    final = [m for m in hist if m["role"] == "assistant" and not m.get("tool_calls")][-1]["content"]
+    check("answer that links a missing file is sent back to fix", any(m["role"] == "user" and (m["content"] if isinstance(m["content"], str) else "").startswith("[system] Your answer links files that do not exist") for m in hist))
+    check("final answer embeds real files only", "ghost.png" not in final and "ws:pics/a.png" in final and "ws:report.txt" in final, final)
+    st = c2.get(f"/api/sessions/{es}/stat", params=[("paths", "pics/a.png"), ("paths", "report.txt"), ("paths", "pics"), ("paths", "nope.png"), ("paths", "../x"), ("paths", ".git/config")]).json()["files"]
+    kinds = {f["path"]: (f.get("kind"), f["exists"]) for f in st}
+    check("stat reports kinds and existence", kinds["pics/a.png"] == ("image", True) and kinds["report.txt"] == ("text", True) and kinds["pics"] == ("folder", True) and kinds["nope.png"][1] is False and kinds["../x"][1] is False and kinds[".git/config"][1] is False, str(kinds))
+    check("stat gives sizes", next(f for f in st if f["path"] == "report.txt")["size"] == 6)
+    check(".git is not downloadable", c2.get(f"/api/sessions/{es}/download", params={"path": ".git/config"}).status_code == 400)
     # live browser view
     import http.server, threading
     class PH(http.server.BaseHTTPRequestHandler):

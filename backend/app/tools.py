@@ -871,7 +871,12 @@ async def t_browser_act(ctx: Ctx, a: dict):
                 raise ToolError(f"unknown action {act!r}")
             return {"text": await b.snapshot(sid), "browser": True}
     except BErr as e:
-        raise ToolError(str(e))
+        # the action may have half-worked (the page often reacts anyway): show the model where things stand
+        try:
+            snap = await b.snapshot(sid)
+        except BErr:
+            snap = ""
+        return {"text": f"Error: {e}" + (f"\n\nCurrent page:\n{snap}" if snap else ""), "error": True, "browser": True}
 
 
 async def t_exit_plan_mode(ctx: Ctx, a: dict):

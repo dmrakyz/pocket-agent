@@ -238,7 +238,13 @@ async def browser_test():
     r = await T.execute(ctx, "browser_act", {"action": "eval", "js": "document.title"}); assert "clicked:shoes" in r["text"], r
     r = await T.execute(ctx, "browser_read", {"action": "scroll", "direction": "down"}); assert "Scroll: " in r["text"] and "Scroll: 0/" not in r["text"], r["text"][:200]
     r = await T.execute(ctx, "browser_read", {"action": "screenshot"}); assert r["image"].startswith("browser/shot-") and (root / r["image"]).read_bytes()[:4] == b"\x89PNG", r
-    r = await T.execute(ctx, "browser_act", {"action": "click", "ref": 999}); assert r["error"] and "snapshot" in r["text"], r
+    r = await T.execute(ctx, "browser_act", {"action": "click", "ref": 999}); assert r["error"] and "Current page" in r["text"] and "Test Shop" in r["text"] or "clicked" in r["text"], r
+    # a transparent overlay (cookie banner / YouTube scrim) blocks real clicks: the DOM fallback must still land
+    r = await T.execute(ctx, "browser_act", {"action": "eval", "js": "(() => { const o = document.createElement('div'); o.style.cssText='position:fixed;inset:0;z-index:99999'; document.body.append(o); document.title='before'; return 1; })()"}); assert not r["error"], r
+    await T.execute(ctx, "browser_read", {"action": "scroll", "direction": "up", "amount": 5000})
+    r = await T.execute(ctx, "browser_read", {"action": "snapshot"})
+    ref_buy2 = next(l for l in r["text"].splitlines() if '"Buy"' in l).split("]")[0][1:]
+    r = await T.execute(ctx, "browser_act", {"action": "click", "ref": int(ref_buy2)}); assert not r["error"] and "clicked:" in r["text"], r["text"][:300]
     r = await T.execute(ctx, "browser_read", {"action": "open", "url": "http://127.0.0.1:9333/two"}); assert "second page" in r["text"]
     r = await T.execute(ctx, "browser_read", {"action": "back"}); assert "Test Shop" in r["text"] or "clicked" in r["text"], r["text"][:200]
     # guard: with the test bypass off, private addresses are refused
