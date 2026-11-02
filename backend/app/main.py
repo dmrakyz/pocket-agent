@@ -22,7 +22,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from starlette.background import BackgroundTask
 
 from .browser import browser, BrowserError
-from . import agent, apps, config, evals, forge, instagram, kv, llm, mcp_server, shortcut, mcp, memory, oauth, perms, push, routines, store, telegram, tools, usage, workspace, world
+from . import agent, app_act, apps, config, evals, forge, instagram, kv, llm, mcp_server, shortcut, mcp, memory, oauth, perms, push, routines, store, telegram, tools, usage, workspace, world
 
 mcp_client = mcp.MCP()
 agent.MCP = mcp_client
@@ -983,6 +983,29 @@ async def app_ask(app_id: str, body: dict):
         raise HTTPException(502, f"the model failed: {str(e)[:160]}")
     usage.record(await llm.default_model(), (r.get("usage") or {}).get("prompt_tokens", 0), (r.get("usage") or {}).get("completion_tokens", 0))
     return {"text": (r["message"].get("content") or "").strip()}
+
+
+@app.post("/api/apps/{app_id}/grant", dependencies=[Depends(auth)])
+async def app_grant(app_id: str, body: dict):
+    _need_app(app_id)
+    return apps.public(await apps.grant(app_id, bool(body.get("allow", True))))
+
+
+@app.post("/api/apps/{app_id}/act", dependencies=[Depends(auth)])
+async def app_act_run(app_id: str, body: dict):
+    """What an app's agent.act() turns into: the real agent does the task (connectors allowed), once the user has allowed this app."""
+    a = _need_app(app_id)
+    if not a.get("granted"):
+        raise HTTPException(403, "NOT_GRANTED")
+    prompt = str(body.get("prompt") or "")[:apps.MAX_ASK_CHARS]
+    if not prompt.strip():
+        raise HTTPException(400, "empty prompt")
+    if not apps.ask_ok(app_id, "act"):
+        raise HTTPException(429, f"this app has used its {apps.ACTS_PER_HOUR} agent actions for the hour")
+    r = await app_act.act(a, prompt)
+    if not r["ok"]:
+        raise HTTPException(502, r["text"][:300])
+    return {"text": r["text"], "chat": r["chat"]}
 
 
 @app.get("/api/apps/{app_id}/data", dependencies=[Depends(auth)])

@@ -1,7 +1,7 @@
 """App drawer: mini-apps the agent builds. Each is ONE self-contained HTML page kept in the state repo (kv), shown on a grid in the PWA.
 
 Apps run in a sandboxed frame with an opaque origin and a CSP that blocks all network, so they can't phone home or touch the app. They get a tiny SDK (window.agent):
-ask(prompt) = one-shot answer from the agent's model, get/set/del/keys = their own saved data. The host page relays those calls; see main.py (/api/apps/...)."""
+ask(prompt) = one-shot answer from the agent's model, act(prompt) = the real agent does something for the app with its connectors (Notion, mail, ...) once the user has allowed it, get/set/del/keys = their own saved data. The host page relays those calls; see main.py (/api/apps/...)."""
 import json
 import re
 import secrets
@@ -14,6 +14,7 @@ MAX_APPS = 40
 MAX_DATA = 100_000
 MAX_ASK_CHARS = 8000
 ASKS_PER_HOUR = 40
+ACTS_PER_HOUR = 20
 _asks: dict[str, list[float]] = {}
 
 CSP = ("sandbox allow-scripts allow-forms allow-modals; default-src 'none'; script-src 'unsafe-inline' 'unsafe-eval'; style-src 'unsafe-inline'; "
@@ -22,7 +23,7 @@ CSP = ("sandbox allow-scripts allow-forms allow-modals; default-src 'none'; scri
 SDK = """<script>(function(){var P={},n=0;function call(t,d){return new Promise(function(res,rej){var id=++n;P[id]={res:res,rej:rej};
 parent.postMessage(Object.assign({__pa:1,id:id,type:t},d||{}),'*');setTimeout(function(){if(P[id]){delete P[id];rej(new Error('timed out'))}},120000)})}
 addEventListener('message',function(e){var m=e.data;if(!m||!m.__pa_r)return;var p=P[m.id];if(!p)return;delete P[m.id];m.error?p.rej(new Error(m.error)):p.res(m.value)});
-window.agent={ask:function(q,o){return call('ask',{prompt:String(q),system:o&&o.system?String(o.system):''})},get:function(k){return call('get',{key:String(k)})},
+window.agent={ask:function(q,o){return call('ask',{prompt:String(q),system:o&&o.system?String(o.system):''})},act:function(q){return call('act',{prompt:String(q)})},get:function(k){return call('get',{key:String(k)})},
 set:function(k,v){return call('set',{key:String(k),value:v})},del:function(k){return call('del',{key:String(k)})},keys:function(){return call('keys')}}})();</script>"""
 
 
@@ -47,7 +48,7 @@ def slug(name: str) -> str:
 
 
 def public(a: dict) -> dict:
-    return {k: a.get(k) for k in ("id", "name", "icon", "description", "created", "updated", "ai", "size")}
+    return {k: a.get(k) for k in ("id", "name", "icon", "description", "created", "updated", "ai", "size", "act", "granted")}
 
 
 def with_sdk(html: str) -> str:
@@ -75,9 +76,11 @@ async def save(spec: dict) -> dict:
         while app_id in d:
             app_id = slug(name) + "-" + secrets.token_hex(2)
     old = d.get(app_id) or {}
+    same = bool(old) and (kv.get("app_" + app_id, {}) or {}).get("html") == html
     d[app_id] = {"id": app_id, "name": name, "icon": (str(spec.get("icon") or old.get("icon") or "▦").strip() or "▦")[:4],
                  "description": str(spec.get("description") or old.get("description") or "")[:200], "created": old.get("created") or int(time.time()),
-                 "updated": int(time.time()), "ai": "agent.ask" in html, "size": len(html)}
+                 "updated": int(time.time()), "ai": "agent.ask" in html or "agent.act" in html, "size": len(html),
+                 "act": "agent.act" in html, "granted": bool(old.get("granted")) and same and "agent.act" in html}   # changed code must be re-approved
     await kv.put("app_" + app_id, {"html": html})
     await kv.put("apps", d)
     return d[app_id]
@@ -106,15 +109,24 @@ async def delete(app_id: str) -> bool:
     return True
 
 
-def ask_ok(app_id: str) -> bool:
-    now = time.time()
-    hits = [t for t in _asks.get(app_id, []) if now - t < 3600]
-    if len(hits) >= ASKS_PER_HOUR:
-        _asks[app_id] = hits
+def ask_ok(app_id: str, kind: str = "ask") -> bool:
+    now, key, cap = time.time(), app_id + ":" + kind, (ACTS_PER_HOUR if kind == "act" else ASKS_PER_HOUR)
+    hits = [t for t in _asks.get(key, []) if now - t < 3600]
+    if len(hits) >= cap:
+        _asks[key] = hits
         return False
     hits.append(now)
-    _asks[app_id] = hits
+    _asks[key] = hits
     return True
+
+
+async def grant(app_id: str, allow: bool) -> dict | None:
+    d = index()
+    if app_id not in d:
+        return None
+    d[app_id]["granted"] = bool(allow)
+    await kv.put("apps", d)
+    return d[app_id]
 
 
 # ---- per-app saved data (small JSON values)

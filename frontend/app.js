@@ -1646,6 +1646,16 @@ async function appBridge(e) {
   const id = AH.id;
   try {
     if (m.type === 'ask') { reply({ value: (await api(`/api/apps/${id}/ask`, { body: { prompt: m.prompt, system: m.system } })).text }); return; }
+    if (m.type === 'act') {
+      const go = () => api(`/api/apps/${id}/act`, { body: { prompt: m.prompt } });
+      let r;
+      try { r = await go(); } catch (er) {
+        if (er.message !== 'NOT_GRANTED') throw er;
+        if (!(await confirmSheet(`Let "${AH.name}" use your agent?`, 'This app wants to ask your agent to do things for it, like saving to Notion with your connectors. Each request runs as a visible chat. It can\'t run commands or change files. You can change your mind by deleting the app.', 'Allow'))) throw new Error('not allowed');
+        await api(`/api/apps/${id}/grant`, { body: { allow: true } }); r = await go();
+      }
+      reply({ value: r.text }); return;
+    }
     if (AH.data === null || AH.dataFor !== id) { AH.data = (await api(`/api/apps/${id}/data`)).data || {}; AH.dataFor = id; }
     if (m.type === 'get') reply({ value: m.key in AH.data ? AH.data[m.key] : null });
     else if (m.type === 'keys') reply({ value: Object.keys(AH.data) });

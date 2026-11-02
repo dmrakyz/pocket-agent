@@ -41,7 +41,7 @@ try:
     r = c.post(f"/api/sessions/{sid}/messages", headers=A, json={"text": "MAKEAPP please"}); assert r.status_code == 200, r.text
     for _ in range(100):
         st = c.get(f"/api/sessions/{sid}", headers=A).json()
-        if not st["run"].get("running") and any(m.get("role") == "assistant" and m.get("content") == "app ready" for m in st["session"]["messages"]): break
+        if not st["run"].get("running") and any(m.get("role") == "assistant" and str(m.get("content")).startswith("App ready") for m in st["session"]["messages"]): break
         time.sleep(0.3)
     msgs = st["session"]["messages"]
     check("the create_app result carries the app id for the chat card", any(m.get("_app") == "tip-calc" for m in msgs), str([m.get("_name") for m in msgs]))
@@ -71,6 +71,32 @@ try:
     check("rename works", r.status_code == 200 and r.json()["name"] == "Tip Master" and r.json()["icon"] == "💸")
     codes = [c.post("/api/apps/tip-calc/ask", headers=A, json={"prompt": f"q{i}"}).status_code for i in range(45)]
     check("AI calls are rate-limited per app", codes.count(429) >= 1 and codes[0] == 200, str(codes))
+    # ---- agent.act: the real agent acts for the app, only after the user allows it
+    sid2 = c.post("/api/sessions", headers=A, json={"mode": "yolo"}).json()["id"]
+    c.post(f"/api/sessions/{sid2}/messages", headers=A, json={"text": "MAKEACT please"})
+    for _ in range(100):
+        if any(a["id"] == "quick-note" for a in c.get("/api/apps", headers=A).json()["apps"]): break
+        time.sleep(0.3)
+    qa = next(a for a in c.get("/api/apps", headers=A).json()["apps"] if a["id"] == "quick-note")
+    check("an app that calls agent.act is flagged and starts ungranted", qa["act"] is True and qa["granted"] is False and qa["ai"] is True, str(qa))
+    r = c.post("/api/apps/quick-note/act", headers=A, json={"prompt": "save this note: hi"})
+    check("act is refused until the user allows it", r.status_code == 403 and "NOT_GRANTED" in r.text, r.text[:200])
+    check("granting needs login", c.post("/api/apps/quick-note/grant", json={"allow": True}).status_code == 401)
+    check("grant works", c.post("/api/apps/quick-note/grant", headers=A, json={"allow": True}).json()["granted"] is True)
+    r = c.post("/api/apps/quick-note/act", headers=A, json={"prompt": "save this note: hi"})
+    check("act runs the real agent and returns its one-line result", r.status_code == 200 and "Saved the note" in r.json()["text"], r.text[:300])
+    ch = [s for s in c.get("/api/sessions", headers=A).json() if s["title"].startswith("▦ Quick Note")]
+    check("each act leaves a visible chat", len(ch) >= 1, str([s["title"] for s in c.get("/api/sessions", headers=A).json()]))
+    r = c.post("/api/apps/quick-note/act", headers=A, json={"prompt": "ACTBASH do it"})
+    check("non-connector actions are refused inside an act", r.status_code == 200 and "refused" in r.json()["text"].lower() and "apps cannot approve" in r.json()["text"], r.text[:300])
+    c.post(f"/api/sessions/{sid2}/messages", headers=A, json={"text": "MAKEACT v2 please"})
+    for _ in range(100):
+        if not c.get(f"/api/sessions/{sid2}", headers=A).json()["run"].get("running") and next(a for a in c.get("/api/apps", headers=A).json()["apps"] if a["id"] == "quick-note")["size"] != qa["size"]: break
+        time.sleep(0.3)
+    qa2 = next(a for a in c.get("/api/apps", headers=A).json()["apps"] if a["id"] == "quick-note")
+    check("changing the app's code takes the permission away", qa2["size"] != qa["size"] and qa2["granted"] is False and c.post("/api/apps/quick-note/act", headers=A, json={"prompt": "x"}).status_code == 403, str(qa2))
+    check("an app without agent.act cannot be granted useful power (act is off for it)", next(a for a in c.get("/api/apps", headers=A).json()["apps"] if a["id"] == "tip-calc")["act"] is False)
+    c.delete("/api/apps/quick-note", headers=A)
     check("delete removes the app, its page and its data", c.delete("/api/apps/tip-calc", headers=A).status_code == 200 and c.get("/api/apps", headers=A).json()["apps"] == [] and c.get(u).status_code == 404)
     check("deleting twice is a 404", c.delete("/api/apps/tip-calc", headers=A).status_code == 404)
 finally:

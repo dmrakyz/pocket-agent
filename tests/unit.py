@@ -695,3 +695,23 @@ async def stop_test():
     assert await agent.force_stop(run2, s2) is False, "already finished: nothing to do"
     print("PASS stop: a run that ignores cancel is cut loose, a polite one is not forced")
 asyncio.run(stop_test())
+
+
+async def act_gate_test():
+    from app import app_act
+
+    class FakeRun:
+        def __init__(self, evs):
+            self.evs, self.approvals = evs, {e["id"]: asyncio.get_running_loop().create_future() for e in evs}
+
+        async def stream(self, _n):
+            for e in self.evs:
+                yield e
+    evs = [{"type": "approval", "id": "a", "tool": "mcp__notion__create_page"}, {"type": "approval", "id": "b", "tool": "bash"},
+           {"type": "approval", "id": "c", "tool": "send_email"}, {"type": "approval", "id": "d", "tool": "forge_tool"}, {"type": "approval", "id": "e", "tool": "write"}]
+    r = FakeRun(evs)
+    await app_act._gate(r)
+    got = {k: v.result()["allow"] for k, v in r.approvals.items()}
+    assert got == {"a": True, "b": False, "c": False, "d": False, "e": False}, got
+    print("PASS app act: only connector tools are allowed, shell/files/email/forging are refused")
+asyncio.run(act_gate_test())

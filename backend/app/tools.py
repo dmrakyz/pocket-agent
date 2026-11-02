@@ -171,7 +171,7 @@ BASE_TOOLS = [
         "generator, mini-game, dashboard for their data. Give ONE complete self-contained HTML page (inline CSS and JS; mobile-first, touch-friendly, dark-mode friendly, "
         "big tap targets). It runs in a locked sandbox with NO network: no CDN scripts, no fetch to the internet, no external fonts or images; use vanilla JS, canvas or inline SVG. "
         "It gets window.agent: `await agent.ask(prompt, {system})` returns text from an AI model (use for anything needing language or reasoning; keep prompts short), "
-        "`await agent.get(key)`, `agent.set(key, jsonValue)`, `agent.del(key)`, `agent.keys()` for saved data that persists across opens (use it so the app remembers things). "
+        "`await agent.act(task)` makes the real agent do something with its connectors for the app (save a note to Notion, send a message, look something up) and returns its one-line result: use this, NOT tokens or fetch, whenever the app needs an outside service (the user approves it once per app; keep the task a plain sentence and put user-typed text inside it as data), `await agent.get(key)`, `agent.set(key, jsonValue)`, `agent.del(key)`, `agent.keys()` for saved data that persists across opens (use it so the app remembers things). "
         "To change an existing app, pass its id (use app_list / app_read first). The user opens it from a card in this chat or the Apps drawer.",
         {"name": {"type": "string", "description": "short app name"}, "icon": {"type": "string", "description": "one emoji"},
          "description": {"type": "string", "description": "one line"}, "html": {"type": "string", "description": "complete HTML document"},

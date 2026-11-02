@@ -136,6 +136,17 @@ def scenario(msgs, model):
         if k == 1:
             return "tools", [tool_call("annotate_image", {"path": "pics/a.png", "ops": [{"type": "rect", "x": 10, "y": 10, "w": 50, "h": 30}]})]
         return "text", "annotated"
+    if "MAKEACT" in prompt:
+        html = ("<!doctype html><html><head><title>Quick</title></head><body><h1>Quick</h1><button id='b' onclick=\"agent.act('save this note: hi').then(function(r){document.title=r})\">save</button></body></html>")
+        if k == 0:
+            return "tools", [tool_call("create_app", {"name": "Quick Note", "icon": "📝", "html": html + ("<!--v2-->" if "v2" in prompt else ""), **({"id": "quick-note"} if "v2" in prompt else {})})]
+        return "text", "made it"
+    if "ACTBASH" in prompt:
+        if k == 0:
+            return "tools", [tool_call("bash", {"command": "echo hi > x.txt"})]
+        return "text", "bash was refused: " + (last_tool or "")[:120]
+    if "save this note" in prompt and "called 'Quick Note'" in prompt:
+        return "text", "Saved the note."
     if "MAKEAPP" in prompt:
         html = ("<!doctype html><html><head><meta name='viewport' content='width=device-width'><title>Tip</title></head><body><h1 id='t'>Tip calc</h1>"
                 "<button id='b' onclick=\"agent.ask('hi').then(function(r){document.getElementById('t').textContent=r})\">ask</button>"
