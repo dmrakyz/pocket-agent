@@ -425,7 +425,7 @@ async function answer(id, body, card) {
 function fillCard(card, call, result, approval) {
   const name = call.function.name;
   const a = parseArgs(call);
-  const dflt = !!(result && (result._file || result._preview || result._model || result._image));
+  const dflt = false;
   const open = approval ? true : card.dataset.open ? card.dataset.open === '1' : dflt;
   card.className = 'tool' + (result && result._error ? ' err' : '') + (approval ? ' ask' : '');
   card.replaceChildren();
