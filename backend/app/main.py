@@ -291,12 +291,10 @@ async def events(sid: str, after: int = 0):
 async def stop(sid: str):
     get_session(sid)
     r = agent.runs.get(sid)
-    if r and r.task and not r.task.done():
-        for f in list(r.approvals.values()):
-            if not f.done():
-                f.set_result({"allow": False, "note": "stopped"})
-        r.task.cancel()
-    return {"ok": True}
+    forced = False
+    if r:
+        forced = await agent.force_stop(r, get_session(sid))
+    return {"ok": True, "forced": forced}
 
 
 @app.post("/api/sessions/{sid}/approve", dependencies=[Depends(auth)])

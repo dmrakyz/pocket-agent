@@ -485,7 +485,8 @@ async def run_turn(s: dict, run: Run):
         ws = await workspace.ensure_workspace(s)
         repair_history(s)
         _autoload_connectors(s)
-        sha = await workspace.commit_all(ws, "checkpoint: before turn")
+        async with _ws_lock(s["id"]):
+            sha = await workspace.commit_all(ws, "checkpoint: before turn")
         for m in reversed(s["messages"]):
             if m.get("role") == "user":
                 m["_checkpoint"] = sha
@@ -596,29 +597,69 @@ async def run_turn(s: dict, run: Run):
     finally:
         s["_running"] = False
         usage.record_run()
-        try:
-            await usage.flush()
-        except Exception:  # noqa: BLE001
-            pass
-        if ws and ws.exists():
-            try:
-                await asyncio.shield(_autosync(s, ws, run))
-            except Exception:  # noqa: BLE001
-                pass
-        store.touch(s)
-        await store.flush_all()
-        run.done = True
-        await run.emit({"type": "done", "status": status})
+        if status == "stopped":
+            # the user is staring at a Stop button: release the UI first, do the slow saving in the background
+            store.touch(s)
+            run.done = True
+            await run.emit({"type": "done", "status": status})
+            asyncio.create_task(_wrapup(s, ws, run))
+        else:
+            await _wrapup(s, ws, run)
+            store.touch(s)
+            run.done = True
+            await run.emit({"type": "done", "status": status})
         if not s.get("_ephemeral") and status in ("done", "error") and time.time() - run.started > 15:
             last = next((m.get("content") or "" for m in reversed(s["messages"]) if m["role"] == "assistant" and m.get("content")), "")
             asyncio.create_task(push.notify(s["title"] if status == "done" else "Run failed", (last or "Finished.").replace("\n", " "), sid=s["id"], tag="done-" + s["id"]))
 
 
+_WS_LOCKS: dict[str, asyncio.Lock] = {}
+
+
+def _ws_lock(sid: str) -> asyncio.Lock:
+    return _WS_LOCKS.setdefault(sid, asyncio.Lock())
+
+
 async def _autosync(s: dict, ws: Path, run: Run):
-    sha = await workspace.commit_all(ws, f"agent: {s['title'][:60]}")
-    msg = await workspace.push(s, ws)
+    async with _ws_lock(s["id"]):
+        sha = await workspace.commit_all(ws, f"agent: {s['title'][:60]}")
+        msg = await workspace.push(s, ws)
     if "failed" in msg:
         await run.emit({"type": "notice", "text": msg})
+
+
+async def _wrapup(s: dict, ws: Optional[Path], run: Run):
+    """Slow cleanup after a run (save state, commit, push). Never lets a hang block anyone."""
+    for coro in (usage.flush(), store.flush_all()):
+        try:
+            await asyncio.wait_for(coro, 10)
+        except Exception:  # noqa: BLE001
+            pass
+    if ws and ws.exists():
+        try:
+            await asyncio.wait_for(asyncio.shield(_autosync(s, ws, run)), 60)
+        except Exception:  # noqa: BLE001
+            pass
+
+
+async def force_stop(run: Run, s: dict, grace: float = 3.0) -> bool:
+    """Cancel a run and make sure the UI is released even if the task ignores the cancel or hangs in cleanup. True if it had to force it."""
+    if not run.task or run.task.done():
+        return False
+    for f in list(run.approvals.values()):
+        if not f.done():
+            f.set_result({"allow": False, "note": "stopped"})
+    run.task.cancel()
+    await asyncio.wait({run.task}, timeout=grace)
+    if run.task.done() and run.done:
+        return False
+    s["_running"] = False
+    if not run.done:
+        run.done = True
+        repair_history(s)
+        await run.emit({"type": "notice", "text": "Stopped (the run was stuck, so it was cut loose)."})
+        await run.emit({"type": "done", "status": "stopped"})
+    return True
 
 
 _IMG_DESC: dict[str, str] = {}

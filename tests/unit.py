@@ -657,3 +657,41 @@ async def forge_test():
     for n in list(forge.all_tools()): await forge.remove(n)
     print("PASS forging: validation, tests gate storage, sandbox limits/env/network, schemas, execution, permissions")
 asyncio.run(forge_test())
+
+
+async def stop_test():
+    """Stop must release the UI even when the run ignores the cancel or hangs while cleaning up."""
+    import time
+    from app import agent, store
+    s = store.new_session("stuck", None, "x", "ask"); s["_running"] = True
+    run = agent.Run(s); agent.runs[s["id"]] = run
+
+    async def stubborn():
+        while True:
+            try:
+                await asyncio.sleep(100)
+            except asyncio.CancelledError:
+                pass          # swallows the cancel, like a tool stuck in a blocking call
+    run.task = asyncio.create_task(stubborn())
+    t0 = time.time()
+    forced = await agent.force_stop(run, s, grace=0.5)
+    assert forced and run.done and s["_running"] is False and time.time() - t0 < 3
+    assert run.events[-1] == {"type": "done", "status": "stopped", "seq": run.events[-1]["seq"]}, run.events[-1]
+    assert any("cut loose" in (e.get("text") or "") for e in run.events)
+    run.task.cancel()
+    # a normal run that cancels cleanly is not "forced"
+    s2 = store.new_session("fine", None, "x", "ask"); s2["_running"] = True
+    run2 = agent.Run(s2)
+
+    async def polite():
+        try:
+            await asyncio.sleep(100)
+        finally:
+            run2.done = True
+            await run2.emit({"type": "done", "status": "stopped"})
+    run2.task = asyncio.create_task(polite())
+    await asyncio.sleep(0)
+    assert await agent.force_stop(run2, s2, grace=2) is False
+    assert await agent.force_stop(run2, s2) is False, "already finished: nothing to do"
+    print("PASS stop: a run that ignores cancel is cut loose, a polite one is not forced")
+asyncio.run(stop_test())
