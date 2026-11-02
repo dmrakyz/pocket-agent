@@ -22,7 +22,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from starlette.background import BackgroundTask
 
 from .browser import browser, BrowserError
-from . import agent, apps, config, evals, forge, instagram, kv, llm, mcp_server, shortcut, mcp, memory, oauth, perms, push, routines, store, telegram, tools, usage, workspace
+from . import agent, apps, config, evals, forge, instagram, kv, llm, mcp_server, shortcut, mcp, memory, oauth, perms, push, routines, store, telegram, tools, usage, workspace, world
 
 mcp_client = mcp.MCP()
 agent.MCP = mcp_client
@@ -35,6 +35,7 @@ async def lifespan(app: FastAPI):
     await kv.init()
     await push.init()
     routines.start_loop()
+    world.start_loop()
     asyncio.create_task(mcp_client.refresh())
     asyncio.create_task(telegram.init())
     asyncio.create_task(instagram.init())
@@ -1089,6 +1090,67 @@ async def shortcut_token():
 async def shortcut_revoke():
     await shortcut.revoke()
     return {"enabled": False}
+
+
+# ------------------------------------------------------------------ world engine
+def _world(wid: str) -> dict:
+    w = world.find(wid)
+    if not w:
+        raise HTTPException(404, "no such world")
+    return w
+
+
+@app.get("/api/worlds", dependencies=[Depends(auth)])
+async def worlds_list():
+    return {"worlds": [world.public(w) for w in world.all_worlds()]}
+
+
+@app.post("/api/worlds", dependencies=[Depends(auth)])
+async def worlds_create(body: dict):
+    try:
+        return world.public(await world.create(body), True)
+    except (ValueError, TypeError) as e:
+        raise HTTPException(400, str(e))
+
+
+@app.get("/api/worlds/{wid}", dependencies=[Depends(auth)])
+async def worlds_get(wid: str):
+    return world.public(_world(wid), True)
+
+
+@app.patch("/api/worlds/{wid}", dependencies=[Depends(auth)])
+async def worlds_update(wid: str, body: dict):
+    ws = world.all_worlds()
+    w = next((x for x in ws if x["id"] == wid), None)
+    if not w:
+        raise HTTPException(404, "no such world")
+    try:
+        world.update(w, body)
+    except (ValueError, TypeError) as e:
+        raise HTTPException(400, str(e))
+    await world.save(ws)
+    return world.public(w, True)
+
+
+@app.delete("/api/worlds/{wid}", dependencies=[Depends(auth)])
+async def worlds_delete(wid: str):
+    await world.save([w for w in world.all_worlds() if w["id"] != wid])
+    return {"ok": True}
+
+
+@app.post("/api/worlds/{wid}/tick", dependencies=[Depends(auth)])
+async def worlds_tick(wid: str):
+    _world(wid)
+    r = await world.tick(wid, "you (run now)")
+    return {**r, "world": world.public(_world(wid), True)}
+
+
+@app.post("/api/worlds/{wid}/say", dependencies=[Depends(auth)])
+async def worlds_say(wid: str, body: dict):
+    _world(wid)
+    if not await world.say(wid, str(body.get("text") or "")):
+        raise HTTPException(400, "say something")
+    return world.public(_world(wid), True)
 
 
 # ------------------------------------------------------------------ agent as an MCP server

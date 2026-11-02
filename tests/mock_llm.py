@@ -1,9 +1,10 @@
 """Fake OpenAI-compatible server that plays scripted tool-calling scenarios. For testing the platform offline."""
 import json
+import re
 import uuid
 
 from fastapi import FastAPI, Request
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 
 app = FastAPI()
 SEEN = {"thinking_param": [], "models": []}
@@ -55,6 +56,13 @@ def scenario(msgs, model):
     tool_texts = [m["content"] for m in after if m["role"] == "tool"]
 
     # ---- sub-agent roles (prompts the main scenarios hand to sub-agents)
+    if "WORLD ENGINE" in sysmsg:
+        names = re.findall(r"^### (.+)$", prompt, re.M)
+        n = len(re.findall(r"^\[.*?\] \S", prompt, re.M))
+        say = "ZAP-INTERJECT" if "Nobody told you" in prompt and "STRANGER" in prompt else "tick"
+        ev = [{"who": nm, "kind": "say" if i == 0 else "do", "text": f"{nm} reacts ({say}, log={n})"} for i, nm in enumerate(names[:2])]
+        mem = {names[0]: f"remembered tick {n}"} if names else {}
+        return "text", "Sure, here is the next beat:\n```json\n" + json.dumps({"events": ev, "memory": mem}) + "\n```"
     if "ECHOTASK" in prompt:
         return "text", f"echo report model={model}"
     if "TOODEEP" in prompt:
@@ -183,6 +191,9 @@ def scenario(msgs, model):
 @app.post("/v1/chat/completions")
 async def chat(req: Request):
     body = await req.json()
+    if body["model"] == "boom":
+        SEEN["models"].append("boom")
+        return JSONResponse({"error": {"message": "nope"}}, status_code=401)
     SEEN["thinking_param"].append(body.get("chat_template_kwargs"))
     SEEN["models"].append(body["model"])
     kind, payload = scenario(body["messages"], body["model"])

@@ -230,8 +230,8 @@ _no_effort: set = set()
 
 
 async def chat(model_ref: str, messages: list[dict], tools: list[dict], on_text, on_reasoning,
-               notify: Notify, thinking=None, max_tokens=None, effort=None):
-    """Streaming chat with retries and one fallback-model attempt. Returns {message, finish_reason, usage}."""
+               notify: Notify, thinking=None, max_tokens=None, effort=None, fallback: bool = True):
+    """Streaming chat with retries and one fallback-model attempt (unless fallback=False: pinned models never get swapped). Returns {message, finish_reason, usage}."""
     prov, model = split_ref(model_ref)
     if (prov, model) in _no_think:
         thinking = None
@@ -267,7 +267,7 @@ async def chat(model_ref: str, messages: list[dict], tools: list[dict], on_text,
             await notify(f"network hiccup ({type(e).__name__}) — retrying in {delays[attempt]}s")
             await asyncio.sleep(delays[attempt])
 
-    fb = await fallback_model()
+    fb = await fallback_model() if fallback else ""
     if fb and fb != model_ref and fb != f"{prov}:{model}":
         await notify(f"{model} keeps failing ({last}). Falling back to {fb} for this step.")
         fprov, fmodel = split_ref(fb)

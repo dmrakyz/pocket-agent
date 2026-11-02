@@ -225,3 +225,13 @@ Ask the agent to build you a little tool ("make me a tip calculator", "a habit t
 Settings → **Agent as MCP server** → make a token. You get an address like `https://your-app.onrender.com/mcp/mcp_…` (the token is in the URL, so it is shown once). Add it as a custom connector in Claude Desktop / claude.ai, `claude mcp add --transport http pocket-agent <address>` in Claude Code, or as a remote server in Cursor.
 
 Tools exposed: `ask_agent(prompt, chat_id?)`, `list_chats`, `read_chat`. Every call becomes a chat called "MCP" you can read in the app; pass the returned `chat_id` back to continue it. Approvals are refused (nobody can tap Allow), the token is separate from your login and revocable, 60 calls an hour. Anyone with the address can spend your model quota, so guard it like a password.
+
+## World engine
+
+Settings → **World engine** → New world. Give it a premise and a cast, one character per line: `Mara: a stubborn ferry captain | wants to keep her route`. Every N minutes (10 or more) one model call plays the next beat for everybody: they act on their own goals, the beat is added to the log, and each character keeps a short memory of what happened. You get a push notification (and a Telegram message if that is paired) when something happens.
+
+- **Step in** any time ("a stranger knocks at the door"); it happens on the next beat and the characters react. **Next beat now** plays one immediately.
+- The model is **pinned** to the world when you create it. If it fails, the beat fails; nothing is swapped for another model, because that would change the characters. Three failures in a row pause the world and tell you why.
+- Editing the cast keeps the memories of everyone who stays.
+- Cost control: at most 48 beats a day per world, one model call per beat, no tools, no browsing.
+- Render free sleeps, so beats only happen while the server is awake. With the cron ping you set up it stays awake.

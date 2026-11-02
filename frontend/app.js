@@ -1705,6 +1705,81 @@ async function openMcpServer() {
   try { draw(await api('/api/mcp-server/status')); } catch (e) { body.replaceChildren(h('div.dim', { style: 'color:var(--bad)', text: e.message })); }
 }
 
+/* ============================================================ world engine */
+async function openWorlds() {
+  const body = h('div', {}, h('div.dim', { text: 'Loading…' }));
+  sheet('World engine', body);
+  const ago = (t) => { const m = Math.round((Date.now() / 1000 - t) / 60); return m < 1 ? 'just now' : m < 60 ? m + ' min ago' : m < 1440 ? Math.round(m / 60) + ' h ago' : Math.round(m / 1440) + ' d ago'; };
+  const draw = async () => {
+    let list;
+    try { list = (await api('/api/worlds')).worlds; } catch (e) { body.replaceChildren(h('div.dim', { style: 'color:var(--bad)', text: e.message })); return; }
+    const kids = [h('div.dim', { style: 'font-size:14px', text: 'Little worlds that keep living while you are away. Give a premise and a cast; every so often the characters act on their own goals, remember what happened, and you get a notification. Step in any time.' })];
+    kids.push(h('button.primary', { text: 'New world', onclick: () => worldForm(null, openWorlds) }));
+    if (!list.length) kids.push(h('div.dim', { style: 'padding:14px 0', text: 'None yet.' }));
+    for (const w of list) {
+      const last = w.log[w.log.length - 1];
+      kids.push(h('div.cnrow', { style: 'cursor:pointer', onclick: () => worldView(w.id, openWorlds) },
+        h('div', { style: 'flex:1;min-width:0' },
+          h('div', { style: 'font-weight:600', text: '🌍 ' + w.name + (w.enabled ? '' : '  · paused') }),
+          h('div.dim', { style: 'font-size:13px', text: `${w.cast.map((c) => c.name).join(', ')} · every ${w.minutes} min · ${w.ticks} beats` }),
+          last ? h('div.dim', { style: 'font-size:13px;margin-top:2px', text: `${last.who}: ${last.text}`.slice(0, 120) }) : null,
+          w.error ? h('div', { style: 'font-size:12.5px;color:var(--bad)', text: w.error.slice(0, 140) }) : null)));
+    }
+    body.replaceChildren(...kids);
+  };
+  draw();
+  async function worldView(id, back) {
+    const box = h('div', {}, h('div.dim', { text: 'Loading…' }));
+    sheet('World', box);
+    const render = (w) => {
+      const log = h('div.worldlog', { style: 'max-height:46vh;overflow:auto;display:flex;flex-direction:column;gap:6px;margin:8px 0' },
+        ...w.log.map((e) => h('div', { style: 'font-size:14px;line-height:1.45' },
+          h('span', { style: 'font-weight:600;color:' + (e.who === 'You' ? 'var(--accent,#7aa2ff)' : 'inherit'), text: e.who + ' ' }),
+          h('span.dim', { style: 'font-size:12px', text: e.kind === 'say' ? 'says' : e.kind === 'think' ? 'thinks' : '' }),
+          h('div', { style: e.kind === 'think' ? 'opacity:.7;font-style:italic' : '', text: e.text }),
+          h('div.dim', { style: 'font-size:11.5px', text: ago(e.t) }))));
+      const inp = h('input', { placeholder: 'Step in: "a stranger knocks at the door"', style: 'flex:1', maxlength: 500 });
+      const send = async () => { const t = inp.value.trim(); if (!t) return; inp.value = ''; try { render(await api(`/api/worlds/${id}/say`, { body: { text: t } })); toast('Will happen on the next beat'); } catch (e) { toast(e.message, true); } };
+      inp.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') send(); });
+      const mem = w.cast.map((c) => h('div.dim', { style: 'font-size:13px' }, h('b', { text: c.name + ': ' }), (c.memory.slice(-3).join(' · ') || 'remembers nothing yet')));
+      box.replaceChildren(
+        h('div', { style: 'font-weight:600;font-size:16px', text: '🌍 ' + w.name }),
+        h('div.dim', { style: 'font-size:13px', text: `${w.premise}\nModel ${w.model} (pinned) · every ${w.minutes} min · ${w.enabled ? 'running' : 'paused'}` }),
+        w.error ? h('div', { style: 'font-size:13px;color:var(--bad)', text: w.error }) : null,
+        log,
+        h('div', { style: 'display:flex;gap:8px' }, inp, h('button.small', { text: 'Send', onclick: send })),
+        w.pending ? h('div.dim', { style: 'font-size:12.5px', text: `${w.pending} waiting for the next beat` }) : null,
+        h('div', { style: 'display:flex;gap:8px;margin-top:10px;flex-wrap:wrap' },
+          h('button.primary', { text: 'Next beat now', onclick: async (e) => { e.currentTarget.disabled = true; e.currentTarget.textContent = 'Playing…'; try { const r = await api(`/api/worlds/${id}/tick`, { body: {} }); if (!r.ok) toast(r.error, true); render(r.world); } catch (er) { toast(er.message, true); } } }),
+          h('button.secondary', { text: w.enabled ? 'Pause' : 'Resume', onclick: async () => { try { render(await api(`/api/worlds/${id}`, { method: 'PATCH', body: { enabled: !w.enabled } })); } catch (er) { toast(er.message, true); } } }),
+          h('button.secondary', { text: 'Edit', onclick: () => worldForm(w, () => worldView(id, back)) }),
+          h('button.secondary', { text: 'Delete', onclick: async () => { if (!(await confirmSheet('Delete this world?', w.name + ' and its whole story will be removed.', 'Delete'))) return; try { await api('/api/worlds/' + id, { method: 'DELETE' }); closeSheet(); back(); } catch (er) { toast(er.message, true); } } })),
+        h('div.dim', { style: 'font-size:13px;font-weight:600;margin-top:12px', text: 'What they remember' }), ...mem);
+      log.scrollTop = log.scrollHeight;
+    };
+    try { render(await api('/api/worlds/' + id)); } catch (e) { box.replaceChildren(h('div.dim', { style: 'color:var(--bad)', text: e.message })); }
+  }
+  function worldForm(w, done) {
+    const f = (ph, v, tag = 'input') => { const el = h(tag, { placeholder: ph, style: 'width:100%;margin:4px 0' }); el.value = v || ''; return el; };
+    const name = f('Name', w && w.name), prem = f('Premise: where and when are we, what is going on?', w && w.premise, 'textarea');
+    const cast = f('Cast, one per line:\nMara: a stubborn ferry captain | wants to keep her route\nOtto: a nervous clerk | wants to leave town', w && w.cast.map((c) => `${c.name}: ${c.persona} | ${c.goal}`).join('\n'), 'textarea');
+    prem.rows = 3; cast.rows = 6;
+    const mins = h('input', { type: 'number', value: w ? w.minutes : 60, min: 10, style: 'width:90px' });
+    const form = h('div', {}, name, prem, cast,
+      h('div', { style: 'display:flex;align-items:center;gap:8px;margin:6px 0' }, h('span.dim', { text: 'A beat every' }), mins, h('span.dim', { text: 'minutes (10 or more)' })),
+      h('div.dim', { style: 'font-size:12.5px', text: w ? 'Editing the cast keeps the memories of anyone who stays.' : 'The current default model gets pinned to this world. If it fails, the world pauses instead of quietly switching to another model.' }),
+      h('button.primary', { text: w ? 'Save' : 'Create', onclick: async (e) => {
+        e.currentTarget.disabled = true;
+        try {
+          const b = { name: name.value, premise: prem.value, cast: cast.value, minutes: Number(mins.value) || 60 };
+          if (w) await api('/api/worlds/' + w.id, { method: 'PATCH', body: b }); else await api('/api/worlds', { body: b });
+          closeSheet(); done();
+        } catch (er) { toast(er.message, true); e.currentTarget.disabled = false; }
+      } }));
+    sheet(w ? 'Edit world' : 'New world', form);
+  }
+}
+
 /* ============================================================ usage */
 async function openUsage() {
   const body = h('div', {}, h('div.dim', { text: 'Loading…' }));
@@ -1810,6 +1885,7 @@ function drawSettings() {
       row('◎', 'Instagram DMs', openInstagram),
       row('⌘', 'Back-tap assistant', openShortcut),
       row('⚒', 'Forged tools', openForge),
+      row('🌍', 'World engine', openWorlds),
       row('⇄', 'Agent as MCP server', openMcpServer),
       row('▤', 'Usage', openUsage),
       row('✓', 'Capability check', openEval),
