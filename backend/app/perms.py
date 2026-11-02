@@ -2,6 +2,7 @@
 import re
 import shlex
 
+from . import forge
 from .tools import EDITS, READONLY
 
 MODES = ("ask", "auto", "plan", "yolo")
@@ -68,6 +69,8 @@ def always_rule(tool: str, args: dict) -> str | None:
         return f"bash:{first}"
     if tool.startswith("mcp__") or tool in EDITS or tool in ("git_sync",):
         return f"tool:{tool}"
+    if tool.startswith(forge.PREFIX):
+        return f"tool:{tool}"
     return None
 
 
@@ -95,6 +98,19 @@ def decide(session: dict, tool: str, args: dict) -> tuple[str, str]:
                 return "deny", why
     if tool == "exit_plan_mode":
         return "ask", "Approve this plan?"
+    if tool == "forge_tool":   # adds a permanent capability that runs code on the server: the user sees the code and approves every time
+        if mode == "plan":
+            return "deny", "Plan mode is read-only. Describe the tool you would forge in your plan instead."
+        return "ask", "Add this tool?"
+    if tool.startswith(forge.PREFIX):
+        meta = forge.get(tool[len(forge.PREFIX):]) or {}
+        if not meta.get("network"):
+            return "allow", ""          # pure computation in a no-network sandbox: safe even in plan mode
+        if mode == "plan":
+            return "deny", "Plan mode is read-only, and this tool uses the network."
+        if mode == "yolo" or matches_rule(session.get("allow", []), tool, args):
+            return "allow", ""
+        return "ask", ""
     if tool == "send_email":   # irreversible and outward-facing: asks every time, even in YOLO or with a saved rule
         if mode == "plan":
             return "deny", "Plan mode is read-only. Draft the email in your plan instead."

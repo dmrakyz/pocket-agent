@@ -598,3 +598,62 @@ def instagram_unit():
     C.INSTAGRAM_APP_SECRET = old
     print("PASS instagram: byte-safe chunking, markdown flattening, signature check")
 instagram_unit()
+
+# tool forging: validation, tested-before-kept, sandbox limits, permissions, schemas, execution
+async def forge_test():
+    import os
+    from app import forge, perms
+    os.environ["APP_PASSWORD"] = "super-secret-pw"
+    for bad, frag in (({"name": "Bad Name"}, "name must"), ({"name": "okname", "description": "short"}, "description"),
+                      ({"name": "okname", "description": "long enough text", "code": "x = 1", "tests": [{}]}, "def run"),
+                      ({"name": "okname", "description": "long enough text", "code": "def run(a:\n", "tests": [{}]}, "syntax error"),
+                      ({"name": "okname", "description": "long enough text", "code": "def run(a): return 1", "parameters": {}}, "tests is required")):
+        try:
+            forge.validate(bad); assert False, bad
+        except forge.ForgeError as e:
+            assert frag in str(e), (frag, str(e))
+    good = {"name": "word_count", "description": "Count words and characters in some text", "parameters": {"text": {"type": "string", "description": "the text"}}, "required": ["text"],
+            "code": "def run(args):\n    print('noise on stdout')\n    t = args['text']\n    return {'words': len(t.split()), 'chars': len(t)}", "tests": [{"args": {"text": "a b c"}, "expect": "\"words\": 3"}]}
+    t = await forge.add(good); assert t["enabled"] and forge.get("word_count"), t
+    try:
+        await forge.add({**good, "name": "broken_one", "tests": [{"args": {"text": "a b"}, "expect": "\"words\": 99"}]}); assert False
+    except forge.ForgeError as e:
+        assert "test 1 failed" in str(e) and "99" in str(e)
+    assert forge.get("broken_one") is None, "a tool whose tests fail must not be kept"
+    try:
+        await forge.add({**good, "name": "crashy", "code": "def run(a):\n    return 1/0", "tests": [{"args": {}}]}); assert False
+    except forge.ForgeError as e:
+        assert "crashed" in str(e) and "ZeroDivisionError" in str(e), str(e)
+    r = await forge.sandbox("import socket\ndef run(a):\n    socket.create_connection(('example.com', 80))", {}, False); assert not r["ok"] and "network" in r["error"], r
+    r = await forge.sandbox("import socket\ndef run(a):\n    return socket.socket.__name__", {}, True); assert r["ok"], r
+    r = await forge.sandbox("import os\ndef run(a):\n    return os.environ.get('APP_PASSWORD', 'absent')", {}, False); assert r["ok"] and r["result"] == "absent", r
+    r = await forge.sandbox("def run(a):\n    while True: pass", {}, False, timeout=2); assert not r["ok"] and ("timed out" in r["error"] or "resource limit" in r["error"]), r
+    r = await forge.sandbox("def run(a):\n    return len(bytearray(2_000_000_000))", {}, False); assert not r["ok"], "memory limit must hold"
+    r = await forge.sandbox("def run(a):\n    return 'x' * 50", {}, False); assert r["ok"] and r["result"] == "x" * 50 and "noise" not in r["result"]
+    ctx = T.Ctx({"id": "fg1"}, Path(tempfile.mkdtemp()), lambda e: asyncio.sleep(0), None, None)
+    names = [x["function"]["name"] for x in T.schemas({})]
+    assert "forged_word_count" in names and "forge_tool" in names, names
+    sch = next(x for x in T.schemas({}) if x["function"]["name"] == "forged_word_count")["function"]
+    assert sch["parameters"]["properties"]["text"]["type"] == "string" and sch["parameters"]["required"] == ["text"] and "[custom tool]" in sch["description"]
+    assert "forged_word_count" not in [x["function"]["name"] for x in T.schemas({}, only={"read"})], "sub-agents must not get forged tools"
+    r = await T.execute(ctx, "forged_word_count", {"text": "one two three four"}); assert not r["error"] and '"words": 4' in r["text"], r
+    assert forge.get("word_count")["uses"] == 1
+    r = await T.execute(ctx, "forge_tool", {**good, "name": "shout", "description": "Upper-case some text loudly", "code": "def run(a):\n    return a['text'].upper() + '!'", "tests": [{"args": {"text": "hi"}, "expect": "HI!"}]})
+    assert not r["error"] and "forged_shout" in r["text"], r
+    r = await T.execute(ctx, "forge_list", {}); assert "forged_shout" in r["text"] and "forged_word_count" in r["text"], r
+    await forge.set_enabled("shout", False)
+    assert "forged_shout" not in [x["function"]["name"] for x in T.schemas({})]
+    r = await T.execute(ctx, "forged_shout", {"text": "x"}); assert r["error"] and "switched off" in r["text"], r
+    for m in ("ask", "auto", "yolo"):
+        assert perms.decide({"mode": m, "allow": ["tool:forge_tool"]}, "forge_tool", {})[0] == "ask", m
+    assert perms.decide({"mode": "plan"}, "forge_tool", {})[0] == "deny"
+    assert perms.decide({"mode": "plan"}, "forged_word_count", {})[0] == "allow", "no-network tools are pure compute"
+    await forge.add({**good, "name": "fetcher", "description": "Fetch something from the internet", "network": True, "code": "def run(a):\n    return 'ok'", "tests": [{"args": {}, "expect": "ok"}]})
+    assert perms.decide({"mode": "ask", "allow": []}, "forged_fetcher", {})[0] == "ask"
+    assert perms.decide({"mode": "yolo", "allow": []}, "forged_fetcher", {})[0] == "allow"
+    assert perms.decide({"mode": "plan", "allow": []}, "forged_fetcher", {})[0] == "deny"
+    assert perms.decide({"mode": "ask", "allow": ["tool:forged_fetcher"]}, "forged_fetcher", {})[0] == "allow"
+    assert await forge.remove("fetcher") and forge.get("fetcher") is None
+    for n in list(forge.all_tools()): await forge.remove(n)
+    print("PASS forging: validation, tests gate storage, sandbox limits/env/network, schemas, execution, permissions")
+asyncio.run(forge_test())

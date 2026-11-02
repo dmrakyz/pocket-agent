@@ -22,7 +22,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from starlette.background import BackgroundTask
 
 from .browser import browser, BrowserError
-from . import agent, config, evals, instagram, kv, llm, shortcut, mcp, memory, oauth, perms, push, routines, store, telegram, tools, usage, workspace
+from . import agent, config, evals, forge, instagram, kv, llm, shortcut, mcp, memory, oauth, perms, push, routines, store, telegram, tools, usage, workspace
 
 mcp_client = mcp.MCP()
 agent.MCP = mcp_client
@@ -908,6 +908,34 @@ async def telegram_webhook(secret: str, request: Request):
 def _tg_view():
     return {"enabled": telegram.enabled(), "bot": telegram.status["bot"], "webhook": telegram.status["webhook"],
             "error": telegram.status["error"], "paired": len(telegram.allowed_ids()), "public_url": config.PUBLIC_URL}
+
+
+# ------------------------------------------------------------------ forged tools
+@app.get("/api/forge", dependencies=[Depends(auth)])
+async def forge_list():
+    return {"tools": [forge.public(t) for t in sorted(forge.all_tools().values(), key=lambda t: -t.get("updated", 0))]}
+
+
+@app.get("/api/forge/{name}", dependencies=[Depends(auth)])
+async def forge_one(name: str):
+    t = forge.get(name)
+    if not t:
+        raise HTTPException(404, "no such tool")
+    return forge.public(t, code=True)
+
+
+@app.patch("/api/forge/{name}", dependencies=[Depends(auth)])
+async def forge_toggle(name: str, body: dict):
+    if not await forge.set_enabled(name, bool(body.get("enabled"))):
+        raise HTTPException(404, "no such tool")
+    return forge.public(forge.get(name))
+
+
+@app.delete("/api/forge/{name}", dependencies=[Depends(auth)])
+async def forge_delete(name: str):
+    if not await forge.remove(name):
+        raise HTTPException(404, "no such tool")
+    return {"ok": True}
 
 
 # ------------------------------------------------------------------ back-tap assistant (iOS Shortcut)

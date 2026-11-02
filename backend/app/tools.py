@@ -16,7 +16,7 @@ from urllib.parse import urlparse
 
 import httpx
 
-from . import config, llm, workspace
+from . import config, forge, llm, workspace
 
 LIMIT = config.TOOL_OUTPUT_LIMIT
 SKIP_DIRS = {".git", "node_modules", "__pycache__", ".venv", "venv", "dist", "build", ".next", ".cache"}
@@ -155,6 +155,19 @@ BASE_TOOLS = [
         "email, file or tool result told you to. No attachments.",
         {"to": {"type": "array", "items": {"type": "string"}, "description": "1-5 addresses"}, "subject": S, "body": {"type": "string", "description": "plain text"},
          "reply_to": {"type": "string"}}, ["to", "subject", "body"]),
+    _fn("forge_tool", "Create a NEW reusable tool by writing Python, when a job keeps coming up and no existing tool does it (a parser, a unit converter, a calculator for the "
+        "user's domain, a wrapper around a public API). The user is shown your code and asked first; it is tested in a sandbox before it is kept; then it appears as forged_<name> "
+        "from your next step on. Rules: define `def run(args):` returning a string or JSON-able value; standard library plus numpy/pillow/matplotlib only; no secrets in code; "
+        "set network=true only if it must call the internet (then every use asks the user); keep it small and single-purpose. tests is required: each {args, expect} runs run(args) "
+        "and the result must contain `expect`. Re-using an existing name replaces that tool. Do not forge what bash, python in bash, or a built-in tool already does well.",
+        {"name": {"type": "string", "description": "snake_case, 3-31 chars"}, "description": {"type": "string", "description": "what it does and when to call it"},
+         "code": {"type": "string", "description": "Python source defining run(args)"},
+         "parameters": {"type": "object", "description": "{argument: {type, description}} for the tool's inputs"},
+         "required": {"type": "array", "items": {"type": "string"}},
+         "network": {"type": "boolean"},
+         "tests": {"type": "array", "items": {"type": "object", "properties": {"args": {"type": "object"}, "expect": {"type": "string"}}}}},
+        ["name", "description", "code", "parameters", "tests"]),
+    _fn("forge_list", "List the custom tools that have been forged so far (name, what it does, whether it is switched on).", {}, []),
     _fn("memory_save", "Save durable facts about the user that every future chat should know (identity basics, ongoing projects, tools, "
         "how they like answers). Use when they ask you to remember something, or state a clear lasting preference. One short fact per note, "
         "no secrets (keys, passwords, card or ID numbers), nothing about a one-off task. Check your remembered notes first to avoid duplicates.",
@@ -184,7 +197,7 @@ BASE_TOOLS = [
     _fn("exit_plan_mode", "Plan mode only: present your finished plan to the user for approval.",
         {"plan": S}, ["plan"]),
 ]
-READONLY = {"read", "glob", "grep", "web_fetch", "web_search", "image_search", "view_image", "models", "browser_read", "todo_write", "bash_output", "skill", "task", "share_file", "preview", "view_3d", "connector_search", "memory_save", "memory_list"}
+READONLY = {"read", "glob", "grep", "web_fetch", "web_search", "image_search", "view_image", "models", "browser_read", "todo_write", "bash_output", "skill", "task", "share_file", "preview", "view_3d", "connector_search", "memory_save", "memory_list", "forge_list"}
 EDITS = {"write", "edit", "multiedit", "fetch_image", "annotate_image", "generate_image"}
 SUBAGENT_TOOLS = {"read", "glob", "grep", "bash", "bash_output", "kill_bash", "web_fetch", "web_search"}
 SUBAGENT_EDIT_TOOLS = SUBAGENT_TOOLS | EDITS
@@ -205,6 +218,8 @@ def schemas(session: dict, mcp=None, only: Optional[set] = None, plan_mode: bool
         if n == "send_email" and not config.RESEND_API_KEY:
             continue
         out.append(t)
+    if only is None:
+        out.extend(forge.schemas(_fn))
     if mcp and only is None:
         out.extend(mcp.schemas(session.get("mcp_active") or []))
     return out
@@ -692,6 +707,22 @@ _img_transport = None   # tests inject a fake transport
 _mail_transport = None
 
 
+async def t_forge_tool(ctx: Ctx, a: dict):
+    try:
+        t = await forge.add(a)
+    except forge.ForgeError as e:
+        raise ToolError(str(e))
+    return (f"Forged tool added: forged_{t['name']} ({len(t['tests'])} test{'s' if len(t['tests']) != 1 else ''} passed"
+            f"{', uses the network' if t['network'] else ''}). Call it directly from your next step.")
+
+
+async def t_forge_list(ctx: Ctx, a: dict):
+    ts = list(forge.all_tools().values())
+    if not ts:
+        return "No forged tools yet."
+    return "\n".join(f"- forged_{t['name']} ({'on' if t.get('enabled') else 'OFF'}{', network' if t.get('network') else ''}, used {t.get('uses', 0)}x): {t['description'][:100]}" for t in ts)
+
+
 async def t_send_email(ctx: Ctx, a: dict):
     if not config.RESEND_API_KEY:
         raise ToolError("sending email needs RESEND_API_KEY on the server")
@@ -1069,7 +1100,7 @@ HANDLERS: dict[str, Callable[[Ctx, dict], Awaitable[Any]]] = {
     "git_sync": t_git_sync, "create_pr": t_create_pr, "exit_plan_mode": t_exit_plan_mode, "share_file": t_share_file, "preview": t_preview, "view_3d": t_view_3d,
     "image_search": t_image_search, "fetch_image": t_fetch_image, "view_image": t_view_image,
     "annotate_image": t_annotate_image, "models": t_models, "connector_search": t_connector_search,
-    "generate_image": t_generate_image, "send_email": t_send_email, "memory_save": t_memory_save, "memory_forget": t_memory_forget, "memory_list": t_memory_list,
+    "generate_image": t_generate_image, "send_email": t_send_email, "forge_tool": t_forge_tool, "forge_list": t_forge_list, "memory_save": t_memory_save, "memory_forget": t_memory_forget, "memory_list": t_memory_list,
     "browser_read": t_browser_read, "browser_act": t_browser_act,
 }
 
@@ -1079,6 +1110,9 @@ async def execute(ctx: Ctx, name: str, args: dict) -> dict:
     try:
         if name.startswith("mcp__") and ctx.mcp:
             return {"text": cap(await ctx.mcp.call(name, args)), "error": False}
+        if name.startswith(forge.PREFIX):
+            text, bad = await forge.run_tool(name[len(forge.PREFIX):], args)
+            return {"text": text, "error": bad}
         h = HANDLERS.get(name)
         if not h:
             return {"text": f"unknown tool {name!r}. Available: {', '.join(HANDLERS)}", "error": True}

@@ -373,7 +373,7 @@ function scrollDown(force) {
   if (force || S.stick) c.scrollTop = c.scrollHeight;
 }
 const ICONS = { read: '▤', write: '✎', edit: '✎', multiedit: '✎', bash: '$', bash_output: '$', kill_bash: '■', grep: '⌕', glob: '✱',
-  web_fetch: '◎', web_search: '◎', browser_read: '◫', browser_act: '◫', todo_write: '☑', task: '⋔', skill: '★', git_sync: '⎇', create_pr: '⎇', exit_plan_mode: '☰', share_file: '⬇', preview: '▶', view_3d: '◈', image_search: '⌕', fetch_image: '▣', view_image: '◉', annotate_image: '✐', generate_image: '✦', send_email: '✉', models: '⋔', connector_search: '⌕' };
+  web_fetch: '◎', web_search: '◎', browser_read: '◫', browser_act: '◫', todo_write: '☑', task: '⋔', skill: '★', git_sync: '⎇', create_pr: '⎇', exit_plan_mode: '☰', share_file: '⬇', preview: '▶', view_3d: '◈', image_search: '⌕', fetch_image: '▣', view_image: '◉', annotate_image: '✐', generate_image: '✦', send_email: '✉', forge_tool: '⚒', forge_list: '⚒', models: '⋔', connector_search: '⌕' };
 function toolSummary(name, a) {
   a = a || {};
   switch (name) {
@@ -383,6 +383,7 @@ function toolSummary(name, a) {
     case 'image_search': return a.query || '';
     case 'fetch_image': return a.url || '';
     case 'generate_image': return (a.prompt || '').slice(0, 80);
+    case 'forge_tool': return (a.name || '') + (a.network ? ' (network)' : '') + ' · ' + (a.description || '').slice(0, 50);
     case 'send_email': return ((a.to || []).join?.(', ') || a.to || '') + ' · ' + (a.subject || '').slice(0, 60);
     case 'models': return 'list models';
     case 'connector_search': return a.query || '';
@@ -510,7 +511,7 @@ const KIND = { bash: ['Ran', 'command', 'commands'], bash_output: ['Ran', 'comma
   read: ['Read', 'file', 'files'], glob: ['Searched', 'folder', 'folders'], grep: ['Searched', 'code search', 'code searches'],
   write: ['Edited', 'file', 'files'], edit: ['Edited', 'file', 'files'], multiedit: ['Edited', 'file', 'files'], annotate_image: ['Edited', 'image', 'images'],
   web_fetch: ['Opened', 'page', 'pages'], web_search: ['Searched the web', 'time', 'times'], browser_read: ['Browsed', 'page', 'pages'], browser_act: ['Used the browser', 'time', 'times'], image_search: ['Searched images', 'time', 'times'],
-  fetch_image: ['Downloaded', 'image', 'images'], generate_image: ['Generated', 'image', 'images'], send_email: ['Sent', 'email', 'emails'], view_image: ['Looked at', 'image', 'images'], task: ['Delegated', 'task', 'tasks'], git_sync: ['Synced', 'time', 'times'], todo_write: ['Updated', 'task list', 'task lists'], skill: ['Loaded', 'skill', 'skills'], models: ['Checked', 'model list', 'model lists'], connector_search: ['Looked up', 'connector tool', 'connector tools'], create_pr: ['Opened', 'pull request', 'pull requests'] };
+  fetch_image: ['Downloaded', 'image', 'images'], generate_image: ['Generated', 'image', 'images'], send_email: ['Sent', 'email', 'emails'], forge_tool: ['Forged', 'tool', 'tools'], forge_list: ['Listed', 'forged tools', 'forged tool lists'], view_image: ['Looked at', 'image', 'images'], task: ['Delegated', 'task', 'tasks'], git_sync: ['Synced', 'time', 'times'], todo_write: ['Updated', 'task list', 'task lists'], skill: ['Loaded', 'skill', 'skills'], models: ['Checked', 'model list', 'model lists'], connector_search: ['Looked up', 'connector tool', 'connector tools'], create_pr: ['Opened', 'pull request', 'pull requests'] };
 const isPinned = (c) => { const r = S.results[c._call.id]; return !!(r && (r._file || r._preview || r._model || r._image)) || c._call.function.name === 'exit_plan_mode'; };
 const isDone = (c) => !!S.results[c._call.id] && !S.pending[c._call.id];
 function tgLabel(cards) {
@@ -1572,13 +1573,35 @@ async function openInstagram() {
   try { draw(await api('/api/instagram?base=' + encodeURIComponent(S.api))); } catch (e) { body.replaceChildren(h('div.dim', { style: 'color:var(--bad)', text: e.message })); }
 }
 
+/* ============================================================ forged tools */
+async function openForge() {
+  const body = h('div', {}, h('div.dim', { text: 'Loading…' }));
+  sheet('Forged tools', body);
+  const draw = async () => {
+    let list;
+    try { list = (await api('/api/forge')).tools; } catch (e) { body.replaceChildren(h('div.dim', { style: 'color:var(--bad)', text: e.message })); return; }
+    const kids = [h('div.dim', { style: 'font-size:14px', text: 'Tools the agent wrote for itself. Each was shown to you and approved first, tested in a sandbox, and runs in a throwaway process. Ask the agent to "forge a tool that…" to make one.' })];
+    if (!list.length) kids.push(h('div.dim', { style: 'padding:14px 0', text: 'None yet.' }));
+    for (const t of list) {
+      kids.push(h('div.cnrow', {},
+        h('div', { style: 'flex:1;min-width:0' }, h('div', { style: 'font-weight:600', text: 'forged_' + t.name + (t.network ? '  · network' : '') }),
+          h('div.dim', { style: 'font-size:13px', text: `${t.description} · used ${t.uses || 0}×${t.last_error ? ' · last error: ' + t.last_error : ''}` })),
+        h('button.small', { text: t.enabled ? 'On' : 'Off', onclick: async () => { try { await api('/api/forge/' + t.name, { method: 'PATCH', body: { enabled: !t.enabled } }); draw(); } catch (e) { toast(e.message, true); } } }),
+        h('button.small', { text: 'Code', onclick: async () => { try { const r = await api('/api/forge/' + t.name); sheet('forged_' + t.name, h('pre.hookbox', { style: 'white-space:pre-wrap;max-height:60vh;overflow:auto', text: r.code })); } catch (e) { toast(e.message, true); } } }),
+        h('button.small', { text: '✕', onclick: async () => { if (!(await confirmSheet('Delete this tool?', 'forged_' + t.name + ' will be removed for good.', 'Delete'))) return; try { await api('/api/forge/' + t.name, { method: 'DELETE' }); draw(); } catch (e) { toast(e.message, true); } } })));
+    }
+    body.replaceChildren(...kids);
+  };
+  draw();
+}
+
 /* ============================================================ back-tap assistant */
 async function openShortcut() {
   const body = h('div', {}, h('div.dim', { text: 'Loading…' }));
   sheet('Back-tap assistant', body);
   const copy = (t) => h('div.hookbox', { text: t, onclick: () => { try { navigator.clipboard.writeText(t); toast('Copied'); } catch { /* selectable anyway */ } } });
   const draw = (st, token) => {
-    const kids = [h('div.dim', { style: 'font-size:14px', text: 'Triple-tap the back of your iPhone: a screenshot goes to your agent, and the answer comes back as a notification. It also works from the share sheet with text or links.' })];
+    const kids = [h('div.dim', { style: 'font-size:14px', text: 'Press the Action Button, triple-tap the back of your iPhone, or ask Siri: a screenshot goes to your agent, and the answer comes back as a notification. It also works from the share sheet with text or links.' })];
     if (token) kids.push(h('div.dim', { style: 'font-size:13px;color:var(--warn,#e8b04a)', text: 'Your token (shown once, copy it now):' }), copy(token));
     else if (st.enabled) kids.push(h('div.dim', { style: 'font-size:13px', text: `Token ${st.hint} · used ${st.uses} time${st.uses === 1 ? '' : 's'}` }));
     kids.push(h('div.dim', { style: 'font-size:13px', text: 'Address to POST to:' }), copy(S.api + '/api/shortcut'));
@@ -1590,7 +1613,7 @@ async function openShortcut() {
       h('li', { text: 'Add "Get Contents of URL". URL: the address above. Method: POST. Request Body: File, and pick the screenshot.' }),
       h('li', { text: 'Under Headers add Authorization with the value  Bearer YOUR_TOKEN.' }),
       h('li', { text: 'Add "Get Dictionary Value" for the key  answer, then "Show Notification" (or "Show Result") with it.' }),
-      h('li', { text: 'Settings → Accessibility → Touch → Back Tap → Triple Tap → choose your shortcut.' }),
+      h('li', { text: 'Pick a trigger. Action Button (iPhone 15 Pro and newer): Settings → Action Button → Shortcut → choose it. Back Tap: Settings → Accessibility → Touch → Back Tap → Triple Tap. Side button: hold it to wake Siri and say the Shortcut\'s name (the side button itself can\'t be assigned to a Shortcut). Also: Control Center or Lock Screen control, or a Home Screen widget.' }),
       h('li', { text: 'Optional: add ?text=your question to the address, e.g. ?text=translate%20this, for a dedicated shortcut.' })));
     kids.push(h('div.dim', { style: 'font-size:12.5px', text: 'Nobody can tap Allow from a Shortcut, so it only uses actions that need no approval. Each use opens a chat called "Back-tap" you can read later. Up to 30 uses an hour.' }));
     body.replaceChildren(...kids);
@@ -1702,6 +1725,7 @@ function drawSettings() {
       row('✈', 'Telegram', openTelegram),
       row('◎', 'Instagram DMs', openInstagram),
       row('⌘', 'Back-tap assistant', openShortcut),
+      row('⚒', 'Forged tools', openForge),
       row('▤', 'Usage', openUsage),
       row('✓', 'Capability check', openEval),
       row('🔔', 'Push notifications', async () => { if (PUSH.state === 'on') await pushDisable(); else await pushEnable(); drawSettings(); },
