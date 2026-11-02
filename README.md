@@ -156,3 +156,6 @@ Settings → Usage shows tokens (in/out), runs and model calls per day for the l
 
 ### Office files, PDFs and charts
 `backend/skills/` ships built-in skills the agent can load with the `skill` tool: **office-docs** (Word, Excel, PowerPoint via python-docx, openpyxl, python-pptx) and **pdf-and-charts** (reportlab, matplotlib). They are listed in every chat's instructions; a skill with the same name in your workspace (`.agent/skills/`) overrides them. The test suite runs every recipe in them, so the examples are known to work.
+
+### Image generation
+`generate_image` calls NVIDIA's hosted text-to-image endpoint (default `black-forest-labs/flux.1-schnell`, 4 steps; square, wide or tall) with your existing `NVIDIA_API_KEY`, saves the result in the workspace and shows it in the chat. Override with `IMAGE_MODEL` / `IMAGE_BASE_URL`. If the key has no access to the model, the tool says so plainly. Verified against NVIDIA's docs and fake servers only; not yet against the live endpoint.

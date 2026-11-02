@@ -276,6 +276,39 @@ async def memory_test():
     print("PASS memory: notes, secrets refused, prompt, tools, import parsing, distill")
 asyncio.run(memory_test())
 
+# image generation: fake NVIDIA endpoint, request shape, response parsing, errors
+async def genimg_test():
+    import base64, io, json as _json
+    from PIL import Image
+    from app import config as C
+    buf = io.BytesIO(); Image.new("RGB", (64, 48), "teal").save(buf, "JPEG"); good = base64.b64encode(buf.getvalue()).decode()
+    seen = {}
+    mode = {"v": "ok"}
+    def handler(req: httpx.Request):
+        seen["url"] = str(req.url); seen["auth"] = req.headers.get("authorization"); seen["body"] = _json.loads(req.content)
+        if mode["v"] == "ok": return httpx.Response(200, json={"artifacts": [{"base64": good, "finishReason": "SUCCESS", "seed": 0}]})
+        if mode["v"] == "openai": return httpx.Response(200, json={"data": [{"b64_json": good}]})
+        if mode["v"] == "blocked": return httpx.Response(200, json={"artifacts": [{"base64": "", "finishReason": "CONTENT_FILTERED"}]})
+        return httpx.Response(int(mode["v"]), text="x")
+    T._img_transport = httpx.MockTransport(handler)
+    old_prov = C.providers; C.providers = lambda: {"nvidia": {"api_key": "nvapi-test"}}
+    try:
+        root = Path(tempfile.mkdtemp()); ctx = T.Ctx({"id": "gi1"}, root, lambda e: asyncio.sleep(0), None, None)
+        r = await T.execute(ctx, "generate_image", {"prompt": "A red fox in the snow, golden hour", "shape": "wide", "seed": 7})
+        assert not r["error"] and r["image"].startswith("images/a-red-fox") and (root / r["image"]).stat().st_size > 100, r
+        assert seen["url"].endswith("/black-forest-labs/flux.1-schnell") and seen["auth"] == "Bearer nvapi-test" and seen["body"]["width"] == 1344 and seen["body"]["height"] == 768 and seen["body"]["seed"] == 7 and seen["body"]["steps"] == 4, seen
+        mode["v"] = "openai"; r = await T.execute(ctx, "generate_image", {"prompt": "a cat", "path": "pics/cat"}); assert not r["error"] and r["image"] == "pics/cat.jpg", r
+        mode["v"] = "blocked"; r = await T.execute(ctx, "generate_image", {"prompt": "something"}); assert r["error"] and "not with a usable image" in r["text"], r
+        for code, frag in (("403", "key may not have access"), ("404", "was not found"), ("503", "try again")):
+            mode["v"] = code; r = await T.execute(ctx, "generate_image", {"prompt": "something"}); assert r["error"] and frag in r["text"], (code, r)
+        r = await T.execute(ctx, "generate_image", {"prompt": "hi", "path": "../../etc/x"}); assert r["error"], r
+        C.providers = lambda: {}
+        r = await T.execute(ctx, "generate_image", {"prompt": "a cat"}); assert r["error"] and "NVIDIA_API_KEY" in r["text"], r
+    finally:
+        C.providers = old_prov; T._img_transport = None
+    print("PASS image generation: request shape, both response formats, errors")
+asyncio.run(genimg_test())
+
 # built-in skills: listed for every workspace, and every recipe in them actually runs
 def skills_test():
     import subprocess, re as _re, sys

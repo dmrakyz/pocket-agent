@@ -144,6 +144,12 @@ BASE_TOOLS = [
         "Returns the best matches and activates them, so you can call them on your very next step.",
         {"query": {"type": "string", "description": "what you want to do, or a connector name"},
          "limit": {"type": "integer", "description": "max tools to activate (default 10, max 15)"}}, ["query"]),
+    _fn("generate_image", "Create a new picture from a text description (AI image model). Saves it in the workspace and shows it in the chat; "
+        "then place it in your answer with ![caption](ws:path). Describe subject, style, lighting and composition. Not for editing an existing image "
+        "(use annotate_image) and not for charts or text-heavy graphics (use matplotlib).",
+        {"prompt": {"type": "string"}, "shape": {"type": "string", "enum": ["square", "wide", "tall"], "description": "default square"},
+         "seed": {"type": "integer", "description": "same prompt + seed repeats the result"}, "path": {"type": "string", "description": "where to save, default images/<words>.jpg"}},
+        ["prompt"]),
     _fn("memory_save", "Save durable facts about the user that every future chat should know (identity basics, ongoing projects, tools, "
         "how they like answers). Use when they ask you to remember something, or state a clear lasting preference. One short fact per note, "
         "no secrets (keys, passwords, card or ID numbers), nothing about a one-off task. Check your remembered notes first to avoid duplicates.",
@@ -174,7 +180,7 @@ BASE_TOOLS = [
         {"plan": S}, ["plan"]),
 ]
 READONLY = {"read", "glob", "grep", "web_fetch", "web_search", "image_search", "view_image", "models", "browser_read", "todo_write", "bash_output", "skill", "task", "share_file", "preview", "view_3d", "connector_search", "memory_save", "memory_list"}
-EDITS = {"write", "edit", "multiedit", "fetch_image", "annotate_image"}
+EDITS = {"write", "edit", "multiedit", "fetch_image", "annotate_image", "generate_image"}
 SUBAGENT_TOOLS = {"read", "glob", "grep", "bash", "bash_output", "kill_bash", "web_fetch", "web_search"}
 SUBAGENT_EDIT_TOOLS = SUBAGENT_TOOLS | EDITS
 
@@ -664,6 +670,48 @@ async def t_fetch_image(ctx: Ctx, a: dict):
 
 
 _img_transport = None   # tests inject a fake transport
+_SHAPES = {"square": (1024, 1024), "wide": (1344, 768), "tall": (768, 1344)}
+
+
+async def t_generate_image(ctx: Ctx, a: dict):
+    import base64
+    import io
+    from PIL import Image
+    prov = config.providers().get("nvidia")
+    if not prov:
+        raise ToolError("image generation needs NVIDIA_API_KEY on the server")
+    prompt = str(a.get("prompt") or "").strip()
+    if len(prompt) < 3:
+        raise ToolError("prompt is required")
+    w, h = _SHAPES.get(a.get("shape") or "square", _SHAPES["square"])
+    body = {"prompt": prompt[:1500], "width": w, "height": h, "steps": 4, "seed": int(a.get("seed") or 0)}
+    url = f"{config.IMAGE_BASE_URL.rstrip('/')}/{config.IMAGE_MODEL}"
+    async with httpx.AsyncClient(timeout=120, transport=_img_transport) as c:
+        r = await c.post(url, json=body, headers={"Authorization": "Bearer " + prov["api_key"], "Accept": "application/json"})
+    if r.status_code in (401, 403):
+        raise ToolError(f"NVIDIA refused the request (HTTP {r.status_code}). The key may not have access to {config.IMAGE_MODEL}; set IMAGE_MODEL to another image model.")
+    if r.status_code == 404:
+        raise ToolError(f"image model {config.IMAGE_MODEL!r} was not found at {config.IMAGE_BASE_URL}. Set IMAGE_MODEL on the server.")
+    if r.status_code in (422, 400):
+        raise ToolError(f"the image model rejected the request: {r.text[:200]}")
+    if r.status_code >= 400:
+        raise ToolError(f"image service error HTTP {r.status_code}; try again in a moment")
+    try:
+        j = r.json()
+        b64 = ((j.get("artifacts") or [{}])[0].get("base64") or (j.get("data") or [{}])[0].get("b64_json") or j.get("image") or "")
+        raw = base64.b64decode(b64)
+        im = Image.open(io.BytesIO(raw)); im.load()
+    except Exception:  # noqa: BLE001
+        raise ToolError("the image service answered, but not with a usable image (it may have blocked the prompt). Try rewording it.")
+    ext = "png" if (im.format or "").upper() == "PNG" else "jpg"
+    slug = re.sub(r"[^a-z0-9]+", "-", prompt.lower()).strip("-")[:40] or "image"
+    name = a.get("path") or f"images/{slug}.{ext}"
+    if not name.lower().endswith((".png", ".jpg", ".jpeg", ".webp")):
+        name += "." + ext
+    p = ctx.resolve(name)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_bytes(raw)
+    return {"text": f"saved {ctx.rel(p)} ({im.size[0]}x{im.size[1]}, {len(raw) // 1024} KB, AI-generated)", "image": ctx.rel(p)}
 
 
 def _vision_ready(img_path: Path, max_side: int = 1280) -> str:
@@ -963,7 +1011,7 @@ HANDLERS: dict[str, Callable[[Ctx, dict], Awaitable[Any]]] = {
     "git_sync": t_git_sync, "create_pr": t_create_pr, "exit_plan_mode": t_exit_plan_mode, "share_file": t_share_file, "preview": t_preview, "view_3d": t_view_3d,
     "image_search": t_image_search, "fetch_image": t_fetch_image, "view_image": t_view_image,
     "annotate_image": t_annotate_image, "models": t_models, "connector_search": t_connector_search,
-    "memory_save": t_memory_save, "memory_forget": t_memory_forget, "memory_list": t_memory_list,
+    "generate_image": t_generate_image, "memory_save": t_memory_save, "memory_forget": t_memory_forget, "memory_list": t_memory_list,
     "browser_read": t_browser_read, "browser_act": t_browser_act,
 }
 
