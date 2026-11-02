@@ -101,14 +101,14 @@ def _answer(s: dict, run) -> str:
     return (last if isinstance(last, str) else "").strip() or (("Error: " + err) if err else "No answer.")
 
 
-async def _deny_approvals(run, s: dict):
+async def _deny_approvals(run, s: dict, via: str = "a Shortcut"):
     """Nobody can tap Allow from a Shortcut: refuse approvals so the run carries on instead of hanging."""
     try:
         async for ev in run.stream(0):
             if ev.get("type") == "approval":
                 fut = run.approvals.get(ev["id"])
                 if fut and not fut.done():
-                    fut.set_result({"allow": False, "always": False, "note": "no one is available to approve this (sent from a Shortcut)", "mode": None})
+                    fut.set_result({"allow": False, "always": False, "note": f"no one is available to approve this (sent from {via})", "mode": None})
     except asyncio.CancelledError:
         raise
     except Exception:  # noqa: BLE001

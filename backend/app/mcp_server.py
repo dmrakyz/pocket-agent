@@ -102,7 +102,7 @@ async def call(name: str, a: dict) -> dict:
     if name == "list_chats":
         n = max(1, min(30, int(a.get("limit") or 10)))
         rows = sorted(store.sessions.values(), key=lambda s: -s.get("updated", 0))[:n]
-        return _text("\n".join(f"{s['id']}  {time.strftime('%Y-%m-%d %H:%M', time.localtime(s.get('updated', 0)))}  {s.get('title', '')}" for s in rows) or "No chats yet.")
+        return _text("\n".join(f"{s['id']}  {time.strftime('%Y-%m-%d %H:%M UTC', time.gmtime(s.get('updated', 0)))}  [{s.get('model', '')}]  {s.get('title', '')}" for s in rows) or "No chats yet.")
     if name == "read_chat":
         s = store.sessions.get(str(a.get("chat_id") or ""))
         if not s:
@@ -128,7 +128,7 @@ async def call(name: str, a: dict) -> dict:
             s = store.new_session("⇄ MCP · " + time.strftime("%H:%M"), None, await llm.default_model(), "ask")
             s["_titled"] = True
         run = agent.start(s, (STYLE if not cid else "") + prompt, [])
-        waiter = asyncio.create_task(shortcut._deny_approvals(run, s))
+        waiter = asyncio.create_task(shortcut._deny_approvals(run, s, "another app over MCP"))
         try:
             await asyncio.wait_for(asyncio.shield(run.task), WAIT_SECONDS)
         except asyncio.TimeoutError:

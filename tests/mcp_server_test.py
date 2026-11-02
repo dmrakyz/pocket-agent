@@ -70,7 +70,7 @@ try:
     r = rpc(P, "tools/call", {"name": "read_chat", "arguments": {"chat_id": cid}}).json()["result"]["content"][0]["text"]
     check("read_chat shows both turns", "hello over mcp" in r and "and again" in r, r[:300])
     r = rpc(P, "tools/call", {"name": "list_chats", "arguments": {}}).json()["result"]["content"][0]["text"]
-    check("list_chats lists it with an MCP title", cid in r and "MCP" in r, r[:300])
+    check("list_chats lists it with an MCP title and the model", cid in r and "MCP" in r and "[mock:" in r, r[:300])
     r = rpc(P, "tools/call", {"name": "ask_agent", "arguments": {"prompt": "x", "chat_id": "zzz"}}).json()["result"]
     check("unknown chat is a tool error, not a crash", r["isError"] is True)
     r = rpc(P, "tools/call", {"name": "ask_agent", "arguments": {"prompt": "EMBED please"}}).json()["result"]
