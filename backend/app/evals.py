@@ -90,6 +90,17 @@ def _last_activity(s: dict) -> str:
     return "starting"
 
 
+async def seed_workspace(s: dict, files: dict):
+    """Create the git workspace FIRST, then drop the starting files in. (Seeding before the repo exists
+    made ensure_workspace wipe the folder, so the model saw an empty workspace.)"""
+    root = await workspace.ensure_workspace(s)
+    for name, body in files.items():
+        f = root / name
+        f.parent.mkdir(parents=True, exist_ok=True)
+        f.write_text(body)
+    return root
+
+
 async def run_eval(eval_id: str, model: str):
     ev = EVALS[eval_id]
     for idx, t in enumerate(TASKS):
@@ -98,12 +109,7 @@ async def run_eval(eval_id: str, model: str):
         sid = "eval-" + uuid.uuid4().hex[:8]
         s = {"id": sid, "title": t["name"], "model": model, "mode": "yolo", "thinking": True, "repo": None,
              "messages": [], "todos": [], "allow": [], "usage": {"in": 0, "out": 0}, "_ephemeral": True}
-        root = workspace.ws_path(sid)
-        root.mkdir(parents=True, exist_ok=True)
-        for name, body in t["files"].items():
-            f = root / name
-            f.parent.mkdir(parents=True, exist_ok=True)
-            f.write_text(body)
+        root = await seed_workspace(s, t["files"])
         started = time.time()
         res = {"name": t["name"], "passed": False, "note": "", "steps": 0}
         ev["live"] = {"index": idx, "started": started, "steps": 0, "last": "starting"}

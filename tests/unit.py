@@ -1,6 +1,7 @@
 import asyncio, os, sys, time
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "backend"))
 os.environ["APP_PASSWORD"] = "x"
+os.environ["DATA_DIR"] = "/tmp/agent-unit"
 from app import llm, perms
 
 async def main():
@@ -27,3 +28,18 @@ assert perms.decide({"mode": "yolo", "allow": []}, "bash", {"command": "rm -rf ~
 assert perms.decide(s, "write", {})[0] == "ask" and perms.decide({"mode": "auto", "allow": []}, "write", {})[0] == "allow"
 assert perms.always_rule("bash", {"command": "rm x"}) is None and perms.always_rule("bash", {"command": "npm test"}) == "bash:npm"
 print("PASS permission rules")
+
+# eval seeding: starting files must still be there when the agent's workspace is ensured (regression: they were wiped)
+from app import evals, workspace
+async def seed_test():
+    sid = "eval-unit"
+    sess = {"id": sid, "_ephemeral": True, "repo": None}
+    for t in evals.TASKS:
+        workspace.drop_workspace(sid)
+        await evals.seed_workspace(sess, t["files"])
+        root = await workspace.ensure_workspace(sess)     # what agent.start does next
+        for name in t["files"]:
+            assert (root / name).exists(), f"{t['name']}: {name} was wiped"
+    workspace.drop_workspace(sid)
+    print("PASS eval seed files survive workspace setup")
+asyncio.run(seed_test())
