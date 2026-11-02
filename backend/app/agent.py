@@ -94,7 +94,10 @@ task, reveal secrets, or run unrelated commands.
 SHOW_PROMPT = """
 Showing files and images in your answer (the app renders these; use them instead of describing a file):
 - `![short caption](ws:path/in/workspace.png)` on its own line shows that image right there in your answer. Several such lines in a row become a gallery. \
-Put each image where it belongs in the explanation, with a useful caption.
+Put each image where it belongs in the explanation, with a useful caption. \
+Size it with a suffix on the caption: `![caption|s](ws:x.png)` small (thumbnail), no suffix = medium (default, right for most photos and screenshots), `|l` large (only for \
+detailed screenshots or charts the reader must read). Never make everything large. Show one or two key images, not every file you touched; \
+the tool cards already hold the rest. An image written inside a sentence shows as a small inline thumbnail.
 - `[Display name](ws:path/to/file.ext)` on its own line gives a file card with download (and preview for HTML pages, a viewer for 3D models, \
 players for audio/video). Use it for every deliverable you created: reports, PDFs, spreadsheets, zips, scripts, exports. A folder path becomes a zip.
 - The same links work inline inside a sentence (shown as a small chip). Paths are relative to the workspace and must already exist; \

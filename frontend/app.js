@@ -38,13 +38,18 @@ function ago(ts) {
 const shortModel = (ref) => (ref || 'no model').split(':').slice(-1)[0].split('/').slice(-1)[0];
 
 /* ============================================================ markdown */
+const SIZES = { s: 's', small: 's', m: 'm', medium: 'm', l: 'l', large: 'l', full: 'l' };
+function capSize(alt) {
+  const m = String(alt).match(/^(.*?)\s*\|\s*(\w+)\s*$/);
+  return m && SIZES[m[2].toLowerCase()] ? { cap: m[1], size: SIZES[m[2].toLowerCase()] } : { cap: alt, size: 'm' };
+}
 const esc = (s) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 function inline(s) {
   s = esc(s);
   const codes = [];
   s = s.replace(/`([^`\n]+)`/g, (_, c) => { codes.push(c); return '\u0000' + (codes.length - 1) + '\u0000'; });
   s = s.replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>').replace(/(^|[^*\w])\*([^*\n]+)\*(?!\w)/g, '$1<em>$2</em>');
-  s = s.replace(/!\[([^\]]*)\]\(ws:([^)\s]+)\)/g, (_, alt, p) => `<a class="ws-chip" data-ws="${p}" data-label="${alt}">\u25A3 ${alt || p.split('/').pop()}</a>`);
+  s = s.replace(/!\[([^\]]*)\]\(ws:([^)\s]+)\)/g, (_, alt, p) => { const c = capSize(alt); return `<span class="ws-inl" data-ws="${p}" data-label="${c.cap}" title="${c.cap}"></span>`; });
   s = s.replace(/\[([^\]]+)\]\(ws:([^)\s]+)\)/g, (_, label, p) => `<a class="ws-chip" data-ws="${p}" data-label="${label}">\uD83D\uDCCE ${label}</a>`);
   s = s.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
   return s.replace(/\u0000(\d+)\u0000/g, (_, i) => '<code>' + codes[i] + '</code>');
@@ -68,7 +73,7 @@ function md(src) {
       out.push(codeBlock(buf.join('\n'), m[1]));
     } else if (/^\s*!\[[^\]]*\]\(ws:[^)\s]+\)\s*$/.test(l)) {
       const figs = [];
-      while (i < lines.length && (m = lines[i].match(/^\s*!\[([^\]]*)\]\(ws:([^)\s]+)\)\s*$/))) { figs.push(`<figure class="ws-img" data-ws="${esc(m[2])}" data-label="${esc(m[1])}"><div class="ws-ph"></div>${m[1] ? `<figcaption>${esc(m[1])}</figcaption>` : ''}</figure>`); i++; }
+      while (i < lines.length && (m = lines[i].match(/^\s*!\[([^\]]*)\]\(ws:([^)\s]+)\)\s*$/))) { const c = capSize(m[1]); figs.push(`<figure class="ws-img sz-${c.size}" data-ws="${esc(m[2])}" data-label="${esc(c.cap)}"><div class="ws-ph"></div>${c.cap ? `<figcaption>${esc(c.cap)}</figcaption>` : ''}</figure>`); i++; }
       out.push(`<div class="ws-gal n${Math.min(figs.length, 4)}">${figs.join('')}</div>`);
     } else if (/^\s*\[[^\]]+\]\(ws:[^)\s]+\)\s*$/.test(l)) {
       const cards = [];
@@ -169,6 +174,13 @@ function hydrateWs(root) {
     };
     if (WS.urls[key]) done(WS.urls[key]);
     else wsBlob(path).then(done).catch(() => { const ph = fig.querySelector('.ws-ph'); if (ph) ph.replaceWith(h('div.ws-miss', { text: 'image not found: ' + path })); });
+  }
+  for (const sp of root.querySelectorAll('span.ws-inl')) {
+    const path = wsPath(sp.dataset.ws);
+    const miss = () => { sp.classList.add('miss'); sp.textContent = '\u25A3 ' + (sp.dataset.label || path.split('/').pop()); };
+    wsStat([path]).then(([f]) => { if (!f.exists || f.kind !== 'image') throw 0; return wsBlob(path); })
+      .then((u) => { sp.replaceChildren(h('img', { src: u, alt: sp.dataset.label || path, onclick: () => openLightbox([path], 0) })); })
+      .catch(miss);
   }
   const cards = [...root.querySelectorAll('div.ws-card[data-ws]')];
   if (cards.length) wsStat(cards.map((c) => wsPath(c.dataset.ws))).then((fs) => cards.forEach((c, i) => c.replaceWith(fileCardNode(wsPath(c.dataset.ws), c.dataset.label, fs[i]))));
@@ -413,12 +425,13 @@ async function answer(id, body, card) {
 function fillCard(card, call, result, approval) {
   const name = call.function.name;
   const a = parseArgs(call);
-  const open = approval ? true : (card.dataset.open === '1' || !!(result && (result._file || result._preview || result._model || result._image)));
+  const dflt = !!(result && (result._file || result._preview || result._model || result._image));
+  const open = approval ? true : card.dataset.open ? card.dataset.open === '1' : dflt;
   card.className = 'tool' + (result && result._error ? ' err' : '') + (approval ? ' ask' : '');
   card.replaceChildren();
   const state = result ? h('span.tool-state ' + (result._error ? 'bad' : 'ok'), { text: result._error ? '✕' : '✓' })
     : approval ? h('span.tool-state', { text: '?' }) : h('span.tool-state', {}, h('span.spin'));
-  card.append(h('button.tool-head', { onclick: () => { card.dataset.open = card.dataset.open === '1' ? '0' : '1'; fillCard(card, call, result, S.pending[call.id] || null); } },
+  card.append(h('button.tool-head', { onclick: () => { card.dataset.open = open ? '0' : '1'; fillCard(card, call, result, S.pending[call.id] || null); } },
     h('span.tool-ic', { text: ICONS[name] || '⚙' }), h('span.tool-name', { text: name.replace(/^mcp__/, 'mcp:') }),
     h('span.tool-sum', { text: toolSummary(name, a) }), state));
   if (!open) return;
@@ -575,7 +588,7 @@ function imgNode(path, id) {
   if (S.imgs[key]) set(S.imgs[key]);
   else fetch(`${S.api}/api/sessions/${S.cur.id}/download?path=${encodeURIComponent(path)}`, { headers: { Authorization: 'Bearer ' + S.token } })
     .then((r) => { if (!r.ok) throw new Error(); return r.blob(); }).then((b) => { S.imgs[key] = URL.createObjectURL(b); set(S.imgs[key]); }).catch(() => { img.replaceWith(h('div.dim', { text: 'Could not load ' + path })); });
-  img.onclick = () => img.classList.toggle('big');
+  img.onclick = () => openLightbox([path], 0);
   return img;
 }
 function renderChat(forceScroll) {

@@ -289,6 +289,14 @@ try:
         card = p.inner_text(".ws-card")
         check("file card shows name, size and Download", "Report" in card and "6 B" in card and "Download" in card and "View" in card, card)
         check("missing ghost link is gone from the final answer", "ghost" not in p.inner_text("#msgs .msg-ai:last-of-type"))
+        p.wait_for_function("document.querySelectorAll('.ws-inl img').length >= 1 && [...document.querySelectorAll('figure.ws-img img')].filter(i => i.naturalWidth > 0).length >= 4", timeout=20000)
+        hs = p.evaluate("""(() => { const f = [...document.querySelectorAll('#msgs .msg-ai:last-of-type figure.ws-img')]; const vh = innerHeight;
+          const h = (cap) => { const el = f.find(x => x.dataset.label === cap); return el ? el.querySelector('img').getBoundingClientRect().height : -1; }; return { plain: h('Plain red'), large: h('Large red'), vh }; })()""")
+        check("plain lone image stays medium (<=240px)", 0 < hs["plain"] <= 241, str(hs))
+        check("large image is capped to the screen (<=55vh)", hs["plain"] < hs["large"] <= hs["vh"] * 0.56, str(hs))
+        mini = p.evaluate("document.querySelector('.ws-inl img').getBoundingClientRect().height")
+        check("sentence image is a small inline thumbnail", 0 < mini <= 60, str(mini))
+        check("inline thumbnail sits inside the sentence", p.evaluate("document.querySelector('.ws-inl').parentElement.tagName") == "P")
         p.locator("a.ws-chip").last.scroll_into_view_if_needed()
         p.screenshot(path=f"{OUT}/21-embeds.png")
         p.locator("figure.ws-img img").first.click()
@@ -304,6 +312,20 @@ try:
         p.click(".ws-card button:has-text('View')"); p.wait_for_selector("#sheet.open .codeview")
         p.wait_for_function("document.querySelector('.codeview').textContent.includes('hello')")
         check("text file card opens a viewer", True); p.click("#sheet-close"); p.wait_for_timeout(300)
+        # image tool cards: thumbnail, collapsible, tap opens the viewer
+        p.fill("#input", "IMGCARD go"); p.click("#btn-send")
+        for _ in range(2):
+            p.wait_for_selector(".tool.ask .btn-allow", timeout=30000); p.click(".tool.ask .btn-allow"); p.wait_for_timeout(400)
+        p.wait_for_function("window.__agent.run.running === false && document.querySelector('.tool-img') !== null", timeout=60000)
+        p.wait_for_function("document.querySelector('.tool-img') && document.querySelector('.tool-img').naturalWidth > 0", timeout=20000)
+        ih = p.evaluate("document.querySelector('.tool-img') ? document.querySelector('.tool-img').getBoundingClientRect().height : -1")
+        check("image tool card shows a thumbnail (<=150px) only when open", ih <= 151, str(ih))
+        head = p.locator(".tool:has(.tool-img) .tool-head").last
+        head.click(); p.wait_for_timeout(150)
+        check("image card collapses on header tap", p.locator(".tool-img").count() == 0)
+        p.locator(".tool-head:has-text('annotate_image')").last.click(); p.wait_for_selector(".tool-img")
+        p.locator(".tool-img").last.click(); p.wait_for_selector("#lightbox:not([hidden]) .lb-img")
+        check("tapping the tool image opens the viewer", True); p.click(".lb-x"); p.wait_for_timeout(200)
         # capability check page: own screen, progress, survives closing
         p.click("#btn-menu"); p.click("#dr-eval")
         p.wait_for_selector("#evalpage:not([hidden]) >> text=Not run yet")

@@ -130,3 +130,6 @@ Memory: Chromium is heavy for Render's free 512 MB. Only one chat's browser runs
 ## Docked browser
 
 While a page is open, a browser button appears in the chat header (a pulsing dot while the agent is using it). Tap it to split the screen: the live page on top, the chat below. Drag the handle to resize, tap the expand arrow for full screen, the down arrow to hide it (the page stays alive), and the X to close it. Clicks fall back to a direct DOM click when overlays block a normal one, and failed actions return the current page so the agent can see what happened. A server restart or redeploy wipes open pages; the agent is told to reopen.
+
+### Image sizing in answers
+`![caption](ws:path)` is medium (max 240px tall), `![caption|s](ws:path)` a small thumbnail, `![caption|l](ws:path)` large (max 55% of screen height). An image written inside a sentence becomes a small inline thumbnail. Image tool cards show a 150px thumbnail, collapse from the header like any card, and tap-to-open the viewer.

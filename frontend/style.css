@@ -360,8 +360,7 @@ header, .sheet, .menu, .ctx { -webkit-backdrop-filter: saturate(1.4) blur(18px);
 .thought { font-size: 14px; color: var(--dim); padding: 8px 6px 8px 42px; border-left: 2px solid var(--line); margin: 2px 0 2px 17px; white-space: pre-wrap; max-height: 9em; overflow: hidden; }
 .detail { display: flex; flex-direction: column; gap: 10px; }
 .back { align-self: flex-start; font-size: 16px; color: var(--accent); padding: 6px 4px; min-height: 36px; }
-.tool-img { max-width: 100%; max-height: 260px; border-radius: 10px; display: block; margin: 8px 0; object-fit: contain; background: var(--bg); }
-.tool-img.big { max-height: none; }
+.tool-img { max-width: calc(100% - 24px); max-height: 150px; border-radius: 8px; display: block; margin: 8px 12px; object-fit: contain; background: var(--bg); cursor: zoom-in; }
 
 /* browser screen */
 .br-url { flex: 1; min-width: 0; } .br-url input { width: 100%; background: var(--panel2); border: 1px solid var(--line); border-radius: 12px; padding: 9px 12px; font-size: 16px; }
@@ -378,7 +377,13 @@ header, .sheet, .menu, .ctx { -webkit-backdrop-filter: saturate(1.4) blur(18px);
 .ws-gal.n2, .ws-gal.n4 { grid-template-columns: 1fr 1fr; } .ws-gal.n3 { grid-template-columns: 1fr 1fr 1fr; }
 .ws-img { margin: 0; display: flex; flex-direction: column; gap: 5px; min-width: 0; }
 .ws-img img, .ws-img .ws-ph { width: 100%; border-radius: 12px; display: block; background: var(--panel); border: 1px solid var(--line); }
-.ws-gal.n1 .ws-img img { max-height: 460px; object-fit: contain; width: auto; max-width: 100%; }
+.ws-gal.n1 { display: block; }
+.ws-gal.n1 .ws-img { display: inline-flex; max-width: 100%; vertical-align: top; margin-right: 8px; }
+.ws-gal.n1 .ws-img img { object-fit: contain; width: auto; max-width: 100%; max-height: 240px; }
+.ws-gal.n1 .sz-s img { max-height: 110px; } .ws-gal.n1 .sz-l img { max-height: 55vh; }
+.ws-gal.n1 .ws-ph { width: 220px; max-width: 100%; }
+.ws-inl { display: inline-block; vertical-align: middle; } .ws-inl.miss { color: var(--dim); font-size: .92em; }
+.ws-inl img { height: 56px; width: auto; max-width: 140px; object-fit: cover; border-radius: 8px; border: 1px solid var(--line); cursor: zoom-in; vertical-align: middle; }
 .ws-gal:not(.n1) .ws-img img { aspect-ratio: 1; object-fit: cover; }
 .ws-img img { cursor: zoom-in; animation: rise .3s var(--ease-out); }
 .ws-ph { aspect-ratio: 4/3; background: linear-gradient(100deg, var(--panel) 30%, var(--panel2) 50%, var(--panel) 70%); background-size: 300% 100%; animation: shimmer 1.3s linear infinite; }

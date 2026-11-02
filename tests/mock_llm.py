@@ -118,10 +118,16 @@ def scenario(msgs, model):
         return "text", "partial progress, more to do"
     if "EMBED" in prompt:
         if k == 0:
-            return "tools", [tool_call("bash", {"command": "mkdir -p pics && python3 -c \"from PIL import Image; Image.new('RGB',(320,200),'red').save('pics/a.png'); Image.new('RGB',(200,200),'blue').save('pics/b.png')\" && echo hello > report.txt"})]
+            return "tools", [tool_call("bash", {"command": "mkdir -p pics && python3 -c \"from PIL import Image; Image.new('RGB',(1200,1600),'red').save('pics/a.png'); Image.new('RGB',(200,200),'blue').save('pics/b.png')\" && echo hello > report.txt"})]
         if ws_nudges == 0:
             return "text", "Here you go.\n\n![Red box](ws:pics/a.png)\n![Blue box](ws:pics/b.png)\n\nThe report: \n\n[Report](ws:report.txt)\n\nand a ghost ![x](ws:ghost.png)"
-        return "text", "Fixed.\n\n![Red box](ws:pics/a.png)\n![Blue box](ws:pics/b.png)\n\n[Report](ws:report.txt)\n\nSee also [the red one](ws:pics/a.png) inline."
+        return "text", "Fixed.\n\n![Red box](ws:pics/a.png)\n![Blue box](ws:pics/b.png)\n\n[Report](ws:report.txt)\n\nSee also [the red one](ws:pics/a.png) inline.\n\nPlain lone image:\n\n![Plain red](ws:pics/a.png)\n\nLarge one:\n\n![Large red|l](ws:pics/a.png)\n\nand a mini ![mini|s](ws:pics/b.png) mid-sentence."
+    if "IMGCARD" in prompt:
+        if k == 0:
+            return "tools", [tool_call("bash", {"command": "mkdir -p pics && python3 -c \"from PIL import Image; Image.new('RGB',(1200,1600),'red').save('pics/a.png')\""})]
+        if k == 1:
+            return "tools", [tool_call("annotate_image", {"path": "pics/a.png", "ops": [{"type": "rect", "x": 10, "y": 10, "w": 50, "h": 30}]})]
+        return "text", "annotated"
     if "SHOWMODEL" in prompt:
         if k == 0:
             return "tools", [tool_call("bash", {"command": "python3 -c \"import trimesh; trimesh.creation.box((10,10,10)).export('cube.stl')\""})]
