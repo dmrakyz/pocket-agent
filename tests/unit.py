@@ -259,6 +259,12 @@ async def lazy_test():
     add("notion", "notion-create-pages", "Create one or more pages in a Notion workspace"); add("notion", "notion-search", "Search pages and databases")
     add("linear", "list_issues", "List issues in the user's Linear workspace"); add("linear", "save_issue", "Create or update an issue")
     add("sentry", "search_errors", "Search recent error events")
+    add("notion", "notion-convert-page-to-skill", "Mark a page as a skill"); add("notion", "notion-create-database", "Create a database page"); add("notion", "notion-create-comment", "Add a comment to a page")
+    add("notion", "notion-update-page", "Update a page's properties or content")
+    top = [n for n, _ in m.search("add a page to notion called test", 3)]
+    assert top[0] == "mcp__notion__notion-create-pages", top        # filler words ("to", "a") must not drag in convert-page-to-skill
+    assert "mcp__notion__notion-convert-page-to-skill" not in top[:1]
+    assert len(m.search("notion")) >= 5 and all("notion" in n for n, _ in m.search("notion")), "app name alone lists its tools"
     sess = {"id": "lz1"}
     assert not [x for x in T.schemas(sess, m) if x["function"]["name"].startswith("mcp__")], "no connector schema until activated"
     assert any(x["function"]["name"] == "connector_search" for x in T.schemas(sess, m)), "search tool is offered when connectors exist"
@@ -267,6 +273,7 @@ async def lazy_test():
     r = await T.execute(ctx, "connector_search", {"query": "create a notion page"}); assert not r["error"] and "mcp__notion__notion-create-pages" in r["text"], r
     names = [x["function"]["name"] for x in T.schemas(sess, m) if x["function"]["name"].startswith("mcp__")]
     assert "mcp__notion__notion-create-pages" in names and not any("linear" in n or "sentry" in n for n in names), names
+    r = await T.execute(ctx, "connector_search", {"query": "notion create page", "limit": 1}); assert "notion-create-pages" in r["text"] and "Other notion tools" in r["text"] and "notion-search" in r["text"], r["text"]
     r = await T.execute(ctx, "connector_search", {"query": "linear", "limit": 1}); assert "mcp__linear__" in r["text"]
     r = await T.execute(ctx, "connector_search", {"query": "zzzz nothing"}); assert "No tools matched" in r["text"] and "notion" in r["text"], r
     for i in range(40): add("bulk", f"tool{i}", "bulk search thing")
@@ -275,7 +282,7 @@ async def lazy_test():
     from app import agent as AG
     AG.MCP = m
     sysmsg = AG.build_system({"id": "lz1", "mode": "ask"}, Path(tempfile.mkdtemp()))
-    assert "you DO have access" in sysmsg and "notion (2 tools)" in sysmsg and sysmsg.index("CONNECTED APPS") < sysmsg.index("Environment:") and "notion-create-pages" not in sysmsg
+    assert "you DO have access" in sysmsg and "notion (6 tools)" in sysmsg and sysmsg.index("CONNECTED APPS") < sysmsg.index("Environment:") and "notion-create-pages" not in sysmsg
     s2 = {"id": "lz2", "messages": [{"role": "user", "content": "add a page to notion called test"}]}
     AG._autoload_connectors(s2)
     assert "mcp__notion__notion-create-pages" in s2["mcp_active"] and not any("linear" in n for n in s2["mcp_active"]), s2.get("mcp_active")

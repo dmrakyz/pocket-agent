@@ -111,32 +111,56 @@ class MCP:
             c[t["server"]["name"]] = c.get(t["server"]["name"], 0) + 1
         return c
 
-    def search(self, query: str, limit: int = 8) -> list:
-        """Keyword search over tool names/descriptions. Returns [(full_name, def)], best first."""
-        toks = [w[:-1] if len(w) > 3 and w.endswith("s") else w for w in re.findall(r"[a-z0-9]+", query.lower()) if len(w) > 1]
-        if not toks:
-            return []
+    STOP = frozenset("a an the to of in on at for and or but my me i it its is are be do with from into as by this that these those "
+                     "called named name please can you could would should some any all one use using".split())
+    SYN = {"add": "create", "make": "create", "new": "create", "build": "create", "remove": "delete", "find": "search", "lookup": "search",
+           "show": "get", "read": "get", "fetch": "get", "edit": "update", "change": "update", "modify": "update"}
+
+    @staticmethod
+    def _stem(w: str) -> str:
+        return w[:-1] if len(w) > 3 and w.endswith("s") and not w.endswith("ss") else w
+
+    def search(self, query: str, limit: int = 10) -> list:
+        """Keyword search over tool names/descriptions (whole words, filler words ignored).
+        Returns [(full_name, def)], best first."""
+        words = [self.SYN.get(self._stem(w), self._stem(w)) for w in re.findall(r"[a-z0-9]+", query.lower())]
+        servers = {t["server"]["name"].lower() for t in self.tools.values()}
+        named = servers & set(words)                       # "notion ..." means only Notion's tools
+        toks = [w for w in words if w not in self.STOP and w not in named and len(w) > 1]
         scored = []
-        named = {t["server"]["name"].lower() for t in self.tools.values()} & set(toks)   # "notion ..." means only Notion's tools
         for full, t in self.tools.items():
-            if named and t["server"]["name"].lower() not in named:
+            srv = t["server"]["name"].lower()
+            if named and srv not in named:
                 continue
             d = t["def"]
-            srv = t["server"]["name"].lower()
-            name = re.sub(r"[^a-z0-9]+", " ", t["name"].lower())
-            desc = (d.get("description") or "").lower()
+            nw = [self.SYN.get(self._stem(w), self._stem(w)) for w in re.findall(r"[a-z0-9]+", t["name"].lower()) if w != srv]
+            dw = {self._stem(w) for w in re.findall(r"[a-z0-9]+", (d.get("description") or "").lower())}
             sc = 0
             for w in toks:
-                if w == srv:
+                if w in nw:
+                    sc += 4
+                elif len(w) >= 3 and any(x.startswith(w) or w.startswith(x) and len(x) >= 4 for x in nw):
                     sc += 2
-                if w in name:
-                    sc += 3
-                if w in desc:
+                if w in dw:
                     sc += 1
+            if toks and sc and all(any(w == x for x in nw) for w in toks):
+                sc += 3                                    # every word hit the name: almost certainly the tool
+            if not toks and named:
+                sc = 1                                     # just an app name: list its tools
             if sc:
                 scored.append((-sc, full, d))
         scored.sort(key=lambda x: (x[0], x[1]))
         return [(f, d) for _, f, d in scored[:limit]]
+
+    def menu(self, hits: list, cap: int = 80) -> str:
+        """Names of the other tools on the servers that were hit, so the model can see the whole menu and search again."""
+        got = {h[0] for h in hits}
+        out = []
+        for srv in dict.fromkeys(self.tools[h[0]]["server"]["name"] for h in hits):
+            rest = [full.split("__", 2)[-1] for full, t in self.tools.items() if t["server"]["name"] == srv and full not in got]
+            if rest:
+                out.append(f"Other {srv} tools (search for them by name to switch them on): " + ", ".join(rest[:cap]) + (" …" if len(rest) > cap else ""))
+        return "\n".join(out)
 
     async def call(self, full: str, args: dict) -> str:
         t = self.tools.get(full)

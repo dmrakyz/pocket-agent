@@ -112,7 +112,9 @@ def build_system(s: dict, root: Path, sub: bool = False, can_edit: bool = False)
         parts.append("\nCONNECTED APPS: you DO have access to the user's " + cs + ". Their tools are loaded on demand: call "
                      "`connector_search` (describe the action, or pass the app name) and the matching tools switch on for your next step. "
                      "For any request that involves one of these apps, do that first. Never tell the user you lack an integration or API "
-                     "access for these apps, and don't write scripts or drive the browser to reach them.")
+                     "access for these apps, and don't write scripts or drive the browser to reach them. Search results list the other tools of that app: "
+                     "if the exact tool you need isn't active, search again by its name. Never substitute a different tool that changes "
+                     "the user's data (e.g. creating a database when asked for a page); if nothing fits, say so and ask.")
     if not sub:
         from . import memory
         mb = memory.prompt_block()

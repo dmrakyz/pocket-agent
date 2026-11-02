@@ -143,7 +143,7 @@ BASE_TOOLS = [
         "They are not loaded until you search. Describe what you need ('create a page', 'search issues', 'recent errors') or pass a connector name. "
         "Returns the best matches and activates them, so you can call them on your very next step.",
         {"query": {"type": "string", "description": "what you want to do, or a connector name"},
-         "limit": {"type": "integer", "description": "max tools to activate (default 8, max 15)"}}, ["query"]),
+         "limit": {"type": "integer", "description": "max tools to activate (default 10, max 15)"}}, ["query"]),
     _fn("memory_save", "Save durable facts about the user that every future chat should know (identity basics, ongoing projects, tools, "
         "how they like answers). Use when they ask you to remember something, or state a clear lasting preference. One short fact per note, "
         "no secrets (keys, passwords, card or ID numbers), nothing about a one-off task. Check your remembered notes first to avoid duplicates.",
@@ -866,14 +866,15 @@ async def t_connector_search(ctx: Ctx, a: dict):
     q = str(a.get("query") or "").strip()
     if not q:
         raise ToolError("query is required")
-    limit = max(1, min(int(a.get("limit") or 8), 15))
+    limit = max(1, min(int(a.get("limit") or 10), 15))
     hits = ctx.mcp.search(q, limit)
     if not hits:
         names = ", ".join(sorted({t["server"]["name"] for t in ctx.mcp.tools.values()}))
         return f"No tools matched {q!r}. Connectors: {names}. Try different words or pass a connector name."
     activate(ctx.session, hits)
     lines = [f"- {full}: {(d.get('description') or '').strip().splitlines()[0][:160] if (d.get('description') or '').strip() else ''}" for full, d in hits]
-    return "Activated (callable now):\n" + "\n".join(lines)
+    menu = ctx.mcp.menu(hits)
+    return "Activated (callable now):\n" + "\n".join(lines) + (("\n\n" + menu) if menu else "")
 
 
 # ---------------------------------------------------------------- browser
