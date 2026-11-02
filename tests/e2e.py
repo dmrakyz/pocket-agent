@@ -315,6 +315,17 @@ try:
     check("browser shot is a jpeg", shot.status_code == 200 and shot.content[:2] == b"\xff\xd8" and len(shot.content) > 2000)
     check("browser rejects unknown action", c2.post(f"/api/sessions/{bs}/browser/act", json={"type": "explode"}).status_code == 400)
     check("browser view needs auth", httpx.get(B + f"/api/sessions/{bs}/browser/shot").status_code == 401)
+    import json as _j
+    with c2.stream("GET", f"/api/sessions/{bs}/browser/stream?w=390&h=700", timeout=30) as sr:
+        got = None
+        for ln in sr.iter_lines():
+            if ln:
+                m = _j.loads(ln)
+                if m.get("f"): got = m; break
+    check("live stream sends a jpeg frame with page meta", bool(got) and len(got["f"]) > 1000 and got["url"].startswith("http://127.0.0.1:9334") and got["w"] == 1000 and 1500 < got["h"] < 1900, str(got)[:200] if got else "no frame")
+    check("browser input tap moves the agent-visible cursor", c2.post(f"/api/sessions/{bs}/browser/input", json={"type": "tap", "x": 50, "y": 60}).status_code == 200)
+    check("browser input rejects unknown", c2.post(f"/api/sessions/{bs}/browser/input", json={"type": "nope"}).status_code == 400)
+    check("stream needs auth", httpx.get(B + f"/api/sessions/{bs}/browser/stream").status_code == 401)
     c2.post(f"/api/sessions/{bs}/browser/act", json={"type": "close"})
     check("browser closes", c2.get(f"/api/sessions/{bs}/browser").json()["info"] is None)
     psrv.shutdown()

@@ -418,6 +418,33 @@ async def browser_shot(sid: str):
     return Response(data, media_type="image/jpeg", headers={"Cache-Control": "no-store"})
 
 
+@app.get("/api/sessions/{sid}/browser/stream", dependencies=[Depends(auth)])
+async def browser_stream(sid: str, w: int = 0, h: int = 0):
+    get_session(sid)
+    if w and h:
+        await browser.resize(sid, 1000, round(1000 * h / w))
+
+    async def gen():
+        async for item in browser.stream(sid):
+            yield json.dumps(item, separators=(",", ":")) + "\n"
+    return StreamingResponse(gen(), media_type="application/x-ndjson", headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"})
+
+
+@app.post("/api/sessions/{sid}/browser/input", dependencies=[Depends(auth)])
+async def browser_input(sid: str, body: dict):
+    """Instant takeover input: no lock, no waiting for the page to settle."""
+    get_session(sid)
+    kind = body.get("type")
+    try:
+        if kind == "resize":
+            await browser.resize(sid, 1000, round(1000 * float(body["h"]) / float(body["w"])))
+        else:
+            await browser.input(sid, kind, **{k: v for k, v in body.items() if k != "type"})
+    except (BrowserError, KeyError, ValueError, ZeroDivisionError) as e:
+        raise HTTPException(400, str(e))
+    return {"ok": True}
+
+
 @app.post("/api/sessions/{sid}/browser/act", dependencies=[Depends(auth)])
 async def browser_act(sid: str, body: dict):
     get_session(sid)

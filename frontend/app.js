@@ -1257,8 +1257,8 @@ function sendPresence() {
   fetch(S.api + '/api/presence', { method: 'POST', headers: { Authorization: 'Bearer ' + S.token, 'Content-Type': 'application/json' }, body: JSON.stringify({ visible: v }), keepalive: true }).catch(() => {});
 }
 
-/* ============================================================ browser: docked split view (+ full screen) */
-const BR = { timer: 0, alive: 0, busy: false, info: null, url: '', poll: 0 };
+/* ============================================================ browser: docked split view (+ full screen), live screencast */
+const BR = { alive: 0, info: null, ctl: null, run: 0, rw: 1000, rh: 760, sentA: 0, lastT: 0, q: Promise.resolve(), errAt: 0, typed: '' };
 const brOpen = () => !$('#browserpage').hidden;
 function brSyncButton() {
   const b = $('#btn-browser');
@@ -1273,20 +1273,76 @@ async function brRefreshAlive() {
   if (brOpen() && document.activeElement !== $('#br-url')) $('#br-url').value = BR.info ? BR.info.url : '';
   brSyncButton();
 }
-async function brFetchShot() {
-  if (BR.busy || !S.cur || !brOpen()) return;
-  BR.busy = true;
-  try {
-    const r = await fetch(`${S.api}/api/sessions/${S.cur.id}/browser/shot?t=${Date.now()}`, { headers: { Authorization: 'Bearer ' + S.token } });
-    if (r.status === 200) { const u = URL.createObjectURL(await r.blob()); const old = BR.url; $('#br-img').src = u; BR.url = u; if (old) setTimeout(() => URL.revokeObjectURL(old), 3000); $('#br-empty').hidden = true; $('#br-img').hidden = false; }
-    else { $('#br-img').hidden = true; $('#br-empty').hidden = false; }
-  } catch { /* offline */ }
-  BR.busy = false;
+// size the picture to fit the view with the remote page's aspect, so nothing is cropped or letterboxed oddly
+function brFit() {
+  const v = $('#br-view'), st = $('#br-stage'), W = v.clientWidth, H = v.clientHeight;
+  if (!W || !H) return;
+  const a = BR.rw / BR.rh; let w = W, hh = W / a;
+  if (hh > H) { hh = H; w = H * a; }
+  st.style.width = Math.floor(w) + 'px'; st.style.height = Math.floor(hh) + 'px';
+}
+let brResizeT = 0;
+function brSendResize() {
+  clearTimeout(brResizeT);
+  brResizeT = setTimeout(() => {
+    const v = $('#br-view'); if (!S.cur || !BR.alive || !v.clientWidth || !v.clientHeight) return;
+    const a = v.clientWidth / v.clientHeight;
+    if (BR.sentA && Math.abs(a - BR.sentA) / BR.sentA < 0.06) return;
+    BR.sentA = a;
+    api(`/api/sessions/${S.cur.id}/browser/input`, { body: { type: 'resize', w: v.clientWidth, h: v.clientHeight } }).catch(() => {});
+  }, 250);
+}
+function brCursor(c) {
+  const el = $('#br-cur'), st = $('#br-stage');
+  if (!c) { el.hidden = true; return; }
+  const sw = st.clientWidth, sh = st.clientHeight;
+  el.hidden = false; el.classList.toggle('you', c.by === 'you');
+  el.style.transform = `translate(${c.x / BR.rw * sw}px, ${c.y / BR.rh * sh}px)`;
+  if ((c.k === 'click' || c.k === 'tap') && c.t !== BR.lastT && c.by !== 'you' && Date.now() - c.t < 5000) brRipple(c.x / BR.rw * sw, c.y / BR.rh * sh);
+  BR.lastT = c.t;
+}
+function brRipple(px, py) { const r = h('i.br-ripple'); r.style.left = px + 'px'; r.style.top = py + 'px'; $('#br-stage').append(r); setTimeout(() => r.remove(), 650); }
+function brFrame(m) {
+  if (m.none) { $('#br-stage').hidden = true; $('#br-empty').hidden = false; $('#br-need').hidden = true; return; }
+  if (m.w && (m.w !== BR.rw || m.h !== BR.rh)) { BR.rw = m.w; BR.rh = m.h; brFit(); }
+  if (m.f) { $('#br-img').src = 'data:image/jpeg;base64,' + m.f; if ($('#br-stage').hidden) { $('#br-stage').hidden = false; $('#br-empty').hidden = true; brFit(); } }
+  if (m.url && document.activeElement !== $('#br-url')) $('#br-url').value = m.url;
+  BR.info = Object.assign(BR.info || {}, { url: m.url, w: m.w, h: m.h });
+  $('#br-need').hidden = !m.captcha;
+  brCursor(m.cur);
+}
+async function brStream() {
+  const my = ++BR.run, id = S.cur && S.cur.id;
+  if (BR.ctl) BR.ctl.abort();
+  while (id && BR.run === my && brOpen() && S.cur && S.cur.id === id && !document.hidden) {
+    const ac = new AbortController(); BR.ctl = ac;
+    try {
+      const v = $('#br-view');
+      BR.sentA = v.clientWidth / (v.clientHeight || 1);
+      const r = await fetch(`${S.api}/api/sessions/${id}/browser/stream?w=${v.clientWidth}&h=${v.clientHeight}`, { headers: { Authorization: 'Bearer ' + S.token }, signal: ac.signal });
+      if (!r.ok || !r.body) throw new Error('stream');
+      const rd = r.body.getReader(), dec = new TextDecoder(); let buf = '';
+      for (;;) {
+        const { value, done } = await rd.read(); if (done) break;
+        buf += dec.decode(value, { stream: true });
+        let i; while ((i = buf.indexOf('\n')) >= 0) { const line = buf.slice(0, i); buf = buf.slice(i + 1); if (line && BR.run === my) { try { brFrame(JSON.parse(line)); } catch { /* partial */ } } }
+      }
+    } catch { /* dropped: reconnect below */ }
+    if (BR.run !== my) return;
+    await new Promise((res) => setTimeout(res, 1500));
+  }
+}
+function brStop() { BR.run++; if (BR.ctl) BR.ctl.abort(); BR.ctl = null; }
+// every input goes through one queue so taps, scrolls and keystrokes arrive in order
+function brIn(body) {
+  BR.q = BR.q.then(() => api(`/api/sessions/${S.cur.id}/browser/input`, { body })).catch((e) => { if (Date.now() - BR.errAt > 4000) { BR.errAt = Date.now(); toast(e.message, true); } });
+  return BR.q;
 }
 async function brAct(body) {
   try { const r = await api(`/api/sessions/${S.cur.id}/browser/act`, { body }); BR.info = r.info; BR.alive = r.info ? 1 : 0; if (document.activeElement !== $('#br-url')) $('#br-url').value = r.info ? r.info.url : ''; }
   catch (e) { toast(e.message, true); }
-  brSyncButton(); brFetchShot();
+  brSyncButton();
+  if (BR.alive && brOpen()) brStream();   // a page may have just appeared: (re)connect right away
 }
 function brHeight() { const main = $('#main').clientHeight || window.innerHeight; return Math.max(170, Math.min(+store.get('brh', 0) || Math.round(main * 0.44), Math.round(main * 0.72))); }
 function brLayout() { const p = $('#browserpage'); p.style.setProperty('--br-h', brHeight() + 'px'); }
@@ -1296,33 +1352,59 @@ async function openBrowser() {
   p.hidden = false; p.classList.add('dock'); p.classList.remove('full'); brLayout();
   $('#br-full').textContent = '⤢';
   brSyncButton();
-  await brRefreshAlive(); await brFetchShot();
-  clearInterval(BR.timer);
-  BR.timer = setInterval(() => { if (!document.hidden && brOpen()) { brFetchShot(); if (Math.random() < 0.3) brRefreshAlive(); } }, 1200);
+  await brRefreshAlive();
+  brFit(); brStream();
   if (S.stick) scrollDown(true);
 }
-function closeBrowser() { $('#browserpage').hidden = true; $('#browserpage').classList.remove('full'); clearInterval(BR.timer); brSyncButton(); }
+function closeBrowser() { $('#browserpage').hidden = true; $('#browserpage').classList.remove('full'); brStop(); brSyncButton(); }
 function toggleBrowser() { if (brOpen()) closeBrowser(); else openBrowser(); }
 function initBrowser() {
   $('#btn-browser').onclick = toggleBrowser;
-  $('#br-back').onclick = () => { if ($('#browserpage').classList.contains('full')) { $('#browserpage').classList.replace('full', 'dock'); $('#br-full').textContent = '⤢'; } else closeBrowser(); };
-  $('#br-full').onclick = () => { const p = $('#browserpage'), full = p.classList.toggle('full'); p.classList.toggle('dock', !full); $('#br-full').textContent = full ? '⤡' : '⤢'; };
+  const setFull = (full) => { const p = $('#browserpage'); p.classList.toggle('full', full); p.classList.toggle('dock', !full); $('#br-full').textContent = full ? '⤡' : '⤢'; requestAnimationFrame(() => { brFit(); brSendResize(); }); };
+  $('#br-back').onclick = () => { if ($('#browserpage').classList.contains('full')) setFull(false); else closeBrowser(); };
+  $('#br-full').onclick = () => setFull(!$('#browserpage').classList.contains('full'));
   $('#br-form').onsubmit = (e) => { e.preventDefault(); const v = $('#br-url').value.trim(); if (!v) return; $('#br-url').blur(); brAct({ type: 'goto', url: /^[\w-]+(\.[\w-]+)+(\/|$)|:\/\//.test(v) ? v : 'https://duckduckgo.com/?q=' + encodeURIComponent(v) }); };
   $('#br-reload').onclick = () => brAct({ type: 'reload' });
   $('#br-prev').onclick = () => brAct({ type: 'back' });
-  $('#br-up').onclick = () => brAct({ type: 'scroll', direction: 'up' });
-  $('#br-down').onclick = () => brAct({ type: 'scroll', direction: 'down' });
-  $('#br-close').onclick = async () => { await brAct({ type: 'close' }); BR.alive = 0; $('#br-img').hidden = true; $('#br-empty').hidden = false; closeBrowser(); };
-  $('#br-type').onsubmit = (e) => { e.preventDefault(); const t = $('#br-text').value; $('#br-text').value = ''; if (t) brAct({ type: 'type', text: t, submit: true }); else brAct({ type: 'key', key: 'Enter' }); };
-  $('#br-img').addEventListener('click', (e) => {
-    const r = e.currentTarget.getBoundingClientRect(), w = (BR.info && BR.info.w) || 1000, hh = (BR.info && BR.info.h) || 760;
-    brAct({ type: 'click', x: Math.round((e.clientX - r.left) / r.width * w), y: Math.round((e.clientY - r.top) / r.height * hh) });
+  $('#br-up').onclick = () => brIn({ type: 'wheel', dy: -BR.rh * 0.8 });
+  $('#br-down').onclick = () => brIn({ type: 'wheel', dy: BR.rh * 0.8 });
+  $('#br-close').onclick = async () => { await brAct({ type: 'close' }); BR.alive = 0; $('#br-stage').hidden = true; $('#br-empty').hidden = false; closeBrowser(); };
+  // type straight into the remote field as you type; Enter presses Enter there
+  const txt = $('#br-text');
+  txt.addEventListener('input', (e) => {
+    if (e.isComposing) return;
+    const v = txt.value, o = BR.typed; let i = 0; while (i < o.length && i < v.length && o[i] === v[i]) i++;
+    for (let k = 0; k < o.length - i; k++) brIn({ type: 'key', key: 'Backspace' });
+    if (v.length > i) brIn({ type: 'text', text: v.slice(i) });
+    BR.typed = v;
   });
+  txt.addEventListener('compositionend', () => txt.dispatchEvent(new Event('input')));
+  $('#br-type').onsubmit = (e) => { e.preventDefault(); brIn({ type: 'key', key: 'Enter' }); txt.value = ''; BR.typed = ''; };
+  $('#br-need-go').onclick = () => { $('#br-need').hidden = true; const d = { text: "Done, I solved the check. Carry on.", images: [] }; if (S.run.running) { queueFor().push(d); renderQueue(); updateSend(); } else dispatch(d); };
+  // tap = click right where you touched (ripple shows instantly), drag = scroll
+  const stg = $('#br-stage'); let pd = null, acc = 0, flushT = 0;
+  const flush = () => { flushT = 0; const dy = acc * (BR.rw / (stg.clientWidth || 1)); acc = 0; if (Math.abs(dy) >= 1) brIn({ type: 'wheel', dy }); };
+  stg.addEventListener('pointerdown', (e) => { pd = { x: e.clientX, y: e.clientY, ly: e.clientY, moved: false }; try { stg.setPointerCapture(e.pointerId); } catch { /* synthetic */ } });
+  stg.addEventListener('pointermove', (e) => {
+    if (!pd) return;
+    if (!pd.moved && Math.hypot(e.clientX - pd.x, e.clientY - pd.y) > 9) pd.moved = true;
+    if (pd.moved) { acc += pd.ly - e.clientY; pd.ly = e.clientY; if (!flushT) flushT = setTimeout(flush, 60); }
+  });
+  stg.addEventListener('pointerup', (e) => {
+    const d = pd; pd = null; if (!d || d.moved) return;
+    const r = stg.getBoundingClientRect(), fx = (e.clientX - r.left) / r.width, fy = (e.clientY - r.top) / r.height;
+    brRipple(fx * r.width, fy * r.height);
+    const c = $('#br-cur'); c.hidden = false; c.classList.add('you'); c.style.transform = `translate(${fx * r.width}px, ${fy * r.height}px)`;
+    brIn({ type: 'tap', x: Math.round(fx * BR.rw), y: Math.round(fy * BR.rh) });
+  });
+  stg.addEventListener('pointercancel', () => { pd = null; });
   // drag the grip to resize the split
   const grip = $('#br-grip'); let y0 = 0, h0 = 0, drag = false;
   grip.addEventListener('pointerdown', (e) => { drag = true; y0 = e.clientY; h0 = $('#browserpage').offsetHeight; grip.setPointerCapture(e.pointerId); });
   grip.addEventListener('pointermove', (e) => { if (!drag) return; const main = $('#main').clientHeight; const nh = Math.max(170, Math.min(h0 + e.clientY - y0, Math.round(main * 0.72))); $('#browserpage').style.setProperty('--br-h', nh + 'px'); store.set('brh', String(nh)); });
-  const end = () => { drag = false; }; grip.addEventListener('pointerup', end); grip.addEventListener('pointercancel', end);
+  const end = () => { drag = false; brFit(); brSendResize(); }; grip.addEventListener('pointerup', end); grip.addEventListener('pointercancel', end);
+  if (window.ResizeObserver) new ResizeObserver(() => { if (brOpen()) { brFit(); brSendResize(); } }).observe($('#br-view'));
+  document.addEventListener('visibilitychange', () => { if (document.hidden) brStop(); else if (brOpen()) brStream(); });
   setInterval(() => { if (S.cur && !document.hidden && (S.run.running || BR.alive)) brRefreshAlive(); }, 10000);
 }
 

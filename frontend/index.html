@@ -55,12 +55,13 @@
         <button id="br-full" class="icon" aria-label="Full screen">⤢</button>
       </header>
       <div class="br-main">
-        <div id="br-view" class="br-view"><img id="br-img" alt="" draggable="false"><div id="br-empty" class="dim">Nothing open yet. Enter an address above, or ask the agent to browse.</div></div>
+        <div id="br-need" class="br-need" hidden><span>Bot check on this page. Solve it here, then tell the agent.</span><button id="br-need-go" class="small primary">Done, continue</button></div>
+        <div id="br-view" class="br-view"><div id="br-stage" class="br-stage" hidden><img id="br-img" alt="" draggable="false"><i id="br-cur" class="br-cur" hidden></i></div><div id="br-empty" class="dim">Nothing open yet. Enter an address above, or ask the agent to browse.</div></div>
         <div class="br-bar">
           <button id="br-prev" class="icon" aria-label="Back">‹</button>
           <button id="br-up" class="icon" aria-label="Scroll up">↑</button>
           <button id="br-down" class="icon" aria-label="Scroll down">↓</button>
-          <form id="br-type" class="br-type"><input id="br-text" type="text" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="Type into the focused field"><button class="icon" aria-label="Send text">↵</button></form>
+          <form id="br-type" class="br-type"><input id="br-text" type="text" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="Tap a field, then type here" enterkeyhint="go"><button class="icon" aria-label="Enter">↵</button></form>
           <button id="br-close" class="icon" aria-label="Close browser">✕</button>
         </div>
       </div>
