@@ -337,17 +337,16 @@ function makeCard(call) {
   return card;
 }
 function userNode(m, idx) {
-  const n = h('div.msg-user');
+  const n = h('div.msg-user', { 'data-idx': idx });
   const c = m.content;
   const text = typeof c === 'string' ? c : (c || []).filter((p) => p.type === 'text').map((p) => p.text).join('\n');
   const imgs = Array.isArray(c) ? c.filter((p) => p.type === 'image_url') : [];
   if (imgs.length) n.append(h('div.imgs', {}, imgs.map((p) => h('img', { src: p.image_url.url, alt: 'attachment' }))));
   n.append(document.createTextNode(text));
-  if (m._checkpoint && !S.run.running) n.append(h('button.rewind', { title: 'Rewind to here', 'aria-label': 'Rewind to here', text: '↺', onclick: () => rewind(idx) }));
   return n;
 }
-function assistantNode(m) {
-  const n = h('div.msg-ai');
+function assistantNode(m, idx) {
+  const n = h('div.msg-ai', { 'data-idx': idx });
   if (m._reasoning) n.append(h('details.reasoning', {}, h('summary', { text: 'Thinking' }), h('div.rtext', { text: m._reasoning })));
   if (m.content) n.append(h('div.prose', { html: md(m.content) }));
   for (const call of m.tool_calls || []) n.append(makeCard(call));
@@ -366,14 +365,13 @@ function renderChat(forceScroll) {
       if (m._synthetic) return;
       if (m._summary) { box.append(h('div.divider', { text: 'earlier conversation summarized' })); return; }
       box.append(userNode(m, i));
-    } else if (m.role === 'assistant') box.append(assistantNode(m));
+    } else if (m.role === 'assistant') box.append(assistantNode(m, i));
   });
   renderTodos(); renderSubs(); renderQueue();
   renderLive();
   for (const ev of Object.values(S.pending)) ensureApprovalCard(ev);
   S.stick = true;
   if (forceScroll !== false) requestAnimationFrame(() => scrollDown(true));
-  renderActions();
   updateSend();
 }
 let liveRaf = 0;
@@ -581,7 +579,7 @@ async function send() {
 async function dispatch({ text, images }) {
   const msg = { role: 'user', content: images.length ? [{ type: 'text', text }, ...images.map((u) => ({ type: 'image_url', image_url: { url: u } }))] : text };
   S.cur.messages.push(msg);
-  clearActions(); S.subs = []; renderSubs();
+  S.subs = []; renderSubs();
   msgsEl().append(userNode(msg, S.cur.messages.length - 1));
   $('#empty').hidden = true;
   S.run = { running: true }; S.partial = { text: '', reasoning: '' }; S.finished = false; S.stick = true;
@@ -605,22 +603,60 @@ function drainQueue() {
   dispatch(next);
 }
 
-/* ---- regenerate / copy under the last answer */
-function clearActions() { document.querySelectorAll('.msg-actions').forEach((n) => n.remove()); }
-function renderActions() {
-  clearActions();
-  if (!S.cur || S.run.running) return;
-  const ms = S.cur.messages;
-  const last = ms[ms.length - 1];
-  if (!last || last.role !== 'assistant' || last.tool_calls || !(last.content || '').trim()) return;
-  let ui = -1;
-  for (let i = ms.length - 1; i >= 0; i--) if (ms[i].role === 'user' && !ms[i]._synthetic && !ms[i]._summary) { ui = i; break; }
-  const row = h('div.msg-actions', {},
-    h('button', { 'aria-label': 'Copy answer', text: '⧉ Copy', onclick: () => navigator.clipboard.writeText(last.content).then(() => toast('Copied')).catch(() => toast('Copy failed')) }));
-  if (ui >= 0 && ms[ui]._checkpoint) row.append(h('button', { 'aria-label': 'Regenerate answer', title: 'Redo this answer (files go back to how they were before it)', text: '⟳ Regenerate', onclick: () => regenerate(ui) }));
-  msgsEl().append(row);
+/* ---- long-press menu on messages */
+let CTX = null;
+function closeCtx() { if (!CTX) return; CTX.el.remove(); CTX.scrim.remove(); CTX.node.classList.remove('pressed'); CTX = null; }
+function msgPlain(m) {
+  const c = m.content;
+  return (typeof c === 'string' ? c : (c || []).filter((p) => p.type === 'text').map((p) => p.text).join('\n')) || '';
+}
+function userBefore(idx) {
+  for (let i = idx; i >= 0; i--) { const m = S.cur.messages[i]; if (m.role === 'user' && !m._synthetic && !m._summary) return i; }
+  return -1;
+}
+function lastUserIdx() { return userBefore(S.cur.messages.length - 1); }
+function openCtx(node, x, y) {
+  closeCtx();
+  if (!S.cur) return;
+  const idx = +node.dataset.idx, m = S.cur.messages[idx];
+  if (!m) return;
+  const busy = S.run.running;
+  const items = [];
+  if (m.role === 'user') items.push(['✎', 'Edit', () => rewind(idx, true), !m._checkpoint || busy]);
+  else { const ui = userBefore(idx); items.push(['⟳', 'Regenerate', () => regenerate(ui), ui < 0 || !S.cur.messages[ui]._checkpoint || busy]); }
+  const txt = msgPlain(m).trim();
+  items.push(['⧉', 'Copy', () => navigator.clipboard.writeText(txt).then(() => toast('Copied')).catch(() => toast('Copy failed')), !txt]);
+  items.push(['⌶', 'Select text', () => { node.classList.add('selectable'); toast('Drag to select'); }, !txt]);
+  const scrim = h('div.ctx-scrim', { onclick: () => { if (Date.now() - CTX.t > 300) closeCtx(); }, oncontextmenu: (e) => { e.preventDefault(); closeCtx(); } });
+  const el = h('div.ctx', { role: 'menu' }, items.map(([ic, label, fn, off]) => h('button.ctx-i' + (off ? '.off' : ''), { role: 'menuitem', disabled: off || false, onclick: () => { closeCtx(); fn(); } }, h('span', { text: ic }), h('span', { text: label }))));
+  document.body.append(scrim, el);
+  node.classList.add('pressed');
+  const w = el.offsetWidth, hh = el.offsetHeight, vw = window.innerWidth, vh = window.innerHeight;
+  let top = y - hh - 14; if (top < 60) top = Math.min(y + 18, vh - hh - 10);
+  el.style.left = Math.max(10, Math.min(x - w / 2, vw - w - 10)) + 'px';
+  el.style.top = top + 'px';
+  CTX = { el, scrim, node, t: Date.now() };
+}
+function initLongPress() {
+  const box = msgsEl();
+  let timer = 0, sx = 0, sy = 0;
+  const cancel = () => { clearTimeout(timer); timer = 0; };
+  const target = (e) => e.target.closest && e.target.closest('.msg-user[data-idx], .msg-ai[data-idx]');
+  box.addEventListener('pointerdown', (e) => {
+    if (e.button || e.target.closest('a, button, summary, input, textarea, pre')) return;
+    const n = target(e); if (!n || n.classList.contains('selectable')) return;
+    cancel(); sx = e.clientX; sy = e.clientY;
+    timer = setTimeout(() => { timer = 0; try { navigator.vibrate && navigator.vibrate(12); } catch { /* ignore */ } openCtx(n, sx, sy); }, 420);
+  });
+  box.addEventListener('pointermove', (e) => { if (timer && Math.hypot(e.clientX - sx, e.clientY - sy) > 10) cancel(); });
+  for (const ev of ['pointerup', 'pointercancel', 'pointerleave']) box.addEventListener(ev, cancel);
+  chat().addEventListener('scroll', () => { cancel(); closeCtx(); }, { passive: true });
+  box.addEventListener('contextmenu', (e) => { const n = target(e); if (!n) return; e.preventDefault(); cancel(); openCtx(n, e.clientX, e.clientY); });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeCtx(); });
+  document.addEventListener('pointerdown', (e) => { if (!e.target.closest('.msg-user.selectable, .msg-ai.selectable')) document.querySelectorAll('.selectable').forEach((n) => n.classList.remove('selectable')); });
 }
 async function regenerate(idx) {
+  if (idx !== lastUserIdx() && !(await confirmSheet('Regenerate from here?', 'Removes everything after this question and puts your files back to how they were before it.', 'Regenerate'))) return;
   const m = S.cur.messages[idx];
   const parts = Array.isArray(m.content) ? m.content : [{ type: 'text', text: m.content || '' }];
   const draft = { text: parts.filter((p) => p.type === 'text').map((p) => p.text).join('\n'), images: parts.filter((p) => p.type === 'image_url').map((p) => p.image_url.url) };
@@ -695,6 +731,40 @@ function confirmSheet(title, text, ok, danger) {
   return new Promise((res) => {
     sheet(title, h('div.dim', { text }), h('button.secondary' + (danger ? '.danger' : ''), { text: ok, onclick: () => { closeSheet(); res(true); } }), h('button.secondary', { text: 'Cancel', onclick: () => { closeSheet(); res(false); } }));
   });
+}
+/* ---- swipe a bottom sheet down to close it */
+function initSheetSwipe() {
+  const sh = $('#sheet');
+  let y0 = 0, dy = 0, t0 = 0, on = false;
+  const down = (e) => { if (e.target.closest('button')) return; on = true; y0 = e.clientY; dy = 0; t0 = e.timeStamp; sh.style.transition = 'none'; e.currentTarget.setPointerCapture(e.pointerId); };
+  const move = (e) => { if (!on) return; dy = Math.max(0, e.clientY - y0); sh.style.transform = `translateY(${dy}px)`; $('#sheet-scrim').style.opacity = String(Math.max(0, 1 - dy / sh.offsetHeight)); };
+  const up = (e) => {
+    if (!on) return; on = false;
+    const fast = dy / Math.max(1, e.timeStamp - t0) > 0.5;
+    sh.style.transition = 'transform .2s ease';
+    $('#sheet-scrim').style.opacity = '';
+    if (dy > 90 || (fast && dy > 24)) { sh.style.transform = 'translateY(104%)'; setTimeout(() => { sh.style.transition = ''; sh.style.transform = ''; closeSheet(); }, 190); }
+    else { sh.style.transform = ''; setTimeout(() => { sh.style.transition = ''; }, 210); }
+  };
+  for (const el of [sh.querySelector('.sheet-grab'), sh.querySelector('.sheet-head')]) {
+    el.addEventListener('pointerdown', down); el.addEventListener('pointermove', move);
+    el.addEventListener('pointerup', up); el.addEventListener('pointercancel', up);
+  }
+}
+/* ---- swipe in from the left edge to open the drawer, swipe it left to close */
+function initEdgeSwipe() {
+  let x0 = 0, y0 = 0, mode = '';
+  document.addEventListener('touchstart', (e) => {
+    const t = e.touches[0]; x0 = t.clientX; y0 = t.clientY;
+    mode = x0 < 22 && !$('#drawer').classList.contains('open') && !document.querySelector('.overlay:not([hidden])') ? 'open' : ($('#drawer').classList.contains('open') ? 'close' : '');
+  }, { passive: true });
+  document.addEventListener('touchmove', (e) => {
+    if (!mode) return;
+    const t = e.touches[0], dx = t.clientX - x0, dy = Math.abs(t.clientY - y0);
+    if (dy > 40 && dy > Math.abs(dx)) { mode = ''; return; }
+    if (mode === 'open' && dx > 60) { mode = ''; openDrawer(); }
+    else if (mode === 'close' && dx < -60) { mode = ''; closeDrawer(); }
+  }, { passive: true });
 }
 function newChatSheet() {
   closeDrawer();
@@ -775,8 +845,8 @@ function chatActions(s) {
       if (!S.cur && S.sessions.length) await openSession(S.sessions[0].id); else renderChat();
     } }));
 }
-async function rewind(idx) {
-  if (!(await confirmSheet('Rewind to here?', 'Removes this message and everything after it, and restores your files to how they were before it.', 'Rewind'))) return;
+async function rewind(idx, edit) {
+  if (!(await confirmSheet(edit ? 'Edit this message?' : 'Rewind to here?', 'Removes this message and everything after it, restores your files to how they were before it, and puts the text back in the box to change and resend.', edit ? 'Edit' : 'Rewind'))) return;
   try {
     const r = await api(`/api/sessions/${S.cur.id}/rewind`, { body: { index: idx } });
     await reloadCurrent();
@@ -1280,6 +1350,7 @@ function wire() {
   input.addEventListener('paste', (e) => { const f = [...(e.clipboardData?.files || [])][0]; if (f) { e.preventDefault(); attachAny(f); } });
   chat().addEventListener('scroll', () => { S.stick = nearBottom(); $('#btn-jump').hidden = S.stick; });
   $('#btn-jump').onclick = () => { S.stick = true; scrollDown(true); };
+  initLongPress(); initSheetSwipe(); initEdgeSwipe();
   document.addEventListener('click', (e) => {
     const b = e.target.closest('[data-copy]');
     if (b) { navigator.clipboard.writeText(b.parentElement.querySelector('code').textContent).then(() => { b.textContent = 'copied'; setTimeout(() => (b.textContent = 'copy'), 1200); }).catch(() => toast('Copy failed')); }

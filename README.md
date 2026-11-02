@@ -104,3 +104,9 @@ This server runs shell commands, on the internet, in the same container as your 
 **Routines** (Settings -> Routines): prompts the agent runs on its own. Schedule them daily, weekly, every N minutes (min 5), or leave them manual and trigger them with a secret webhook URL (GET or POST; a POST body is passed to the agent as untrusted data). Each routine picks a permission mode, optionally a model, and either a fresh chat per run or the same chat. Runs that need approval stop and send a push notification. Missed runs catch up once after the server wakes.
 
 **Connectors** (Settings -> Connectors): remote MCP servers (https only, public hosts only) that give the agent extra tools. Added from the app and stored in the private state repo, or set on the server with `MCP_SERVERS`.
+
+## Gestures
+
+- Hold a message: your prompts get Edit and Copy, answers get Regenerate and Copy. "Select text" lets you pick part of a message.
+- Swipe a bottom sheet down from its top handle to close it (a flick or a long drag closes, a short one snaps back).
+- Swipe in from the left edge to open the chat list, swipe it left to close.
