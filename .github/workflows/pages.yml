@@ -19,6 +19,11 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
+      - name: Stamp build version
+        run: |
+          S="${GITHUB_SHA::7}"; V="${{ github.run_number }}"
+          printf '\nwindow.APP_VERSION="%s"; window.APP_COMMIT="%s";\n' "$V" "$S" >> frontend/config.js
+          printf '{"version":"%s","commit":"%s"}\n' "$V" "$S" > frontend/version.json
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

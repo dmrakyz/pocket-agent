@@ -764,25 +764,85 @@ function openMenu() {
         const v = !c.autopilot;
         try { await api('/api/sessions/' + c.id, { method: 'PATCH', body: { autopilot: v } }); c.autopilot = v; tg.classList.toggle('on', v); applyChips(); } catch (e) { toast(e.message, true); }
       } }, h('span.mic', { text: '∞' }), h('span', { text: 'Autopilot' }), tg),
-      item('⎇', 'Save workspace to GitHub', async () => { try { const r = await api(`/api/sessions/${c.id}/sync`, { method: 'POST' }); toast(r.result); } catch (er) { toast(er.message, true); } }),
-      h('div.msep'));
-  }
-  rows.push(
-    item('✓', 'Capability check', openEval),
-    item('ⓘ', 'Server info', serverSheet),
-    item('🔔', 'Approval notifications', async () => { if ('Notification' in window) toast((await Notification.requestPermission()) === 'granted' ? 'Notifications on' : 'Blocked'); else toast('Not supported here'); }),
-    h('div.msep'),
-    item('⎋', 'Sign out', logout, '.danger'));
+      item('⎇', 'Save workspace to GitHub', async () => { try { const r = await api(`/api/sessions/${c.id}/sync`, { method: 'POST' }); toast(r.result); } catch (er) { toast(er.message, true); } }));
+  } else rows.push(h('div.dim', { style: 'padding:12px', text: 'Open or start a chat to see chat actions.' }));
   menu.replaceChildren(...rows);
   menu.hidden = false; $('#menu-scrim').hidden = false;
 }
-function serverSheet() {
+
+/* ============================================================ version + updates */
+const VER = { v: window.APP_VERSION || '', c: window.APP_COMMIT || '' };
+const verText = () => VER.c ? `v${VER.v} · ${VER.c}` : 'dev build';
+const UPD = { available: false, latest: null };
+async function checkUpdate(manual) {
+  if (!VER.c) return manual ? 'dev' : 'current';
+  try {
+    const r = await fetch('version.json?t=' + Date.now(), { cache: 'no-store' });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const j = await r.json();
+    UPD.latest = j;
+    UPD.available = !!j.commit && j.commit !== VER.c;
+  } catch { if (manual) return 'error'; }
+  updateUI();
+  return UPD.available ? 'available' : 'current';
+}
+function updateUI() {
+  const on = UPD.available;
+  $('#update-banner').hidden = !on || S.updateDismissed;
+  $('#update-text').textContent = on ? `Update available${UPD.latest ? ' · v' + UPD.latest.version : ''}` : '';
+  $('#upd-dot').hidden = !on;
+  const ver = $('#ver');
+  ver.textContent = on ? `Update available → v${UPD.latest.version}` : `Pocket Agent ${verText()}`;
+  ver.classList.toggle('upd', on);
+  if (!$('#settings').hidden) drawSettings();
+}
+async function applyUpdate() {
+  const b = $('#btn-update'); b.disabled = true; b.textContent = 'Updating…';
+  try { (await navigator.serviceWorker.getRegistrations()).forEach((r) => r.unregister()); } catch { /* none */ }
+  try { (await caches.keys()).forEach((k) => caches.delete(k)); } catch { /* none */ }
+  // refresh the browser's own HTTP cache for the shell, otherwise the old files can come straight back
+  try { await Promise.all(['./', 'index.html', 'app.js', 'style.css', 'config.js', 'version.json', 'manifest.webmanifest', 'sw.js'].map((f) => fetch(f, { cache: 'reload' }))); } catch { /* offline */ }
+  location.replace(location.pathname + '?r=' + Date.now() + location.hash);
+}
+
+/* ============================================================ theme */
+function applyTheme() {
+  const t = store.get('theme') || 'system';
+  if (t === 'system') document.documentElement.removeAttribute('data-theme'); else document.documentElement.setAttribute('data-theme', t);
+}
+
+/* ============================================================ settings page */
+function serverKV() {
   const inf = S.info || {};
-  sheet('Server info',
-    h('dl.kv', {}, h('dt', { text: 'URL' }), h('dd', { text: S.api }), h('dt', { text: 'Providers' }), h('dd', { text: (inf.providers || []).join(', ') || 'none' }),
-      h('dt', { text: 'History sync' }), h('dd', { text: inf.state ? (inf.state.enabled ? `on → ${inf.state.repo}` : `off${inf.state.error ? ' (' + inf.state.error.slice(0, 80) + ')' : ' (set GITHUB_TOKEN + STATE_REPO)'}`) : '?' }),
-      h('dt', { text: 'GitHub' }), h('dd', { text: inf.github ? 'token set' : 'no token' }), h('dt', { text: 'Search' }), h('dd', { text: inf.search || '?' }),
-      h('dt', { text: 'Tools' }), h('dd', { text: `git ${inf.git ? '✓' : '✕'} · ripgrep ${inf.rg ? '✓' : 'fallback'}` })));
+  return h('dl.kv', {}, h('dt', { text: 'URL' }), h('dd', { text: S.api }), h('dt', { text: 'Providers' }), h('dd', { text: (inf.providers || []).join(', ') || 'none' }),
+    h('dt', { text: 'History sync' }), h('dd', { text: inf.state ? (inf.state.enabled ? `on → ${inf.state.repo}` : `off${inf.state.error ? ' (' + inf.state.error.slice(0, 80) + ')' : ' (set GITHUB_TOKEN + STATE_REPO)'}`) : '?' }),
+    h('dt', { text: 'GitHub' }), h('dd', { text: inf.github ? 'token set' : 'no token' }), h('dt', { text: 'Search' }), h('dd', { text: inf.search || '?' }),
+    h('dt', { text: 'Tools' }), h('dd', { text: `git ${inf.git ? '✓' : '✕'} · ripgrep ${inf.rg ? '✓' : 'fallback'}` }));
+}
+let setNote = '';
+function openSettings() { closeDrawer(); $('#settings').hidden = false; setNote = ''; drawSettings(); checkUpdate(); }
+function closeSettings() { $('#settings').hidden = true; }
+function drawSettings() {
+  const box = $('#setbody');
+  if ($('#settings').hidden) return;
+  const inf = S.info || {};
+  const theme = store.get('theme') || 'system';
+  const row = (ic, label, fn, right, cls = '') => h('button.mi' + cls, { onclick: fn }, h('span.mic', { text: ic }), h('span', { text: label }), right ? h('span.val', { text: right }) : null, h('span.chev', { text: '›' }));
+  const seg = h('div.seg', {}, ...[['system', 'System'], ['light', 'Light'], ['dark', 'Dark']].map(([k, n]) => h('button' + (theme === k ? '.on' : ''), { text: n, onclick: () => { store.set('theme', k); applyTheme(); drawSettings(); } })));
+  const notifState = 'Notification' in window ? Notification.permission : 'n/a';
+  box.replaceChildren(
+    h('div.setsec', { text: 'Appearance' }), h('div.setcard', {}, seg),
+    h('div.setsec', { text: 'Agent' }), h('div.setcard', {},
+      row('✓', 'Capability check', openEval),
+      row('🔔', 'Approval notifications', async () => { if ('Notification' in window) { const r = await Notification.requestPermission(); toast(r === 'granted' ? 'Notifications on' : 'Blocked'); drawSettings(); } else toast('Not supported here'); }, notifState === 'granted' ? 'On' : notifState === 'denied' ? 'Blocked' : 'Off')),
+    h('div.setsec', { text: 'Server' }), h('div.setcard', {}, serverKV()),
+    h('div.setsec', { text: 'About' }), h('div.setcard', {},
+      h('dl.kv', {}, h('dt', { text: 'App' }), h('dd', { text: verText() }), h('dt', { text: 'Server' }), h('dd', { text: inf.version ? inf.version : 'unknown' })),
+      UPD.available
+        ? h('button.mi', { onclick: applyUpdate }, h('span.mic', { text: '⇣' }), h('span', { text: `Update to v${UPD.latest.version}` }), h('span.updot'))
+        : h('button.mi', { onclick: async (e) => { e.currentTarget.disabled = true; const r = await checkUpdate(true); setNote = r === 'current' ? 'You are on the latest version.' : r === 'dev' ? 'Development build: no update check.' : r === 'error' ? 'Could not check. Are you online?' : ''; drawSettings(); } }, h('span.mic', { text: '↻' }), h('span', { text: 'Check for updates' })),
+      setNote ? h('div.dim', { style: 'padding:4px 12px 10px;font-size:13px', text: setNote }) : null),
+    h('div.setcard', {}, row('⎋', 'Sign out', () => { closeSettings(); logout(); }, '', '.danger')));
 }
 
 /* ============================================================ capability check page */
@@ -894,6 +954,11 @@ function wire() {
   $('#btn-files').onclick = () => { if (S.cur) filesSheet(''); else toast('Open a chat first'); };
   $('#menu-scrim').onclick = closeMenu;
   $('#ev-back').onclick = closeEval;
+  $('#set-back').onclick = closeSettings;
+  $('#dr-settings').onclick = openSettings;
+  $('#dr-eval').onclick = () => { closeDrawer(); openEval(); };
+  $('#ver').onclick = () => { if (UPD.available) applyUpdate(); else openSettings(); };
+  $('#btn-update').onclick = applyUpdate;
   $('#chat-search').oninput = renderList;
   $('#btn-send').onclick = send;
   $('#btn-attach').onclick = () => $('#file-img').click();
@@ -909,6 +974,7 @@ function wire() {
     if (b) { navigator.clipboard.writeText(b.parentElement.querySelector('code').textContent).then(() => { b.textContent = 'copied'; setTimeout(() => (b.textContent = 'copy'), 1200); }).catch(() => toast('Copy failed')); }
   });
   document.addEventListener('visibilitychange', async () => {
+    if (!document.hidden) checkUpdate();
     if (document.hidden || !S.token || !S.cur) return;
     try { await loadSessions(); if (S.run.running || !S.finished) { await openSession(S.cur.id); } } catch { /* offline */ }
   });
@@ -917,9 +983,14 @@ function wire() {
   if ('serviceWorker' in navigator && location.protocol.startsWith('http')) navigator.serviceWorker.register('sw.js').catch(() => {});
 }
 
+applyTheme();
 S.api = store.get('url') || window.AGENT_API || '';
 S.token = store.get('token');
 wire();
 if (S.token && S.api) start(); else show('setup');
+updateUI();
+setTimeout(checkUpdate, 1500);
+setInterval(checkUpdate, 5 * 60 * 1000);
+S.checkUpdate = checkUpdate;
 window.__agent = S; // handy for debugging in devtools
 })();

@@ -83,6 +83,11 @@
     </div>
     <input id="chat-search" class="search" placeholder="Search chats" autocomplete="off">
     <div id="chat-list" class="chat-list"></div>
+    <div class="drawer-foot">
+      <button id="dr-settings" class="mi"><span class="mic">⚙</span><span>Settings</span><span id="upd-dot" class="updot" hidden></span></button>
+      <button id="dr-eval" class="mi"><span class="mic">✓</span><span>Capability check</span></button>
+      <button id="ver" class="ver" aria-label="App version"></button>
+    </div>
   </aside>
 
   <!-- bottom sheet -->
@@ -96,6 +101,18 @@
   <!-- header dropdown -->
   <div id="menu-scrim" class="menu-scrim" hidden></div>
   <div id="menu" class="menu" hidden></div>
+
+  <!-- update banner -->
+  <div id="update-banner" class="update-banner" hidden><span id="update-text">Update available</span><button id="btn-update">Update</button></div>
+
+  <!-- settings page -->
+  <section id="settings" class="screen overlay" hidden>
+    <header>
+      <button id="set-back" class="icon" aria-label="Back">←</button>
+      <div class="title-wrap"><div class="title">Settings</div></div>
+    </header>
+    <main id="setbody" class="evbody"></main>
+  </section>
 
   <!-- capability check page -->
   <section id="evalpage" class="screen overlay" hidden>
@@ -114,6 +131,7 @@
   async function reset() {
     try { (await navigator.serviceWorker.getRegistrations()).forEach(function (r) { r.unregister(); }); } catch (e) {}
     try { (await caches.keys()).forEach(function (k) { caches.delete(k); }); } catch (e) {}
+    try { await Promise.all(['./', 'index.html', 'app.js', 'style.css', 'config.js', 'version.json'].map(function (f) { return fetch(f, { cache: 'reload' }); })); } catch (e) {}
     location.replace(location.pathname + '?r=' + Date.now());
   }
   if (/[?&]reset\b/.test(location.search)) reset();

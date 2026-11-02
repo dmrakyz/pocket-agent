@@ -13,6 +13,11 @@
     --add-bg: rgba(31, 143, 95, .12); --del-bg: rgba(201, 63, 51, .12);
   }
 }
+:root[data-theme="light"] {
+    --bg: #f6f5f2; --panel: #ffffff; --panel2: #efede8; --line: #dcd9d1; --text: #1b1d20; --dim: #6b727a;
+    --accent: #6d3fd8; --accent-ink: #fff; --ok: #1f8f5f; --bad: #c93f33; --info: #2d6fd6;
+    --add-bg: rgba(31, 143, 95, .12); --del-bg: rgba(201, 63, 51, .12);
+}
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); font: 16px/1.5 var(--sans); overscroll-behavior: none; }
 body { -webkit-text-size-adjust: 100%; }
@@ -245,3 +250,21 @@ footer { padding: 6px 10px calc(var(--safe-b) + 8px); background: var(--bg); }
 .evlive { font: 12.5px var(--mono); color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .evbtns { display: flex; gap: 10px; } .evbtns > * { flex: 1; }
 .evwarn { background: color-mix(in srgb, var(--bad) 10%, var(--panel)); border: 1px solid var(--bad); border-radius: 10px; padding: 10px 12px; font-size: 13.5px; }
+
+/* drawer footer / settings / update banner */
+.drawer-foot { border-top: 1px solid var(--line); padding: 6px 8px calc(var(--safe-b) + 8px); display: flex; flex-direction: column; gap: 2px; }
+.drawer-foot .mi { min-height: 44px; }
+.ver { text-align: left; padding: 6px 12px 2px; font: 12px var(--mono); color: var(--dim); }
+.ver.upd { color: var(--accent); font-weight: 600; }
+.updot { margin-left: auto; width: 9px; height: 9px; border-radius: 5px; background: var(--accent); }
+.update-banner { position: absolute; left: 12px; right: 12px; top: calc(var(--safe-t) + 8px); z-index: 60; display: flex; align-items: center; gap: 12px; background: var(--accent); color: var(--accent-ink); border-radius: 14px; padding: 8px 8px 8px 16px; font-weight: 600; box-shadow: 0 8px 28px rgba(0,0,0,.4); max-width: 520px; margin: 0 auto; animation: pop .2s ease; }
+.update-banner span { flex: 1; }
+.update-banner button { background: var(--accent-ink); color: var(--accent); border-radius: 10px; padding: 9px 16px; font-weight: 700; }
+.setsec { font-size: 12px; text-transform: uppercase; letter-spacing: .07em; color: var(--dim); margin: 8px 0 -6px; }
+.setcard { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 6px; display: flex; flex-direction: column; }
+.setcard .mi { border-radius: 10px; }
+.setcard .kv { padding: 8px 10px; }
+.setcard .seg { margin: 4px; }
+.mi .val { margin-left: auto; color: var(--dim); font-size: 14px; }
+.mi .chev { margin-left: auto; color: var(--dim); }
+.mi .val + .chev { margin-left: 8px; }

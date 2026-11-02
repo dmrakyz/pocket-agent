@@ -44,11 +44,13 @@ Optional: put your Render URL in `frontend/config.js` (edit on GitHub) so the ap
 Render's free tier sleeps after 15 min without inbound requests. Your agent calling the model does **not** count, and your phone's connection drops when the screen locks. So a long task would get killed mid-way. Fix: [cron-job.org](https://cron-job.org) → create a job that GETs `https://YOUR-SERVICE.onrender.com/health` **every 10 minutes**. (One always-on service fits inside Render's 750 free hours/month.)
 
 ## Using it
+- **Settings** (bottom of the ☰ drawer): theme, notifications, **Capability check** (own screen with a live progress bar; 4 real tasks checked by code; runs on the server so you can leave and come back), server info, version, check for updates, sign out.
+- **Updates:** each deploy stamps a build number (`v31 · abc1234`). When a newer build exists, an **Update** banner pops up; tap it to clear the cache and reload.
 - **Chats** (☰): each chat is its own session. When you start one you can attach a GitHub repo (`owner/name`) or leave it blank for a scratch workspace. Repo chats work on their own branch `agent/<id>`; ask it to open a PR when you're happy.
 - **Model chip** (in the input bar): search and pick a model, tap *test* to check it works, and set **effort** (Off / Medium / High reasoning). The list is fetched from your key, so you see what you can actually use.
 - **Mode chip**: *Ask* (asks before edits and commands), *Auto-edit*, *Plan* (read-only research, then you approve a plan), *YOLO* (no asking).
 - **Files button** (top right): browse, download and upload workspace files.
-- **Menu (⋯)**: rename, compact context, **Autopilot** (keeps going until it says `DONE:`, within a 300-step budget), save to GitHub, server info, notifications, and the **Capability check**: its own screen with a progress bar and a live status per task (4 real tasks, checked by code). It runs on the server, so you can close it and come back.
+- **Menu (⋯)**: chat actions only: rename, compact context, **Autopilot** (keeps going until it says `DONE:`, within a 300-step budget), save to GitHub.
 - **＋**: attach images (the model sees them) or **any file / zip** (uploaded into the workspace, archives are unpacked).
 - **↺** next to your messages rewinds the chat *and* restores the files to that point.
 - `/compact` summarizes old context. Context also auto-compacts.

@@ -98,7 +98,7 @@ async def login(request: Request, body: dict):
 # ------------------------------------------------------------------ info / models
 @app.get("/api/info", dependencies=[Depends(auth)])
 async def info():
-    return {"providers": list(config.providers()), "state": store.remote_status | {"repo": config.STATE_REPO},
+    return {"version": os.environ.get("RENDER_GIT_COMMIT", "")[:7], "providers": list(config.providers()), "state": store.remote_status | {"repo": config.STATE_REPO},
             "github": bool(config.GITHUB_TOKEN), "git": bool(workspace.shutil.which("git")),
             "rg": bool(workspace.shutil.which("rg")), "default_model": await llm.default_model(),
             "fallback_model": await llm.fallback_model(), "modes": perms.MODES,
