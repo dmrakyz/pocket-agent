@@ -93,6 +93,31 @@ assert not routines.due(r, ts(2026, 11, 3, 12, 31)), "disabled routines never fi
 print("PASS routine schedule maths")
 
 
+# llm: overloaded (503/429) falls back after two tries instead of waiting out four
+async def llm_fallback_test():
+    from app import llm as L, config as C
+    calls, notes = [], []
+    async def fake(prov, model, *a, **k):
+        calls.append(model)
+        if model == "ultra": raise L.LLMError("nvidia HTTP 503: overloaded", status=503)
+        return {"message": {"content": "ok"}, "finish_reason": "stop", "usage": {}}
+    async def nosleep(_): return None
+    async def nonote(t): notes.append(t)
+    async def fb(): return "nvidia:light"
+    async def noop(_): return None
+    o_s, o_sleep, o_fb, o_prov = L._stream_once, asyncio.sleep, L.fallback_model, C.providers
+    L._stream_once, L.fallback_model = fake, fb
+    C.providers = lambda: {"nvidia": {}}
+    asyncio.sleep = nosleep
+    try:
+        r = await L.chat("nvidia:ultra", [{"role": "user", "content": "hi"}], [], noop, noop, nonote)
+    finally:
+        L._stream_once, asyncio.sleep, L.fallback_model, C.providers = o_s, o_sleep, o_fb, o_prov
+    assert r["message"]["content"] == "ok" and calls == ["ultra", "ultra", "light"], calls
+    assert any("Falling back" in n for n in notes), notes
+    print("PASS llm: 503 falls back after two tries")
+asyncio.run(llm_fallback_test())
+
 # OAuth for MCP connectors: discovery, registration, PKCE exchange, refresh, bearer on requests (fake server, no network)
 import base64, hashlib, json as _json, httpx
 from urllib.parse import urlparse, parse_qs

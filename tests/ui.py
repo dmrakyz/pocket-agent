@@ -383,6 +383,11 @@ try:
         p.mouse.click(195, 40)
         p.wait_for_function("!document.querySelector('#sheet').classList.contains('open')")
         p.click("#cn-back")
+        p.evaluate("__setStatus('nvidia HTTP 503: Service temporarily overloaded - retrying in 5s')")
+        check("overloaded notice offers Try another model", p.locator(".notice .notice-btn:has-text('Try another model')").count() == 1)
+        p.evaluate("__setStatus('preparing workspace…')")
+        check("ordinary notices have no retry button", p.locator(".notice .notice-btn").count() == 0)
+        p.evaluate("__setStatus('')")
         # memory screen: add, secret refused, import with preview, edit, forget
         p.click("#setbody >> text=Memory")
         p.wait_for_selector("#mempage:not([hidden]) >> text=Nothing remembered yet")

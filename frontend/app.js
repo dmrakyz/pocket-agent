@@ -634,10 +634,23 @@ function renderLive() {
     scrollDown();
   });
 }
+const RETRYISH = /HTTP (408|429|5\d\d)|retrying in|keeps failing|network hiccup/;
+async function retryOnOtherModel() {
+  if (!S.cur) return;
+  const fb = S.info && S.info.fallback_model;
+  if (!fb || fb === S.cur.model) { toast('Pick a different model, then resend'); modelSheet(); return; }
+  try {
+    await api(`/api/sessions/${S.cur.id}/stop`, { method: 'POST' });
+    for (let i = 0; i < 30 && S.run.running; i++) await new Promise((r) => setTimeout(r, 200));
+    await api('/api/sessions/' + S.cur.id, { method: 'PATCH', body: { model: fb } }); S.cur.model = fb; applyChips();
+    const ui = lastUserIdx();
+    if (ui >= 0) await regenerate(ui);
+  } catch (e) { toast(e.message, true); }
+}
 function setStatus(text) {
   if (!text) { if (S.statusEl) S.statusEl.remove(); S.statusEl = null; return; }
   if (!S.statusEl) S.statusEl = h('div.notice');
-  S.statusEl.textContent = text;
+  S.statusEl.replaceChildren(text, RETRYISH.test(text) ? h('button.notice-btn', { text: 'Try another model', onclick: retryOnOtherModel }) : null);
   msgsEl().append(S.statusEl);
   scrollDown();
 }
@@ -1785,4 +1798,5 @@ setTimeout(sendPresence, 800);
 setInterval(checkUpdate, 5 * 60 * 1000);
 S.checkUpdate = checkUpdate;
 window.__agent = S; // handy for debugging in devtools
+window.__setStatus = setStatus; // used by the UI tests
 })();

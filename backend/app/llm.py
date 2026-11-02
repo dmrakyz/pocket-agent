@@ -256,6 +256,8 @@ async def chat(model_ref: str, messages: list[dict], tools: list[dict], on_text,
                 continue
             if e.status not in (408, 409, 425, 429, 500, 502, 503, 504) or attempt == len(delays):
                 break
+            if e.status in (429, 503) and attempt >= 1:     # overloaded/rate-limited: a second model beats a longer wait
+                break
             await notify(f"{e} — retrying in {delays[attempt]}s")
             await asyncio.sleep(delays[attempt])
         except (httpx.TransportError, httpx.TimeoutException) as e:

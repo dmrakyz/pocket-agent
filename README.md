@@ -144,3 +144,6 @@ The browser presents as ordinary desktop Chrome (no `HeadlessChrome` UA, `naviga
 Settings → Memory holds short notes about you that every chat sees (kv `memory`, mirrored to the private state repo; max 200 notes, newest kept in the prompt if it grows past ~6 KB). The agent can `memory_save` / `memory_forget` / `memory_list` (saving needs no approval, forgetting does). Notes are injected as data, never instructions. Secrets (API keys, passwords, card or account numbers) are refused everywhere.
 
 **Import:** paste text or pick a file (a list of memories, a notes file, `conversations.json` from ChatGPT or Claude). Plain lists are split into notes locally; chat exports, or anything with "Distill with AI" ticked, go through the model, which extracts durable facts. You always get a preview with checkboxes; imports only add, skip duplicates, and never overwrite.
+
+### Overloaded models
+A 503 or 429 from the provider is retried once, then the step falls back to the lighter model (set `FALLBACK_MODEL` to choose it). The retry notice shows a **Try another model** button that stops the run, switches the chat to the fallback and re-sends your last message.
