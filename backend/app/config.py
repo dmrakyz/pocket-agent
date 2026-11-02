@@ -1,0 +1,96 @@
+"""All configuration comes from environment variables (set them in Render's dashboard)."""
+import hashlib
+import json
+import os
+
+
+def env(key: str, default: str = "") -> str:
+    return os.environ.get(key, default).strip()
+
+
+APP_PASSWORD = env("APP_PASSWORD")
+# Token-signing secret. If you don't set one it's derived from the password,
+# so tokens survive Render restarts either way.
+APP_SECRET = env("APP_SECRET") or hashlib.sha256(("salt-v1:" + APP_PASSWORD).encode()).hexdigest()
+TOKEN_TTL_DAYS = int(env("TOKEN_TTL_DAYS", "30"))
+
+# CORS: put your GitHub Pages origin here, e.g. https://yourname.github.io
+ALLOWED_ORIGINS = [o.strip() for o in env("ALLOWED_ORIGINS", "*").split(",") if o.strip()]
+
+DATA_DIR = env("DATA_DIR", "/tmp/agent")
+
+GITHUB_TOKEN = env("GITHUB_TOKEN")          # the PAT
+STATE_REPO = env("STATE_REPO")              # e.g. "yourname/agent-state" (private, auto-created)
+GIT_USER_NAME = env("GIT_USER_NAME", "Mobile Agent")
+GIT_USER_EMAIL = env("GIT_USER_EMAIL", "agent@users.noreply.github.com")
+
+DEFAULT_MODEL = env("DEFAULT_MODEL")        # "provider:model-id"; auto-picked if empty
+FALLBACK_MODEL = env("FALLBACK_MODEL")      # used when the main model keeps failing; auto-picked if empty
+COMPACT_AT_TOKENS = int(env("COMPACT_AT_TOKENS", "120000"))
+MAX_STEPS = int(env("MAX_STEPS", "60"))     # tool-loop iterations per user turn
+BASH_TIMEOUT = int(env("BASH_TIMEOUT", "120"))
+TOOL_OUTPUT_LIMIT = int(env("TOOL_OUTPUT_LIMIT", "30000"))
+AUTOPILOT_STEPS = int(env("AUTOPILOT_STEPS", "300"))      # step budget when Autopilot is on
+MAX_SUBAGENTS = int(env("MAX_SUBAGENTS", "12"))            # per user turn, across all nesting levels
+SUBAGENT_PARALLEL = int(env("SUBAGENT_PARALLEL", "4"))     # how many run at the same time
+MAX_SUBAGENT_DEPTH = int(env("MAX_SUBAGENT_DEPTH", "2"))   # 1 = subagents can't spawn more
+MAX_UPLOAD_MB = int(env("MAX_UPLOAD_MB", "50"))
+# Requests per minute per provider. NVIDIA's free tier is ~40 RPM; stay under it.
+# Override: LLM_RPM='{"nvidia": 30, "openrouter": 0}' (0 = unlimited)
+def rpm_limits() -> dict:
+    d = {"nvidia": 35}
+    raw = env("LLM_RPM")
+    if raw:
+        try:
+            d.update(json.loads(raw))
+        except json.JSONDecodeError:
+            print("WARNING: LLM_RPM is not valid JSON, ignoring")
+    return d
+
+# Search: DuckDuckGo needs no key. Optional upgrades:
+TAVILY_API_KEY = env("TAVILY_API_KEY")
+BRAVE_API_KEY = env("BRAVE_API_KEY")
+
+
+def providers() -> dict:
+    """OpenAI-compatible providers. Anything with a key set shows up in the model picker."""
+    p = {}
+    if env("NVIDIA_API_KEY"):
+        p["nvidia"] = {"base_url": env("NVIDIA_BASE_URL", "https://integrate.api.nvidia.com/v1"),
+                       "api_key": env("NVIDIA_API_KEY")}
+    if env("OPENROUTER_API_KEY"):
+        p["openrouter"] = {"base_url": "https://openrouter.ai/api/v1", "api_key": env("OPENROUTER_API_KEY")}
+    if env("OPENAI_API_KEY"):
+        p["openai"] = {"base_url": env("OPENAI_BASE_URL", "https://api.openai.com/v1"),
+                       "api_key": env("OPENAI_API_KEY")}
+    if env("ANTHROPIC_API_KEY"):
+        p["anthropic"] = {"base_url": "https://api.anthropic.com/v1", "api_key": env("ANTHROPIC_API_KEY")}
+    if env("GEMINI_API_KEY"):
+        p["gemini"] = {"base_url": "https://generativelanguage.googleapis.com/v1beta/openai",
+                       "api_key": env("GEMINI_API_KEY")}
+    # Anything else: PROVIDERS_JSON='{"name": {"base_url": "...", "api_key": "..."}}'
+    extra = env("PROVIDERS_JSON")
+    if extra:
+        try:
+            p.update(json.loads(extra))
+        except json.JSONDecodeError:
+            print("WARNING: PROVIDERS_JSON is not valid JSON, ignoring")
+    return p
+
+
+# Remote (HTTP) MCP servers: MCP_SERVERS='[{"name":"x","url":"https://...","headers":{"Authorization":"Bearer ..."}}]'
+def mcp_servers() -> list:
+    raw = env("MCP_SERVERS")
+    if not raw:
+        return []
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError:
+        print("WARNING: MCP_SERVERS is not valid JSON, ignoring")
+        return []
+
+
+SECRET_ENV_KEYS = {
+    "APP_PASSWORD", "APP_SECRET", "GITHUB_TOKEN", "NVIDIA_API_KEY", "OPENROUTER_API_KEY", "OPENAI_API_KEY",
+    "ANTHROPIC_API_KEY", "GEMINI_API_KEY", "PROVIDERS_JSON", "MCP_SERVERS", "TAVILY_API_KEY", "BRAVE_API_KEY",
+}
