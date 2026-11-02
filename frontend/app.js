@@ -373,7 +373,7 @@ function scrollDown(force) {
   if (force || S.stick) c.scrollTop = c.scrollHeight;
 }
 const ICONS = { read: '▤', write: '✎', edit: '✎', multiedit: '✎', bash: '$', bash_output: '$', kill_bash: '■', grep: '⌕', glob: '✱',
-  web_fetch: '◎', web_search: '◎', browser_read: '◫', browser_act: '◫', todo_write: '☑', task: '⋔', skill: '★', git_sync: '⎇', create_pr: '⎇', exit_plan_mode: '☰', share_file: '⬇', preview: '▶', view_3d: '◈', image_search: '⌕', fetch_image: '▣', view_image: '◉', annotate_image: '✐', models: '⋔' };
+  web_fetch: '◎', web_search: '◎', browser_read: '◫', browser_act: '◫', todo_write: '☑', task: '⋔', skill: '★', git_sync: '⎇', create_pr: '⎇', exit_plan_mode: '☰', share_file: '⬇', preview: '▶', view_3d: '◈', image_search: '⌕', fetch_image: '▣', view_image: '◉', annotate_image: '✐', models: '⋔', connector_search: '⌕' };
 function toolSummary(name, a) {
   a = a || {};
   switch (name) {
@@ -383,6 +383,7 @@ function toolSummary(name, a) {
     case 'image_search': return a.query || '';
     case 'fetch_image': return a.url || '';
     case 'models': return 'list models';
+    case 'connector_search': return a.query || '';
     case 'browser_read': return [a.action, a.url].filter(Boolean).join(' ');
     case 'browser_act': return [a.action, a.ref != null ? '#' + a.ref : '', a.text || a.key || (a.js || '').slice(0, 40)].filter(Boolean).join(' ');
     case 'grep': return '/' + (a.pattern || '') + '/' + (a.path ? ' ' + a.path : '');
@@ -507,7 +508,7 @@ const KIND = { bash: ['Ran', 'command', 'commands'], bash_output: ['Ran', 'comma
   read: ['Read', 'file', 'files'], glob: ['Searched', 'folder', 'folders'], grep: ['Searched', 'code search', 'code searches'],
   write: ['Edited', 'file', 'files'], edit: ['Edited', 'file', 'files'], multiedit: ['Edited', 'file', 'files'], annotate_image: ['Edited', 'image', 'images'],
   web_fetch: ['Opened', 'page', 'pages'], web_search: ['Searched the web', 'time', 'times'], browser_read: ['Browsed', 'page', 'pages'], browser_act: ['Used the browser', 'time', 'times'], image_search: ['Searched images', 'time', 'times'],
-  fetch_image: ['Downloaded', 'image', 'images'], view_image: ['Looked at', 'image', 'images'], task: ['Delegated', 'task', 'tasks'], git_sync: ['Synced', 'time', 'times'], todo_write: ['Updated', 'task list', 'task lists'], skill: ['Loaded', 'skill', 'skills'], models: ['Checked', 'model list', 'model lists'], create_pr: ['Opened', 'pull request', 'pull requests'] };
+  fetch_image: ['Downloaded', 'image', 'images'], view_image: ['Looked at', 'image', 'images'], task: ['Delegated', 'task', 'tasks'], git_sync: ['Synced', 'time', 'times'], todo_write: ['Updated', 'task list', 'task lists'], skill: ['Loaded', 'skill', 'skills'], models: ['Checked', 'model list', 'model lists'], connector_search: ['Looked up', 'connector tool', 'connector tools'], create_pr: ['Opened', 'pull request', 'pull requests'] };
 const isPinned = (c) => { const r = S.results[c._call.id]; return !!(r && (r._file || r._preview || r._model || r._image)) || c._call.function.name === 'exit_plan_mode'; };
 const isDone = (c) => !!S.results[c._call.id] && !S.pending[c._call.id];
 function tgLabel(cards) {

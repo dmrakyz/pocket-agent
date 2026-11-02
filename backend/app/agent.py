@@ -133,6 +133,11 @@ def build_system(s: dict, root: Path, sub: bool = False, can_edit: bool = False)
     if sk and not sub:
         parts.append("\nSkills available (load with the `skill` tool when relevant):\n" + "\n".join(
             f"- {n}: {tools.skill_description(p)}" for n, p in sk.items()))
+    if MCP is not None and MCP.tools and not sub:
+        cs = ", ".join(f"{n} ({c} tools)" for n, c in MCP.counts().items())
+        parts.append("\nConnected apps (extra tools, NOT loaded yet): " + cs + ". When a request touches one of them, call "
+                     "`connector_search` first (describe the action, or pass the app name); the matching tools switch on for your next step. "
+                     "Don't guess tool names.")
     if s.get("todos") and not sub:
         parts.append("\nCurrent todo list:\n" + "\n".join(f"- [{t['status']}] {t['content']}" for t in s["todos"]))
     return "\n".join(parts)

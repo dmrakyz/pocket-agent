@@ -139,6 +139,11 @@ BASE_TOOLS = [
         ["path", "ops"]),
     _fn("models", "List the models you can hand work to with the task tool, with size hints. Use it when you are stuck "
         "(same error repeating, going in circles) to pick a stronger or differently-skilled model.", {}, []),
+    _fn("connector_search", "Find tools from the user's connected apps (MCP connectors listed in your instructions) and switch them on. "
+        "They are not loaded until you search. Describe what you need ('create a page', 'search issues', 'recent errors') or pass a connector name. "
+        "Returns the best matches and activates them, so you can call them on your very next step.",
+        {"query": {"type": "string", "description": "what you want to do, or a connector name"},
+         "limit": {"type": "integer", "description": "max tools to activate (default 8, max 15)"}}, ["query"]),
     _fn("browser_read", "Use a real Chromium browser (JavaScript works, logins persist for this chat). Actions: "
         "open{url} loads a page and returns a snapshot; snapshot{} re-reads the current page (numbered clickable elements + visible text); "
         "screenshot{full?} saves a PNG and shows it in the chat (pair with view_image to inspect it); scroll{direction:'down'|'up', amount?}; "
@@ -161,7 +166,7 @@ BASE_TOOLS = [
     _fn("exit_plan_mode", "Plan mode only: present your finished plan to the user for approval.",
         {"plan": S}, ["plan"]),
 ]
-READONLY = {"read", "glob", "grep", "web_fetch", "web_search", "image_search", "view_image", "models", "browser_read", "todo_write", "bash_output", "skill", "task", "share_file", "preview", "view_3d"}
+READONLY = {"read", "glob", "grep", "web_fetch", "web_search", "image_search", "view_image", "models", "browser_read", "todo_write", "bash_output", "skill", "task", "share_file", "preview", "view_3d", "connector_search"}
 EDITS = {"write", "edit", "multiedit", "fetch_image", "annotate_image"}
 SUBAGENT_TOOLS = {"read", "glob", "grep", "bash", "bash_output", "kill_bash", "web_fetch", "web_search"}
 SUBAGENT_EDIT_TOOLS = SUBAGENT_TOOLS | EDITS
@@ -177,9 +182,11 @@ def schemas(session: dict, mcp=None, only: Optional[set] = None, plan_mode: bool
             continue
         if n == "create_pr" and not session.get("repo"):
             continue
+        if n == "connector_search" and not (mcp and mcp.tools):
+            continue
         out.append(t)
     if mcp and only is None:
-        out.extend(mcp.schemas())
+        out.extend(mcp.schemas(session.get("mcp_active") or []))
     return out
 
 
@@ -811,6 +818,27 @@ async def t_models(ctx: Ctx, a: dict):
             "stronger but slower; hints are guesses from the name.\n" + "\n".join(lines))
 
 
+MAX_ACTIVE_MCP = 30
+
+
+async def t_connector_search(ctx: Ctx, a: dict):
+    if not ctx.mcp or not ctx.mcp.tools:
+        return "No connectors are set up. The user can add some under Connectors."
+    q = str(a.get("query") or "").strip()
+    if not q:
+        raise ToolError("query is required")
+    limit = max(1, min(int(a.get("limit") or 8), 15))
+    hits = ctx.mcp.search(q, limit)
+    if not hits:
+        names = ", ".join(sorted({t["server"]["name"] for t in ctx.mcp.tools.values()}))
+        return f"No tools matched {q!r}. Connectors: {names}. Try different words or pass a connector name."
+    act = [n for n in (ctx.session.get("mcp_active") or []) if n not in {h[0] for h in hits}]
+    act = (act + [h[0] for h in hits])[-MAX_ACTIVE_MCP:]
+    ctx.session["mcp_active"] = act
+    lines = [f"- {full}: {(d.get('description') or '').strip().splitlines()[0][:160] if (d.get('description') or '').strip() else ''}" for full, d in hits]
+    return "Activated (callable now):\n" + "\n".join(lines)
+
+
 # ---------------------------------------------------------------- browser
 def _brw():
     from .browser import browser, BrowserError
@@ -889,7 +917,7 @@ HANDLERS: dict[str, Callable[[Ctx, dict], Awaitable[Any]]] = {
     "web_search": t_web_search, "todo_write": t_todo_write, "task": t_task, "skill": t_skill,
     "git_sync": t_git_sync, "create_pr": t_create_pr, "exit_plan_mode": t_exit_plan_mode, "share_file": t_share_file, "preview": t_preview, "view_3d": t_view_3d,
     "image_search": t_image_search, "fetch_image": t_fetch_image, "view_image": t_view_image,
-    "annotate_image": t_annotate_image, "models": t_models,
+    "annotate_image": t_annotate_image, "models": t_models, "connector_search": t_connector_search,
     "browser_read": t_browser_read, "browser_act": t_browser_act,
 }
 

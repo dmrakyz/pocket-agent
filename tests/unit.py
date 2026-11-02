@@ -213,6 +213,35 @@ async def image_test():
 asyncio.run(image_test())
 
 
+# connectors: lazy tool loading (nothing is sent until connector_search switches tools on)
+async def lazy_test():
+    from app import mcp as mcpmod
+    m = mcpmod.MCP()
+    def add(srv, name, desc): m.tools[f"mcp__{srv}__{name}"] = {"server": {"name": srv}, "name": name, "def": {"name": name, "description": desc, "inputSchema": {"type": "object", "properties": {}}}}
+    add("notion", "notion-create-pages", "Create one or more pages in a Notion workspace"); add("notion", "notion-search", "Search pages and databases")
+    add("linear", "list_issues", "List issues in the user's Linear workspace"); add("linear", "save_issue", "Create or update an issue")
+    add("sentry", "search_errors", "Search recent error events")
+    sess = {"id": "lz1"}
+    assert not [x for x in T.schemas(sess, m) if x["function"]["name"].startswith("mcp__")], "no connector schema until activated"
+    assert any(x["function"]["name"] == "connector_search" for x in T.schemas(sess, m)), "search tool is offered when connectors exist"
+    assert not any(x["function"]["name"] == "connector_search" for x in T.schemas(sess, None)), "and hidden when none"
+    ctx = T.Ctx(sess, Path(tempfile.mkdtemp()), lambda e: asyncio.sleep(0), None, m)
+    r = await T.execute(ctx, "connector_search", {"query": "create a notion page"}); assert not r["error"] and "mcp__notion__notion-create-pages" in r["text"], r
+    names = [x["function"]["name"] for x in T.schemas(sess, m) if x["function"]["name"].startswith("mcp__")]
+    assert "mcp__notion__notion-create-pages" in names and not any("linear" in n or "sentry" in n for n in names), names
+    r = await T.execute(ctx, "connector_search", {"query": "linear", "limit": 1}); assert "mcp__linear__" in r["text"]
+    r = await T.execute(ctx, "connector_search", {"query": "zzzz nothing"}); assert "No tools matched" in r["text"] and "notion" in r["text"], r
+    for i in range(40): add("bulk", f"tool{i}", "bulk search thing")
+    await T.execute(ctx, "connector_search", {"query": "bulk", "limit": 15}); await T.execute(ctx, "connector_search", {"query": "bulk tool1", "limit": 15}); await T.execute(ctx, "connector_search", {"query": "bulk tool2", "limit": 15})
+    assert len(sess["mcp_active"]) <= T.MAX_ACTIVE_MCP, len(sess["mcp_active"])
+    from app import agent as AG
+    AG.MCP = m
+    sysmsg = AG.build_system({"id": "lz1", "mode": "ask"}, Path(tempfile.mkdtemp()))
+    assert "NOT loaded yet" in sysmsg and "notion (2 tools)" in sysmsg and "notion-create-pages" not in sysmsg
+    AG.MCP = None
+    print("PASS connector tools load lazily via connector_search")
+asyncio.run(lazy_test())
+
 # browser: real Chromium against a local page (guard relaxed for localhost via BROWSER_ALLOW_LOCAL, tests only)
 import http.server, threading
 async def browser_test():
@@ -222,6 +251,8 @@ async def browser_test():
     class H(http.server.BaseHTTPRequestHandler):
         def do_GET(self):
             body = PAGE if self.path == "/" else b"<html><title>Two</title><body>second page</body></html>"
+            if self.path == "/captcha": body = b"<html><title>Just a moment...</title><body><h1>Verify you are human</h1><div class='g-recaptcha' data-sitekey='x'></div></body></html>"
+            if self.path == "/ua": body = b"<html><title>ua</title><body><script>document.body.innerText = 'UA=' + navigator.userAgent + ' WD=' + navigator.webdriver</script></body></html>"
             self.send_response(200); self.send_header("Content-Type", "text/html"); self.end_headers(); self.wfile.write(body)
         def log_message(self, *a): pass
     srv = http.server.ThreadingHTTPServer(("127.0.0.1", 9333), H); threading.Thread(target=srv.serve_forever, daemon=True).start()
@@ -247,6 +278,9 @@ async def browser_test():
     r = await T.execute(ctx, "browser_act", {"action": "click", "ref": int(ref_buy2)}); assert not r["error"] and "clicked:" in r["text"], r["text"][:300]
     r = await T.execute(ctx, "browser_read", {"action": "open", "url": "http://127.0.0.1:9333/two"}); assert "second page" in r["text"]
     r = await T.execute(ctx, "browser_read", {"action": "back"}); assert "Test Shop" in r["text"] or "clicked" in r["text"], r["text"][:200]
+    r = await T.execute(ctx, "browser_read", {"action": "open", "url": "http://127.0.0.1:9333/captcha"}); assert "CAPTCHA detected" in r["text"] and "Do not try to solve" in r["text"], r["text"][:300]
+    r = await T.execute(ctx, "browser_read", {"action": "open", "url": "http://127.0.0.1:9333/two"}); assert "CAPTCHA" not in r["text"], "no false positive on a normal page"
+    r = await T.execute(ctx, "browser_read", {"action": "open", "url": "http://127.0.0.1:9333/ua"}); assert "HeadlessChrome" not in r["text"] and "Windows NT" in r["text"] and "WD=undefined" in r["text"], r["text"][-200:]
     # guard: with the test bypass off, private addresses are refused
     B.ALLOW_LOCAL = False
     def strict(url):

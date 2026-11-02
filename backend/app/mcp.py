@@ -89,14 +89,51 @@ class MCP:
         self.report = report
         return report
 
-    def schemas(self) -> list[dict]:
+    def schemas(self, active=()) -> list[dict]:
+        """Only tools the agent switched on with connector_search are sent to the model."""
         out = []
+        on = set(active)
         for full, t in self.tools.items():
+            if full not in on:
+                continue
             d = t["def"]
             out.append({"type": "function", "function": {
                 "name": full, "description": (d.get("description") or "")[:900],
                 "parameters": d.get("inputSchema") or {"type": "object", "properties": {}}}})
         return out
+
+    def counts(self) -> dict:
+        c: dict = {}
+        for t in self.tools.values():
+            c[t["server"]["name"]] = c.get(t["server"]["name"], 0) + 1
+        return c
+
+    def search(self, query: str, limit: int = 8) -> list:
+        """Keyword search over tool names/descriptions. Returns [(full_name, def)], best first."""
+        toks = [w[:-1] if len(w) > 3 and w.endswith("s") else w for w in re.findall(r"[a-z0-9]+", query.lower()) if len(w) > 1]
+        if not toks:
+            return []
+        scored = []
+        named = {t["server"]["name"].lower() for t in self.tools.values()} & set(toks)   # "notion ..." means only Notion's tools
+        for full, t in self.tools.items():
+            if named and t["server"]["name"].lower() not in named:
+                continue
+            d = t["def"]
+            srv = t["server"]["name"].lower()
+            name = re.sub(r"[^a-z0-9]+", " ", t["name"].lower())
+            desc = (d.get("description") or "").lower()
+            sc = 0
+            for w in toks:
+                if w == srv:
+                    sc += 2
+                if w in name:
+                    sc += 3
+                if w in desc:
+                    sc += 1
+            if sc:
+                scored.append((-sc, full, d))
+        scored.sort(key=lambda x: (x[0], x[1]))
+        return [(f, d) for _, f, d in scored[:limit]]
 
     async def call(self, full: str, args: dict) -> str:
         t = self.tools.get(full)

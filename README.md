@@ -133,3 +133,9 @@ While a page is open, a browser button appears in the chat header (a pulsing dot
 
 ### Image sizing in answers
 `![caption](ws:path)` is medium (max 240px tall), `![caption|s](ws:path)` a small thumbnail, `![caption|l](ws:path)` large (max 55% of screen height). An image written inside a sentence becomes a small inline thumbnail. Image tool cards show a 150px thumbnail, collapse from the header like any card, and tap-to-open the viewer.
+
+### Connectors load lazily
+Connector tools are never sent to the model by default (Notion alone is 60+ schemas). The system prompt lists each connected app with its tool count, and the agent calls `connector_search("create a page")` (or an app name) to switch on the best matches for the rest of the chat (max 30 active at once). `connector_search` is read-only and needs no approval.
+
+### Captchas
+The browser presents as ordinary desktop Chrome (no `HeadlessChrome` UA, `navigator.webdriver` hidden). Datacenter IPs still get challenged sometimes. When a page looks like a bot check, the snapshot starts with a warning telling the agent not to bypass it, to ask you to solve it in the Browser screen and reply, and meanwhile to try another source.
