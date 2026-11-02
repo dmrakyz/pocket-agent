@@ -1,0 +1,21 @@
+# Render Blueprint: New + > Blueprint > pick this repo. It asks you for the secret values below.
+services:
+  - type: web
+    name: pocket-agent
+    runtime: docker
+    plan: free
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: APP_PASSWORD          # the password you type into the phone app
+        sync: false
+      - key: NVIDIA_API_KEY        # nvapi-... from build.nvidia.com
+        sync: false
+      - key: GITHUB_TOKEN          # the "PAT" (see README step 2)
+        sync: false
+      - key: ALLOWED_ORIGINS       # who may call the API: your GitHub Pages origin
+        value: https://dmrakyz.github.io
+      - key: STATE_REPO            # private repo where chat history lives (auto-created)
+        value: dmrakyz/agent-state
