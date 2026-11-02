@@ -79,9 +79,22 @@ TASKS = [
 ]
 
 
+def _last_activity(s: dict) -> str:
+    for m in reversed(s["messages"]):
+        if m["role"] == "assistant":
+            calls = m.get("tool_calls") or []
+            if calls:
+                f = calls[-1]["function"]
+                return f"{f['name']} {f['arguments'][:70]}"
+            return "writing a reply"
+    return "starting"
+
+
 async def run_eval(eval_id: str, model: str):
     ev = EVALS[eval_id]
-    for t in TASKS:
+    for idx, t in enumerate(TASKS):
+        if ev.get("cancel"):
+            break
         sid = "eval-" + uuid.uuid4().hex[:8]
         s = {"id": sid, "title": t["name"], "model": model, "mode": "yolo", "thinking": True, "repo": None,
              "messages": [], "todos": [], "allow": [], "usage": {"in": 0, "out": 0}, "_ephemeral": True}
@@ -93,29 +106,56 @@ async def run_eval(eval_id: str, model: str):
             f.write_text(body)
         started = time.time()
         res = {"name": t["name"], "passed": False, "note": "", "steps": 0}
+        ev["live"] = {"index": idx, "started": started, "steps": 0, "last": "starting"}
         try:
             run = agent.start(s, t["prompt"])
-            await asyncio.wait_for(run.task, timeout=300)
-            final = next((m.get("content") or "" for m in reversed(s["messages"])
-                          if m["role"] == "assistant" and m.get("content")), "")
-            res["steps"] = sum(1 for m in s["messages"] if m["role"] == "assistant")
-            err = next((e["text"] for e in run.events if e["type"] == "error"), "")
-            if err:
-                res["note"] = err[:200]
+            ev["_run"] = run
+            while not run.task.done():
+                if time.time() - started > 300:
+                    run.task.cancel()
+                    raise asyncio.TimeoutError()
+                await asyncio.wait({run.task}, timeout=1)
+                ev["live"].update(steps=sum(1 for m in s["messages"] if m["role"] == "assistant"), last=_last_activity(s))
+            if run.task.cancelled() or ev.get("cancel"):
+                res["note"] = "stopped"
             else:
-                res["passed"], res["note"] = t["check"](root, final)
+                final = next((m.get("content") or "" for m in reversed(s["messages"])
+                              if m["role"] == "assistant" and m.get("content")), "")
+                res["steps"] = sum(1 for m in s["messages"] if m["role"] == "assistant")
+                err = next((e["text"] for e in run.events if e["type"] == "error"), "")
+                if err:
+                    res["note"] = err[:400]
+                else:
+                    res["passed"], res["note"] = t["check"](root, final)
         except asyncio.TimeoutError:
             res["note"] = "timed out (300s)"
         except Exception as e:  # noqa: BLE001
-            res["note"] = f"{type(e).__name__}: {e}"
+            res["note"] = f"{type(e).__name__}: {e}"[:400]
         res["seconds"] = round(time.time() - started, 1)
         ev["results"].append(res)
         workspace.drop_workspace(sid)
-    ev["status"] = "done"
+    ev["live"] = None
+    ev["_run"] = None
+    ev["status"] = "stopped" if ev.get("cancel") else "done"
+
+
+def public(ev: dict) -> dict:
+    out = {k: v for k, v in ev.items() if not k.startswith("_")}
+    out["now"] = time.time()
+    return out
+
+
+def stop_eval(eid: str):
+    ev = EVALS[eid]
+    ev["cancel"] = True
+    run = ev.get("_run")
+    if run and run.task and not run.task.done():
+        run.task.cancel()
 
 
 def start_eval(model: str) -> str:
     eid = uuid.uuid4().hex[:8]
-    EVALS[eid] = {"id": eid, "model": model, "status": "running", "total": len(TASKS), "results": []}
+    EVALS[eid] = {"id": eid, "model": model, "status": "running", "total": len(TASKS), "results": [],
+                  "tasks": [t["name"] for t in TASKS], "started": time.time(), "live": None}
     asyncio.create_task(run_eval(eid, model))
     return eid

@@ -135,11 +135,26 @@ async def eval_start(body: dict):
     return {"id": evals.start_eval(body.get("model") or await llm.default_model())}
 
 
+@app.get("/api/eval-latest", dependencies=[Depends(auth)])
+async def eval_latest():
+    if not evals.EVALS:
+        return {"eval": None}
+    return {"eval": evals.public(max(evals.EVALS.values(), key=lambda e: e["started"]))}
+
+
 @app.get("/api/eval/{eid}", dependencies=[Depends(auth)])
 async def eval_get(eid: str):
     if eid not in evals.EVALS:
         raise HTTPException(404)
-    return evals.EVALS[eid]
+    return evals.public(evals.EVALS[eid])
+
+
+@app.post("/api/eval/{eid}/stop", dependencies=[Depends(auth)])
+async def eval_stop(eid: str):
+    if eid not in evals.EVALS:
+        raise HTTPException(404)
+    evals.stop_eval(eid)
+    return {"ok": True}
 
 
 @app.post("/api/mcp/refresh", dependencies=[Depends(auth)])

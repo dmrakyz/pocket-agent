@@ -255,6 +255,16 @@ try:
         time.sleep(0.5)
     check("eval ran all tasks", ev["status"] == "done" and len(ev["results"]) == 4, str(ev))
     check("eval task 1 passes with scripted model", ev["results"][0]["passed"], str(ev["results"][0]))
+    check("eval exposes task list + clock", ev.get("tasks") and len(ev["tasks"]) == 4 and ev.get("now"), str(ev.keys()))
+    check("eval-latest returns it", c2.get("/api/eval-latest").json()["eval"]["id"] == eid)
+    eid2 = c2.post("/api/eval", json={"model": "mock:mock/ultra-550b"}).json()["id"]
+    check("eval stop accepted", c2.post(f"/api/eval/{eid2}/stop").status_code == 200)
+    for _ in range(40):
+        ev2 = c2.get(f"/api/eval/{eid2}").json()
+        if ev2["status"] != "running":
+            break
+        time.sleep(0.5)
+    check("eval stops early", ev2["status"] == "stopped" and len(ev2["results"]) < 4, str(ev2))
 finally:
     for p in procs:
         p.terminate()

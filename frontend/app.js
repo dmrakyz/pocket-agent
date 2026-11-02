@@ -726,7 +726,7 @@ async function filesSheet(path = '') {
   try {
     const d = await api(`/api/sessions/${S.cur.id}/files?path=${encodeURIComponent(path)}`);
     body.replaceChildren();
-    body.append(h('button.secondary', { text: '⬇ Download this folder (.zip)', onclick: () => downloadPath(path) }));
+    body.append(h('div.evbtns', {}, h('button.secondary', { text: '＋ Upload files', onclick: () => { closeSheet(); $('#file-img').click(); } }), h('button.secondary', { text: '⬇ Download folder (.zip)', onclick: () => downloadPath(path) })));
     if (path) body.append(h('button.fileitem', { text: '↑ ..', onclick: () => filesSheet(path.split('/').slice(0, -1).join('/')) }));
     for (const it of d.items) {
       const full = (path ? path + '/' : '') + it.name;
@@ -745,40 +745,136 @@ async function fileView(path) {
     pre.textContent = d.binary ? `(binary file, ${d.size} bytes)` : d.text + (d.truncated ? '\n… truncated' : '');
   } catch (e) { pre.textContent = e.message; }
 }
-function moreSheet() {
+function closeMenu() { $('#menu').hidden = true; $('#menu-scrim').hidden = true; }
+function renameSheet(s) {
+  const inp = h('input', { type: 'text', value: s.title });
+  sheet('Rename chat', inp, h('button.primary', { text: 'Save', onclick: async () => { await api('/api/sessions/' + s.id, { method: 'PATCH', body: { title: inp.value } }); closeSheet(); await loadSessions(); if (S.cur && S.cur.id === s.id) { S.cur.title = inp.value; applyChips(); } } }));
+}
+function openMenu() {
   const c = S.cur;
+  const menu = $('#menu');
+  const item = (ic, label, fn, cls = '') => h('button.mi' + cls, { onclick: () => { closeMenu(); fn(); } }, h('span.mic', { text: ic }), h('span', { text: label }));
+  const rows = [];
+  if (c) {
+    const tg = h('span.tg' + (c.autopilot ? '.on' : ''));
+    rows.push(
+      item('✎', 'Rename chat', () => renameSheet(c)),
+      item('⇣', 'Compact context', () => { $('#input').value = '/compact'; send(); }),
+      h('button.mi', { onclick: async () => {
+        const v = !c.autopilot;
+        try { await api('/api/sessions/' + c.id, { method: 'PATCH', body: { autopilot: v } }); c.autopilot = v; tg.classList.toggle('on', v); applyChips(); } catch (e) { toast(e.message, true); }
+      } }, h('span.mic', { text: '∞' }), h('span', { text: 'Autopilot' }), tg),
+      item('⎇', 'Save workspace to GitHub', async () => { try { const r = await api(`/api/sessions/${c.id}/sync`, { method: 'POST' }); toast(r.result); } catch (er) { toast(er.message, true); } }),
+      h('div.msep'));
+  }
+  rows.push(
+    item('✓', 'Capability check', openEval),
+    item('ⓘ', 'Server info', serverSheet),
+    item('🔔', 'Approval notifications', async () => { if ('Notification' in window) toast((await Notification.requestPermission()) === 'granted' ? 'Notifications on' : 'Blocked'); else toast('Not supported here'); }),
+    h('div.msep'),
+    item('⎋', 'Sign out', logout, '.danger'));
+  menu.replaceChildren(...rows);
+  menu.hidden = false; $('#menu-scrim').hidden = false;
+}
+function serverSheet() {
   const inf = S.info || {};
-  const auto = h('input', { type: 'checkbox', checked: !!(c && c.autopilot) });
-  auto.addEventListener('change', async () => { if (c) { await api('/api/sessions/' + c.id, { method: 'PATCH', body: { autopilot: auto.checked } }); c.autopilot = auto.checked; applyChips(); } });
-  const evalOut = h('div');
-  sheet('Menu',
-    c ? [
-      h('button.secondary', { text: 'Browse files', onclick: () => filesSheet('') }),
-      h('button.secondary', { text: 'Save workspace to GitHub now', onclick: async (e) => { e.target.disabled = true; try { const r = await api(`/api/sessions/${c.id}/sync`, { method: 'POST' }); toast(r.result); } catch (er) { toast(er.message, true); } e.target.disabled = false; } }),
-      h('button.secondary', { text: 'Compact context', onclick: async () => { closeSheet(); $('#input').value = '/compact'; send(); } }),
-      h('label.switch', {}, h('span', { text: 'Autopilot: keep going until DONE (300-step budget)' }), auto),
-    ] : null,
-    h('div.sec', { text: 'Server' }),
+  sheet('Server info',
     h('dl.kv', {}, h('dt', { text: 'URL' }), h('dd', { text: S.api }), h('dt', { text: 'Providers' }), h('dd', { text: (inf.providers || []).join(', ') || 'none' }),
       h('dt', { text: 'History sync' }), h('dd', { text: inf.state ? (inf.state.enabled ? `on → ${inf.state.repo}` : `off${inf.state.error ? ' (' + inf.state.error.slice(0, 80) + ')' : ' (set GITHUB_TOKEN + STATE_REPO)'}`) : '?' }),
       h('dt', { text: 'GitHub' }), h('dd', { text: inf.github ? 'token set' : 'no token' }), h('dt', { text: 'Search' }), h('dd', { text: inf.search || '?' }),
-      h('dt', { text: 'Tools' }), h('dd', { text: `git ${inf.git ? '✓' : '✕'} · ripgrep ${inf.rg ? '✓' : 'fallback'}` })),
-    h('button.secondary', { text: 'Run capability check (4 real tasks)', onclick: () => runEval(evalOut) }), evalOut,
-    h('button.secondary', { text: 'Enable approval notifications', onclick: async () => { if ('Notification' in window) toast((await Notification.requestPermission()) === 'granted' ? 'Notifications on' : 'Blocked'); else toast('Not supported here'); } }),
-    h('button.secondary.danger', { text: 'Sign out', onclick: () => { closeSheet(); logout(); } }));
+      h('dt', { text: 'Tools' }), h('dd', { text: `git ${inf.git ? '✓' : '✕'} · ripgrep ${inf.rg ? '✓' : 'fallback'}` })));
 }
-async function runEval(out) {
-  out.replaceChildren(h('div.dim', { text: 'Running… this uses real model calls.' }));
+
+/* ============================================================ capability check page */
+const EV = { ev: null, at: 0, timer: null, poll: null, err: '', busy: false };
+const fmtT = (s) => { s = Math.max(0, Math.round(s)); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); };
+async function openEval() {
+  $('#evalpage').hidden = false;
+  EV.err = ''; EV.busy = false;
+  evDraw();
+  await evLoad();
+  clearInterval(EV.timer); EV.timer = setInterval(evDraw, 1000);
+  evPoll();
+}
+function closeEval() { $('#evalpage').hidden = true; clearInterval(EV.timer); clearTimeout(EV.poll); EV.timer = EV.poll = null; }
+async function evLoad() {
+  try {
+    let ev = null;
+    const id = store.get('eval');
+    if (id) { try { ev = await api('/api/eval/' + id); } catch { ev = null; } }
+    if (!ev) ev = (await api('/api/eval-latest')).eval;
+    EV.ev = ev; EV.at = Date.now(); EV.err = '';
+  } catch (e) { EV.err = e.message; }
+  evDraw();
+}
+function evPoll() {
+  clearTimeout(EV.poll);
+  if ($('#evalpage').hidden) return;
+  EV.poll = setTimeout(async () => {
+    if (EV.ev && EV.ev.status === 'running') {
+      try { EV.ev = await api('/api/eval/' + EV.ev.id); EV.at = Date.now(); EV.err = ''; }
+      catch (e) { EV.err = e.message === 'Not Found' ? 'The server restarted, so this run is gone. Start it again.' : 'Lost contact with the server (still trying): ' + e.message; if (e.message === 'Not Found') EV.ev = null; }
+      evDraw();
+    }
+    evPoll();
+  }, 1500);
+}
+async function evStart() {
+  if (EV.busy) return;
+  EV.busy = true; EV.err = ''; evDraw();
   try {
     const { id } = await api('/api/eval', { body: { model: (S.cur && S.cur.model) || '' } });
-    for (;;) {
-      await sleep(3000);
-      const e = await api('/api/eval/' + id);
-      out.replaceChildren(h('div.dim', { text: `${shortModel(e.model)} — ${e.results.length}/${e.total}` }),
-        ...e.results.map((r) => h('div.evalrow', {}, h('b', { text: r.passed ? '✓' : '✕', style: 'color:var(--' + (r.passed ? 'ok' : 'bad') + ')' }), h('span', { text: `${r.name} · ${r.steps} steps · ${r.seconds}s${r.passed ? '' : ' — ' + r.note.slice(0, 90)}` }))));
-      if (e.status === 'done') { out.append(h('div', { text: `Score: ${e.results.filter((r) => r.passed).length}/${e.total}` })); break; }
+    store.set('eval', id);
+    EV.ev = await api('/api/eval/' + id); EV.at = Date.now();
+  } catch (e) { EV.err = e.message; }
+  EV.busy = false; evDraw();
+}
+async function evStop() {
+  if (!EV.ev) return;
+  try { await api(`/api/eval/${EV.ev.id}/stop`, { method: 'POST' }); toast('Stopping after the current step…'); } catch (e) { toast(e.message, true); }
+}
+function evDraw() {
+  const box = $('#evbody');
+  if ($('#evalpage').hidden || !box) return;
+  const ev = EV.ev;
+  const parts = [];
+  if (EV.err) parts.push(h('div.evwarn', { text: EV.err }));
+  if (!ev) {
+    parts.push(h('div.evhead', {}, h('div.big', { text: 'Not run yet' }),
+      h('div.dim', { text: `Runs 4 real tasks (write code, debug, explore a codebase, build a package) on ${shortModel(S.cur && S.cur.model || S.info && S.info.default_model)} and checks each result with code. Runs on the server, so you can close this screen and come back.` })),
+      h('button.primary', { text: EV.busy ? 'Starting…' : 'Run check', disabled: EV.busy, onclick: evStart }));
+    box.replaceChildren(...parts); return;
+  }
+  const drift = (Date.now() - EV.at) / 1000;
+  const running = ev.status === 'running';
+  const done = ev.results.length;
+  const passed = ev.results.filter((r) => r.passed).length;
+  const live = running && ev.live ? ev.live : null;
+  const liveFrac = live ? Math.min(0.9, (live.steps || 0) / 12) : 0;
+  const pct = Math.round(((done + liveFrac) / ev.total) * 100);
+  const head = running
+    ? `Task ${Math.min(done + 1, ev.total)} of ${ev.total} · ${fmtT(ev.now - ev.started + drift)} elapsed`
+    : (ev.status === 'stopped' ? `Stopped · ${passed}/${done} passed` : `Score ${passed}/${ev.total}`);
+  parts.push(h('div.evhead', {}, h('div.big', { text: head }), h('div.dim', { text: shortModel(ev.model) + (running ? ' · running on the server' : '') })));
+  parts.push(h('div.pbar' + (running ? '.run' : ''), {}, h('i', { style: `width:${running ? Math.max(pct, 3) : Math.round((done / ev.total) * 100)}%` })));
+  ev.tasks.forEach((name, i) => {
+    const r = ev.results[i];
+    const isNow = running && live && live.index === i;
+    const kids = [];
+    if (r) {
+      kids.push(h('div.evtop', {}, h('span.ic ' + (r.passed ? 'ev-ok' : 'ev-bad'), { text: r.passed ? '✓' : '✕' }), h('span.nm', { text: name }), h('span.tm', { text: `${r.steps} steps · ${r.seconds}s` })));
+      if (r.note) kids.push(h('div.evnote', { text: (r.passed ? 'Check: ' : 'Why it failed: ') + r.note }));
+    } else if (isNow) {
+      kids.push(h('div.evtop', {}, h('span.ic', {}, h('span.spin')), h('span.nm', { text: name }), h('span.tm', { text: fmtT(ev.now - live.started + drift) })));
+      kids.push(h('div.evlive', { text: `step ${live.steps || 0} · ${live.last || 'starting'}` }));
+    } else {
+      kids.push(h('div.evtop', {}, h('span.ic.ev-wait', { text: '○' }), h('span.nm.ev-wait', { text: name }), h('span.tm', { text: ev.status === 'stopped' ? 'skipped' : 'waiting' })));
     }
-  } catch (e) { out.replaceChildren(h('div.status.err', { text: e.message })); }
+    parts.push(h('div.evtask' + (r && !r.passed ? '.fail' : '') + (isNow ? '.now' : ''), {}, ...kids));
+  });
+  if (running) parts.push(h('button.secondary.danger', { text: 'Stop', onclick: evStop }));
+  else parts.push(h('button.primary', { text: EV.busy ? 'Starting…' : 'Run again', disabled: EV.busy, onclick: evStart }));
+  box.replaceChildren(...parts);
 }
 
 /* ============================================================ wiring */
@@ -794,7 +890,10 @@ function wire() {
   $('#btn-empty-new').onclick = newChatSheet;
   $('#chip-model').onclick = modelSheet;
   $('#chip-mode').onclick = modeSheet;
-  $('#btn-more').onclick = moreSheet;
+  $('#btn-more').onclick = openMenu;
+  $('#btn-files').onclick = () => { if (S.cur) filesSheet(''); else toast('Open a chat first'); };
+  $('#menu-scrim').onclick = closeMenu;
+  $('#ev-back').onclick = closeEval;
   $('#chat-search').oninput = renderList;
   $('#btn-send').onclick = send;
   $('#btn-attach').onclick = () => $('#file-img').click();
