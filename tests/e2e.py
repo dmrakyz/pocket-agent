@@ -205,6 +205,12 @@ try:
     # ---- autopilot
     s9 = c2.post("/api/sessions", json={"mode": "yolo"}).json()
     check("autopilot patch", c2.patch(f"/api/sessions/{s9['id']}", json={"autopilot": True}).status_code == 200)
+    r_eff = c2.patch(f"/api/sessions/{s9['id']}", json={"effort": "medium"}).json()
+    check("effort medium saved", r_eff.get("effort") == "medium" and r_eff.get("thinking") is True, str(r_eff))
+    r_eff = c2.patch(f"/api/sessions/{s9['id']}", json={"effort": "off"}).json()
+    check("effort off disables thinking", r_eff.get("effort") == "off" and r_eff.get("thinking") is False, str(r_eff))
+    r_eff = c2.patch(f"/api/sessions/{s9['id']}", json={"effort": "bogus"}).json()
+    check("bad effort ignored", r_eff.get("effort") == "off")
     run_turn(c2, s9["id"], "AUTOP build", timeout=60)
     m9 = c2.get(f"/api/sessions/{s9['id']}").json()["session"]["messages"]
     last9 = [m for m in m9 if m["role"] == "assistant"][-1]["content"]

@@ -6,7 +6,7 @@ A coding agent you run from your phone. Think Claude Code, but as a web app: it 
 - **Agent server** (`backend/`) lives on Render's free tier and calls your model API (NVIDIA Nemotron by default).
 - **Everything persists in GitHub.** Render's disk is wiped on every restart, so chats go to a private `agent-state` repo and each workspace is a git branch.
 
-## Deploy (all from a phone browser, about 15 minutes)
+## Deploy (all from a phone browser)
 
 ### 1. Put this code in a GitHub repo
 Create a **public** repo called `pocket-agent` (Pages is only free for public repos; there are no secrets in the code) and put this folder's contents in it. Easiest: ask Claude to push it for you.
@@ -45,9 +45,9 @@ Render's free tier sleeps after 15 min without inbound requests. Your agent call
 
 ## Using it
 - **Chats** (☰): each chat is its own session. When you start one you can attach a GitHub repo (`owner/name`) or leave it blank for a scratch workspace. Repo chats work on their own branch `agent/<id>`; ask it to open a PR when you're happy.
-- **Model chip**: pick a model, tap *test* to check it works. The list is fetched from your key, so you see what you can actually use.
+- **Model chip** (in the input bar): search and pick a model, tap *test* to check it works, and set **effort** (Off / Medium / High reasoning). The list is fetched from your key, so you see what you can actually use.
 - **Mode chip**: *Ask* (asks before edits and commands), *Auto-edit*, *Plan* (read-only research, then you approve a plan), *YOLO* (no asking).
-- **Menu (⋯)**: browse/download files, save to GitHub now, compact context, thinking on/off, **Autopilot** (keeps going until it says `DONE:`, within a 300-step budget), and a **capability check** that runs 4 real tasks against the current model.
+- **Menu (⋯)**: browse/download files, save to GitHub now, compact context, **Autopilot** (keeps going until it says `DONE:`, within a 300-step budget), and a **capability check** that runs 4 real tasks against the current model.
 - **＋**: attach images (the model sees them) or **any file / zip** (uploaded into the workspace, archives are unpacked).
 - **↺** next to your messages rewinds the chat *and* restores the files to that point.
 - `/compact` summarizes old context. Context also auto-compacts.

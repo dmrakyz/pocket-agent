@@ -150,7 +150,7 @@ def strip_private(messages: list[dict]) -> list[dict]:
     return [{k: v for k, v in m.items() if not k.startswith("_")} for m in messages]
 
 
-async def _stream_once(prov_name: str, model: str, messages, tools, on_text, on_reasoning, thinking, max_tokens):
+async def _stream_once(prov_name: str, model: str, messages, tools, on_text, on_reasoning, thinking, max_tokens, effort=None):
     prov = config.providers()[prov_name]
     body = {"model": model, "messages": strip_private(messages), "stream": True}
     if tools:
@@ -159,7 +159,10 @@ async def _stream_once(prov_name: str, model: str, messages, tools, on_text, on_
     if max_tokens:
         body["max_tokens"] = max_tokens
     if thinking is not None and prov_name == "nvidia":
-        body["chat_template_kwargs"] = {"enable_thinking": bool(thinking)}
+        kw = {"enable_thinking": bool(thinking)}
+        if thinking and effort == "medium":
+            kw["medium_effort"] = True     # Nemotron 3 Ultra: fewer reasoning tokens than full thinking
+        body["chat_template_kwargs"] = kw
 
     content, reasoning, tcalls, finish, usage = [], [], {}, None, None
     await limiter(prov_name).wait()
@@ -223,22 +226,29 @@ async def _stream_once(prov_name: str, model: str, messages, tools, on_text, on_
 
 Notify = Callable[[str], Awaitable[None]]
 _no_think: set = set()
+_no_effort: set = set()
 
 
 async def chat(model_ref: str, messages: list[dict], tools: list[dict], on_text, on_reasoning,
-               notify: Notify, thinking=None, max_tokens=None):
+               notify: Notify, thinking=None, max_tokens=None, effort=None):
     """Streaming chat with retries and one fallback-model attempt. Returns {message, finish_reason, usage}."""
     prov, model = split_ref(model_ref)
     if (prov, model) in _no_think:
         thinking = None
+    if (prov, model) in _no_effort:
+        effort = None
     delays = [2, 5, 12, 25]
     last: Exception = LLMError("unknown")
     tried_no_thinking = False
     for attempt in range(len(delays) + 1):
         try:
-            return await _stream_once(prov, model, messages, tools, on_text, on_reasoning, thinking, max_tokens)
+            return await _stream_once(prov, model, messages, tools, on_text, on_reasoning, thinking, max_tokens, effort)
         except LLMError as e:
             last = e
+            if e.status == 400 and thinking and effort:
+                _no_effort.add((prov, model))
+                effort = None              # this model doesn't know the effort flag; keep thinking on, retry
+                continue
             if e.status == 400 and thinking is not None and not tried_no_thinking:
                 tried_no_thinking = True
                 _no_think.add((prov, model))

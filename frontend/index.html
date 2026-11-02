@@ -41,8 +41,6 @@
         <div id="title" class="title">Pocket Agent</div>
         <div id="subtitle" class="subtitle"></div>
       </div>
-      <button id="chip-model" class="chip" aria-label="Model">model</button>
-      <button id="chip-mode" class="chip mode-ask" aria-label="Permission mode">ask</button>
       <button id="btn-more" class="icon" aria-label="More">⋯</button>
     </header>
 
@@ -62,9 +60,14 @@
     <footer>
       <div id="attach-preview" class="attach-preview" hidden></div>
       <div class="composer">
-        <button id="btn-attach" class="icon" aria-label="Attach image">＋</button>
         <textarea id="input" rows="1" placeholder="Message the agent…" enterkeyhint="send"></textarea>
-        <button id="btn-send" class="send" aria-label="Send">↑</button>
+        <div class="crow">
+          <button id="btn-attach" class="cbtn" aria-label="Attach file">＋</button>
+          <button id="chip-model" class="chip" aria-label="Model and effort">model</button>
+          <button id="chip-mode" class="chip mode-ask" aria-label="Permission mode">ask</button>
+          <span class="grow"></span>
+          <button id="btn-send" class="send" aria-label="Send">↑</button>
+        </div>
       </div>
       <input id="file-img" type="file" accept="image/*" hidden>
     </footer>

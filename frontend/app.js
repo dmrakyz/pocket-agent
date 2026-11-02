@@ -105,6 +105,11 @@ const S = {
   pending: {}, results: {}, cards: {}, lastSeq: 0, streaming: false, finished: true, abort: null,
   images: [], files: [], live: null, statusEl: null, stick: true, info: null, commands: [],
 };
+const EFFORTS = {
+  off: ['Off', 'No reasoning. Fastest and cheapest, weakest on hard problems.'],
+  medium: ['Medium', 'Reasons with fewer tokens. Good default for everyday coding.'],
+  high: ['High', 'Full reasoning. Best for hard bugs and planning, slower.'],
+};
 const MODES = {
   ask: ['Ask', 'Asks before edits and commands. Safe read-only commands run freely.'],
   auto: ['Auto-edit', 'Edits files without asking. Still asks before running commands.'],
@@ -216,7 +221,9 @@ async function newChat(opts = {}) {
 }
 function applyChips() {
   const c = S.cur;
-  $('#chip-model').textContent = shortModel(c ? c.model : S.info && S.info.default_model);
+  const cmod = $('#chip-model');
+  const eff = c ? (c.effort || (c.thinking === false ? 'off' : 'high')) : 'high';
+  cmod.replaceChildren(shortModel(c ? c.model : S.info && S.info.default_model), h('span.eff', { text: EFFORTS[eff][0] }));
   const mode = c ? c.mode : 'ask';
   const cm = $('#chip-mode');
   cm.textContent = MODES[mode] ? MODES[mode][0] : mode;
@@ -636,28 +643,52 @@ function newChatSheet() {
     h('div.dim', { text: 'Leave blank for a scratch workspace. With a repo, it works on its own branch (agent/…) and never touches main without a PR.' }), go);
   setTimeout(() => { if ($('#sheet').classList.contains('open')) repo.focus(); }, 300);
 }
+async function setEffort(k) {
+  if (!S.cur) return;
+  await api('/api/sessions/' + S.cur.id, { method: 'PATCH', body: { effort: k } });
+  S.cur.effort = k; S.cur.thinking = k !== 'off'; applyChips();
+}
 async function modelSheet() {
-  const body = h('div', { style: 'display:flex;flex-direction:column;gap:8px' }, h('div.dim', { text: 'Loading models…' }));
-  sheet('Model', body);
-  try {
-    const { models } = await api('/api/models');
-    body.replaceChildren();
-    if (S.cur && S.info) body.append(h('div.dim', { text: `Default: ${shortModel(S.info.default_model)} · fallback: ${shortModel(S.info.fallback_model) || 'none'}` }));
-    for (const m of models.filter((x) => !x.error)) {
+  const list = h('div', { style: 'display:flex;flex-direction:column;gap:8px' }, h('div.dim', { text: 'Loading models…' }));
+  const search = h('input.msearch', { type: 'search', placeholder: 'Search models', autocomplete: 'off', autocapitalize: 'off', autocorrect: 'off', spellcheck: 'false' });
+  const cur = () => (S.cur && (S.cur.effort || (S.cur.thinking === false ? 'off' : 'high'))) || 'high';
+  const note = h('div.seg-note', { text: EFFORTS[cur()][1] });
+  const seg = h('div.seg', {}, ...Object.entries(EFFORTS).map(([k, [name]]) => h('button' + (cur() === k ? '.on' : ''), { text: name, onclick: async (e) => {
+    const me = e.currentTarget;
+    await setEffort(k);
+    seg.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b === me));
+    note.textContent = EFFORTS[k][1];
+  } })));
+  const head = [];
+  if (S.cur) head.push(h('div.sec', { text: 'Effort (reasoning)' }), seg, note);
+  head.push(h('div.sec', { text: 'Model' }), search);
+  sheet('Model', ...head, list);
+  let models = [];
+  const draw = () => {
+    const q = search.value.trim().toLowerCase();
+    const shown = models.filter((m) => !q || (m.id + ' ' + m.provider).toLowerCase().includes(q));
+    list.replaceChildren();
+    for (const m of shown) {
       const out = h('small', { text: m.provider });
-      const row = h('div.opt' + (S.cur && S.cur.model === m.ref ? '.sel' : ''), {},
+      list.append(h('div.opt' + (S.cur && S.cur.model === m.ref ? '.sel' : ''), {},
         h('div.ot', { onclick: async () => { if (!S.cur) { await newChat({ model: m.ref }); } else { await api('/api/sessions/' + S.cur.id, { method: 'PATCH', body: { model: m.ref } }); S.cur.model = m.ref; } applyChips(); closeSheet(); }, style: 'cursor:pointer' }, h('b', { text: m.id }), out),
         h('button.test', { text: 'test', onclick: async (e) => {
           e.stopPropagation(); out.textContent = 'testing…';
           const r = await api('/api/models/test', { body: { ref: m.ref } });
           out.textContent = r.ok ? `✓ ${r.ms} ms` : '✕ ' + r.error.slice(0, 120);
-        } }));
-      body.append(row);
+        } })));
     }
-    const bad = models.filter((x) => x.error);
-    for (const b of bad) body.append(h('div.dim', { text: `${b.provider}: ${b.id}` }));
-    if (!models.length) body.append(h('div.dim', { text: 'No providers configured. Add NVIDIA_API_KEY in Render.' }));
-  } catch (e) { body.replaceChildren(h('div.status.err', { text: e.message })); }
+    if (!shown.length && models.length) list.append(h('div.dim', { text: `No model matches “${search.value}”.` }));
+  };
+  search.addEventListener('input', draw);
+  try {
+    const r = await api('/api/models');
+    models = r.models.filter((x) => !x.error);
+    draw();
+    if (S.info) list.prepend(h('div.dim', { text: `${models.length} models · default: ${shortModel(S.info.default_model)} · fallback: ${shortModel(S.info.fallback_model) || 'none'}` }));
+    for (const b of r.models.filter((x) => x.error)) list.append(h('div.dim', { text: `${b.provider}: ${b.id}` }));
+    if (!r.models.length) list.append(h('div.dim', { text: 'No providers configured. Add NVIDIA_API_KEY in Render.' }));
+  } catch (e) { list.replaceChildren(h('div.status.err', { text: e.message })); }
 }
 function modeSheet() {
   if (!S.cur) return;
@@ -717,8 +748,6 @@ async function fileView(path) {
 function moreSheet() {
   const c = S.cur;
   const inf = S.info || {};
-  const think = h('input', { type: 'checkbox', checked: c ? c.thinking !== false : true });
-  think.addEventListener('change', async () => { if (c) { await api('/api/sessions/' + c.id, { method: 'PATCH', body: { thinking: think.checked } }); c.thinking = think.checked; } });
   const auto = h('input', { type: 'checkbox', checked: !!(c && c.autopilot) });
   auto.addEventListener('change', async () => { if (c) { await api('/api/sessions/' + c.id, { method: 'PATCH', body: { autopilot: auto.checked } }); c.autopilot = auto.checked; applyChips(); } });
   const evalOut = h('div');
@@ -727,7 +756,6 @@ function moreSheet() {
       h('button.secondary', { text: 'Browse files', onclick: () => filesSheet('') }),
       h('button.secondary', { text: 'Save workspace to GitHub now', onclick: async (e) => { e.target.disabled = true; try { const r = await api(`/api/sessions/${c.id}/sync`, { method: 'POST' }); toast(r.result); } catch (er) { toast(er.message, true); } e.target.disabled = false; } }),
       h('button.secondary', { text: 'Compact context', onclick: async () => { closeSheet(); $('#input').value = '/compact'; send(); } }),
-      h('label.switch', {}, h('span', { text: 'Model thinking (reasoning)' }), think),
       h('label.switch', {}, h('span', { text: 'Autopilot: keep going until DONE (300-step budget)' }), auto),
     ] : null,
     h('div.sec', { text: 'Server' }),

@@ -200,6 +200,9 @@ async def patch_session(sid: str, body: dict):
         s["mode"] = body["mode"]
     if "thinking" in body:
         s["thinking"] = bool(body["thinking"])
+    if body.get("effort") in ("off", "medium", "high"):
+        s["effort"] = body["effort"]
+        s["thinking"] = body["effort"] != "off"
     if "autopilot" in body:
         s["autopilot"] = bool(body["autopilot"])
     if body.get("budget"):

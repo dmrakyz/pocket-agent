@@ -29,7 +29,7 @@ def _gh_headers():
 def new_session(title: str = "New chat", repo: Optional[str] = None, model: str = "", mode: str = "ask") -> dict:
     sid = uuid.uuid4().hex[:16]
     s = {"id": sid, "title": title, "created": time.time(), "updated": time.time(), "model": model,
-         "mode": mode, "thinking": True, "repo": repo or None, "messages": [], "todos": [],
+         "mode": mode, "thinking": True, "effort": "high", "repo": repo or None, "messages": [], "todos": [],
          "allow": [], "usage": {"in": 0, "out": 0}}
     sessions[sid] = s
     touch(s)
@@ -37,7 +37,7 @@ def new_session(title: str = "New chat", repo: Optional[str] = None, model: str 
 
 
 def meta(s: dict) -> dict:
-    return {k: s.get(k) for k in ("id", "title", "created", "updated", "model", "mode", "repo", "thinking")} | {
+    return {k: s.get(k) for k in ("id", "title", "created", "updated", "model", "mode", "repo", "thinking", "effort")} | {
         "running": bool(s.get("_running")), "n": len(s["messages"])}
 
 

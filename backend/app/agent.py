@@ -405,7 +405,7 @@ async def run_turn(s: dict, run: Run):
                 await run.emit({"type": "notice", "text": t})
 
             resp = await llm.chat(s["model"], [{"role": "system", "content": build_system(s, ws)}] + s["messages"],
-                                  sch, on_text, on_reason, notify, thinking=s.get("thinking"))
+                                  sch, on_text, on_reason, notify, thinking=s.get("thinking"), effort=s.get("effort"))
             m = resp["message"]
             if resp.get("usage"):
                 s["usage"]["in"] += resp["usage"].get("prompt_tokens", 0)
