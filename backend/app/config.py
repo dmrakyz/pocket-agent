@@ -27,6 +27,10 @@ GIT_USER_EMAIL = env("GIT_USER_EMAIL", "agent@users.noreply.github.com")
 DEFAULT_MODEL = env("DEFAULT_MODEL")        # "provider:model-id"; auto-picked if empty
 SELF_REPO = env("SELF_REPO", "dmrakyz/pocket-agent")   # this app's own source repo, for the "improve Pocket Agent" chat
 TELEGRAM_BOT_TOKEN = env("TELEGRAM_BOT_TOKEN")
+INSTAGRAM_ACCESS_TOKEN = env("INSTAGRAM_ACCESS_TOKEN")      # Instagram User token of the professional account (Instagram API with Instagram Login)
+INSTAGRAM_APP_SECRET = env("INSTAGRAM_APP_SECRET")          # Meta app secret: used to verify webhook signatures
+INSTAGRAM_VERIFY_TOKEN = env("INSTAGRAM_VERIFY_TOKEN")      # optional; one is derived if empty
+INSTAGRAM_ALLOWED_IDS = {x for x in env("INSTAGRAM_ALLOWED_IDS").replace(" ", "").split(",") if x.isdigit()}
 RESEND_API_KEY = env("RESEND_API_KEY")          # enables send_email (HTTPS; Render free blocks SMTP)
 MAIL_FROM = env("MAIL_FROM", "Pocket Agent <onboarding@resend.dev>")
 MAIL_REPLY_TO = env("MAIL_REPLY_TO")
@@ -108,5 +112,7 @@ SECRET_ENV_KEYS = {
     "ANTHROPIC_API_KEY", "GEMINI_API_KEY", "PROVIDERS_JSON", "MCP_SERVERS", "TAVILY_API_KEY", "BRAVE_API_KEY",
     "TELEGRAM_BOT_TOKEN",
     "RESEND_API_KEY",
+    "INSTAGRAM_ACCESS_TOKEN",
+    "INSTAGRAM_APP_SECRET",
     "EGRESS_PROXY",
 }

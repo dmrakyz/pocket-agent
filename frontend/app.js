@@ -1553,6 +1553,25 @@ async function openTelegram() {
   try { draw(await api('/api/telegram')); } catch (e) { body.replaceChildren(h('div.dim', { style: 'color:var(--bad)', text: e.message })); }
 }
 
+/* ============================================================ instagram */
+async function openInstagram() {
+  const body = h('div', {}, h('div.dim', { text: 'Loading…' }));
+  sheet('Instagram', body);
+  const copy = (t) => h('div.hookbox', { text: t, onclick: () => { try { navigator.clipboard.writeText(t); toast('Copied'); } catch { /* selectable anyway */ } } });
+  const draw = (t, code) => {
+    if (!t.enabled) { body.replaceChildren(h('div.dim', { text: 'Talk to your agent in the DMs of an Instagram professional (Creator or Business) account. It can only reply to people who messaged it first, within 24 hours. Setup is in the README ("Instagram DMs"): create a Meta app, then add INSTAGRAM_ACCESS_TOKEN and INSTAGRAM_APP_SECRET in Render and redeploy.' })); return; }
+    const kids = [h('div.dim', { style: 'font-size:14px', text: `${t.username ? '@' + t.username : 'Connected account'} · ${t.paired} paired account${t.paired === 1 ? '' : 's'}` })];
+    if (t.error) kids.push(h('div.dim', { style: 'color:var(--bad);font-size:13px', text: t.error }));
+    if (t.callback) kids.push(h('div.dim', { style: 'font-size:13px', text: 'Webhook callback URL (paste in the Meta dashboard):' }), copy(t.callback), h('div.dim', { style: 'font-size:13px', text: 'Verify token:' }), copy(t.verify_token));
+    if (code) kids.push(h('div.paircode', { text: code }), h('div.dim', { style: 'font-size:14px', text: `From the account you want to control it with, DM your professional account:  pair ${code}   The code works once, for 10 minutes.` }));
+    kids.push(h('button.primary', { text: code ? 'New code' : 'Check connection and get a pairing code', onclick: async (e) => { e.currentTarget.disabled = true; try { const r = await api('/api/instagram/connect', { body: { base: S.api } }); draw(r, r.code); } catch (er) { toast(er.message, true); e.currentTarget.disabled = false; } } }));
+    if (t.paired) kids.push(h('button.secondary', { text: 'Unpair everything', onclick: async () => { try { draw(await api('/api/instagram/paired', { method: 'DELETE' })); } catch (er) { toast(er.message, true); } } }));
+    kids.push(h('div.dim', { style: 'font-size:12.5px', text: 'In the DM: /new, /stop, /mode ask|auto|yolo, /status, /unpair. Approvals: reply YES or NO. Only paired accounts can use the agent.' }));
+    body.replaceChildren(...kids);
+  };
+  try { draw(await api('/api/instagram?base=' + encodeURIComponent(S.api))); } catch (e) { body.replaceChildren(h('div.dim', { style: 'color:var(--bad)', text: e.message })); }
+}
+
 /* ============================================================ usage */
 async function openUsage() {
   const body = h('div', {}, h('div.dim', { text: 'Loading…' }));
@@ -1655,6 +1674,7 @@ function drawSettings() {
       row('◍', 'Memory', openMemory, MEM.notes.length ? String(MEM.notes.length) : ''),
       row('⚭', 'Connectors', openConnectors),
       row('✈', 'Telegram', openTelegram),
+      row('◎', 'Instagram DMs', openInstagram),
       row('▤', 'Usage', openUsage),
       row('✓', 'Capability check', openEval),
       row('🔔', 'Push notifications', async () => { if (PUSH.state === 'on') await pushDisable(); else await pushEnable(); drawSettings(); },

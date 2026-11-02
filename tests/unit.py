@@ -580,3 +580,21 @@ async def vision_proxy_test():
         llm.chat, C.VISION_MODEL = old
     print("PASS vision proxy: text-only model gets a description, cached, vision models untouched, clear message when none")
 asyncio.run(vision_proxy_test())
+
+# instagram: chunking respects the byte limit and loses nothing; markdown is flattened; signature check
+def instagram_unit():
+    from app import instagram as I, config as C
+    long = ("héllo wörld 🙂 " * 200).strip() + "\n" + "x" * 3000 + "\nlast line"
+    ch = I._chunks(long)
+    assert all(len(c.encode()) <= I.MAX_BYTES for c in ch), [len(c.encode()) for c in ch]
+    assert "".join(ch).replace(" ", "").replace("\n", "") == long.replace(" ", "").replace("\n", ""), "chunking lost or changed text"
+    assert I.plain("**bold** `code` ## x\n[t](https://a.b/c)") == "bold code ## x\nt (https://a.b/c)", I.plain("**bold** `code` ## x\n[t](https://a.b/c)")
+    assert I.plain("## Title\ntext") == "Title\ntext"
+    old = C.INSTAGRAM_APP_SECRET; C.INSTAGRAM_APP_SECRET = "s"
+    import hmac as _h, hashlib as _hl
+    good = "sha256=" + _h.new(b"s", b"body", _hl.sha256).hexdigest()
+    assert I.signature_ok(b"body", good) and not I.signature_ok(b"body2", good) and not I.signature_ok(b"body", "") and not I.signature_ok(b"body", "sha256=00")
+    C.INSTAGRAM_APP_SECRET = ""; assert not I.signature_ok(b"body", good), "no app secret means nothing is trusted"
+    C.INSTAGRAM_APP_SECRET = old
+    print("PASS instagram: byte-safe chunking, markdown flattening, signature check")
+instagram_unit()

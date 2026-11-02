@@ -193,3 +193,15 @@ Render's IPs are datacenter IPs, and many sites refuse them whatever you do on t
 
 ### Images with text-only models
 If the chat's model can't see images (e.g. Nemotron Ultra 550B), a vision model (`VISION_MODEL`, or one auto-picked: Gemma 4, Nemotron VL/omni, Llama vision…) reads each attached image once and the chat model gets that description in place of the picture, with a notice in the chat. Your original image stays in the chat. If no vision model is available it says so instead of returning an empty reply.
+
+### Instagram DMs
+Talk to the agent from the DMs of an Instagram **professional** (Creator or Business) account, using Meta's official *Instagram API with Instagram Login*. Limits that come from Meta, not from this app: the account can only reply to people who messaged it first, and only within 24 hours of their last message; there is no way to read a feed. Tested only against a fake Graph API; the Meta dashboard steps below are from Meta's docs and may be worded differently on your screen.
+
+1. In Instagram, switch the account to a professional account (Settings → Account type and tools → Switch to professional account → Creator).
+2. At developers.facebook.com create an app (Business type), add the **Instagram** product and open its *API setup with Instagram login* page.
+3. Add your Instagram account there and generate its access token (permissions `instagram_business_basic` and `instagram_business_manage_messages`). Put it in Render as `INSTAGRAM_ACCESS_TOKEN`. These tokens expire after about 60 days, so regenerate and update it when the app reports an expired token.
+4. App settings → Basic → copy the **App secret** into Render as `INSTAGRAM_APP_SECRET`. Redeploy.
+5. In the app: Settings → Instagram DMs. Copy the **callback URL** and **verify token** into the Meta dashboard's webhook section, subscribe to `messages`, then tap *Check connection and get a pairing code*.
+6. From the account you want to control it with, DM your professional account `pair CODE`. Only paired accounts are answered; everyone else gets a single "private account" reply.
+
+Inside the DM: `/new`, `/stop`, `/mode ask|auto|yolo`, `/status`, `/unpair`. Approvals arrive as text; reply YES or NO. Replies are plain text (Instagram has no markdown), split to fit its 1000-byte limit, and files the agent makes stay in the app. Every webhook is checked against your app secret's HMAC signature.

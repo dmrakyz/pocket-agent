@@ -22,7 +22,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from starlette.background import BackgroundTask
 
 from .browser import browser, BrowserError
-from . import agent, config, evals, kv, llm, mcp, memory, oauth, perms, push, routines, store, telegram, tools, usage, workspace
+from . import agent, config, evals, instagram, kv, llm, mcp, memory, oauth, perms, push, routines, store, telegram, tools, usage, workspace
 
 mcp_client = mcp.MCP()
 agent.MCP = mcp_client
@@ -37,6 +37,7 @@ async def lifespan(app: FastAPI):
     routines.start_loop()
     asyncio.create_task(mcp_client.refresh())
     asyncio.create_task(telegram.init())
+    asyncio.create_task(instagram.init())
     asyncio.create_task(_warm())
     yield
     await browser.shutdown()
@@ -907,6 +908,62 @@ async def telegram_webhook(secret: str, request: Request):
 def _tg_view():
     return {"enabled": telegram.enabled(), "bot": telegram.status["bot"], "webhook": telegram.status["webhook"],
             "error": telegram.status["error"], "paired": len(telegram.allowed_ids()), "public_url": config.PUBLIC_URL}
+
+
+# ------------------------------------------------------------------ instagram
+@app.get("/instagram/{secret}")
+async def instagram_verify(secret: str, request: Request):
+    """Meta's one-time webhook verification handshake."""
+    q = request.query_params
+    if (not instagram.enabled() or not hmac.compare_digest(secret, instagram.path_secret()) or q.get("hub.mode") != "subscribe"
+            or not hmac.compare_digest(q.get("hub.verify_token", ""), instagram.verify_token())):
+        raise HTTPException(404)
+    return Response(q.get("hub.challenge", ""), media_type="text/plain")
+
+
+@app.post("/instagram/{secret}")
+async def instagram_webhook(secret: str, request: Request):
+    raw = await request.body()
+    if not instagram.enabled() or not hmac.compare_digest(secret, instagram.path_secret()) or not instagram.signature_ok(raw, request.headers.get("x-hub-signature-256", "")):
+        raise HTTPException(404)
+    try:
+        payload = json.loads(raw)
+    except Exception:  # noqa: BLE001
+        raise HTTPException(400)
+    asyncio.create_task(instagram.handle(payload))
+    return {"ok": True}
+
+
+def _ig_view(base: str = ""):
+    base = (base or config.PUBLIC_URL or "").rstrip("/")
+    return {"enabled": instagram.enabled(), "username": instagram.status["username"], "error": instagram.status["error"],
+            "paired": len(instagram.allowed_ids()), "callback": f"{base}/instagram/{instagram.path_secret()}" if base else "", "verify_token": instagram.verify_token()}
+
+
+@app.get("/api/instagram", dependencies=[Depends(auth)])
+async def instagram_status(base: str = ""):
+    return _ig_view(base)
+
+
+@app.post("/api/instagram/connect", dependencies=[Depends(auth)])
+async def instagram_connect(body: dict):
+    """Check the token, subscribe the app to messages, and return a pairing code."""
+    if not instagram.enabled():
+        raise HTTPException(400, "add INSTAGRAM_ACCESS_TOKEN and INSTAGRAM_APP_SECRET in Render first")
+    try:
+        me = await instagram.call("GET", "me", params={"fields": "username,user_id"})
+        instagram.status["username"] = me.get("username", ""); instagram.status["error"] = ""
+        await instagram.subscribe()
+    except instagram.IgError as e:
+        instagram.status["error"] = str(e)
+        raise HTTPException(400, f"Instagram said: {e}")
+    return {**_ig_view(str(body.get("base") or "")), "code": instagram.new_code()}
+
+
+@app.delete("/api/instagram/paired", dependencies=[Depends(auth)])
+async def instagram_unpair():
+    d = instagram.state(); d["allowed"] = []; await kv.put("instagram", d)
+    return _ig_view()
 
 
 @app.get("/api/telegram", dependencies=[Depends(auth)])
