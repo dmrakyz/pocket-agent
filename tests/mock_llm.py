@@ -115,6 +115,12 @@ def scenario(msgs, model):
         if k == 0:
             return "tools", [tool_call("write", {"path": "auto.txt", "content": "step1\n"})]
         return "text", "partial progress, more to do"
+    if "SHOWMODEL" in prompt:
+        if k == 0:
+            return "tools", [tool_call("bash", {"command": "python3 -c \"import trimesh; trimesh.creation.box((10,10,10)).export('cube.stl')\""})]
+        if k == 1:
+            return "tools", [tool_call("view_3d", {"path": "cube.stl"})]
+        return "text", "model ready"
     if "SHOWPAGE" in prompt:
         if k == 0:
             return "tools", [tool_call("write", {"path": "index.html", "content": "<h1>mock page</h1><script>document.title='ran'</script>"})]

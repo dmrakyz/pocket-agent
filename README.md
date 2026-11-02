@@ -53,6 +53,7 @@ Render's free tier sleeps after 15 min without inbound requests. Your agent call
 - **Menu (⋯)**: chat actions only: rename, compact context, **Autopilot** (keeps going until it says `DONE:`, within a 300-step budget), save to GitHub.
 - **Typing while it works:** your message queues (shown above the input, ✕ to remove) and sends when the agent finishes. **⟳ Regenerate** under the last answer redoes it, and ↺ on your own message edits and resends it.
 - **Live preview:** ask it to build a web page; it shows a *Preview* card that opens the page inside the app (sandboxed). Also ▶ next to any `.html` in the file browser.
+- **3D:** ask it to build something printable (it has `trimesh` and `manifold3d` for meshes and boolean cuts, and writes `.stl`). A *3D viewer* card opens an interactive viewer: drag to orbit, pinch to zoom, wireframe and download buttons. Also ◈ next to `.stl/.obj/.glb/.gltf` in the file browser. The viewer loads three.js from a CDN, so it needs internet (iOS 16.4+).
 - **Sub-agent bar:** above the input, shows each sub-agent, its model and whether it's running.
 - **＋**: attach images (the model sees them) or **any file / zip** (uploaded into the workspace, archives are unpacked).
 - **↺** next to your messages rewinds the chat *and* restores the files to that point.

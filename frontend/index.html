@@ -9,6 +9,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Pocket Agent">
 <title>Pocket Agent</title>
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"}}</script>
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icon-192.png">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
@@ -116,6 +117,18 @@
       <button id="pv-open" class="icon" aria-label="Open in browser">⧉</button>
     </header>
     <iframe id="pv-frame" class="pv-frame" title="Preview" sandbox="allow-scripts allow-forms allow-modals allow-popups allow-pointer-lock" referrerpolicy="no-referrer"></iframe>
+  </section>
+
+  <!-- 3D model viewer -->
+  <section id="modelpage" class="screen overlay" hidden>
+    <header>
+      <button id="md-back" class="icon" aria-label="Close viewer">←</button>
+      <div class="title-wrap"><div id="md-title" class="title"></div><div id="md-status" class="subtitle"></div></div>
+      <button id="md-wire" class="icon" aria-label="Wireframe">▦</button>
+      <button id="md-spin" class="icon" aria-label="Auto-rotate">⟳</button>
+      <button id="md-dl" class="icon" aria-label="Download model">⬇</button>
+    </header>
+    <div id="md-wrap" class="md-wrap"></div>
   </section>
 
   <!-- settings page -->

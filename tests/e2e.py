@@ -254,6 +254,14 @@ try:
     pb11 = c2.post(f"/api/sessions/{s11['id']}/preview-token").json()["base"]
     check("agent-built page is served", "mock page" in httpx.get(B + pb11 + "index.html").text)
 
+    # --- 3D tool
+    s12 = c2.post("/api/sessions", json={"mode": "yolo"}).json()
+    run_turn(c2, s12["id"], "SHOWMODEL now", timeout=60)
+    m12 = c2.get(f"/api/sessions/{s12['id']}").json()["session"]["messages"]
+    check("view_3d marks the model", any(m.get("_model") == "cube.stl" for m in m12 if m["role"] == "tool"), str([(m.get("_model"), m.get("content", "")[:80]) for m in m12 if m["role"] == "tool"]))
+    dl = c2.get(f"/api/sessions/{s12['id']}/download", params={"path": "cube.stl"})
+    check("stl downloads and is non-empty", dl.status_code == 200 and len(dl.content) > 200)
+
     # --- push endpoints
     pk = c2.get("/api/push/key").json()
     check("push key served", pk["available"] and len(pk["key"]) >= 80, str(pk))

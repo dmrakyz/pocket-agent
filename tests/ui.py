@@ -40,6 +40,15 @@ try:
     with sync_playwright() as pw:
         b = pw.chromium.launch()
         ctx = b.new_context(viewport={"width": 390, "height": 844}, device_scale_factor=2, is_mobile=True, has_touch=True)
+        THREE_ROOT = "/tmp/three_pkg/node_modules/three"
+        def serve_three(route):
+            rel = route.request.url.split("three@0.160.0/", 1)[1].split("?")[0]
+            fp = os.path.join(THREE_ROOT, rel)
+            if os.path.isfile(fp):
+                route.fulfill(status=200, content_type="text/javascript", headers={"Access-Control-Allow-Origin": "*"}, body=open(fp, "rb").read())
+            else:
+                route.fulfill(status=404, body="no")
+        ctx.route("https://cdn.jsdelivr.net/npm/three@0.160.0/**", serve_three)
         p = ctx.new_page()
         p.on("console", lambda m: errors.append(m.text) if m.type == "error" else None)
         p.on("pageerror", lambda e: errors.append(str(e)))
@@ -201,6 +210,25 @@ try:
         p.wait_for_function("window.__agent.files.length === 1 && window.__agent.files[0].state === 'ready'", timeout=15000)
         check("file upload chip ready", p.evaluate("window.__agent.files[0].extracted") == "uploads/upl")
         p.screenshot(path=f"{OUT}/14-upload.png")
+        # 3D viewer
+        p.fill("#input", "SHOWMODEL please"); p.click("#btn-send")
+        p.wait_for_selector(".tool.ask .btn-allow", timeout=30000); p.click(".tool.ask .btn-allow")
+        p.wait_for_selector("text=Open 3D viewer", timeout=30000)
+        p.click("text=Open 3D viewer")
+        p.wait_for_selector("#modelpage:not([hidden]) #md-canvas", timeout=30000)
+        p.wait_for_function("document.querySelector('#md-status').textContent.includes('triangles')", timeout=30000)
+        check("3D viewer loads the STL", "12 triangles" in p.inner_text("#md-status"), p.inner_text("#md-status"))
+        time.sleep(0.6)
+        from PIL import Image
+        import io as _io
+        shot = Image.open(_io.BytesIO(p.locator("#md-canvas").screenshot())).convert("RGB")
+        colors = len(set(shot.getdata()))
+        check("3D canvas drew a shaded model", colors > 40, str(colors))
+        p.screenshot(path=f"{OUT}/19-model.png")
+        p.click("#md-wire"); check("wireframe toggles", p.evaluate("document.querySelector('#md-wire').classList.contains('on')"))
+        p.click("#md-back")
+        check("3D viewer closes", not p.is_visible("#modelpage"))
+        p.wait_for_function("window.__agent.run.running === false", timeout=30000)
         # capability check page: own screen, progress, survives closing
         p.click("#btn-menu"); p.click("#dr-eval")
         p.wait_for_selector("#evalpage:not([hidden]) >> text=Not run yet")

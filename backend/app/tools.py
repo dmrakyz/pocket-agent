@@ -116,6 +116,10 @@ BASE_TOOLS = [
     _fn("preview", "Show the user a web page you built (an HTML file, or a folder with index.html) in a live preview "
         "inside the app. Use it after building any web page, game or visual. Static files only: no server needed.",
         {"path": {"type": "string", "description": "e.g. index.html or site/"}}, ["path"]),
+    _fn("view_3d", "Show the user a 3D model (.stl, .obj, .glb or .gltf file from the workspace) in an interactive viewer "
+        "in the app. Use it after you generate or export a model. Tip: python3 has trimesh and manifold3d for building "
+        "meshes (primitives, boolean union/difference, export to STL).",
+        {"path": {"type": "string", "description": "e.g. part.stl"}}, ["path"]),
     _fn("skill", "Load the full instructions of a named skill listed in your system prompt.", {"name": S}, ["name"]),
     _fn("git_sync", "Commit all workspace changes and push them to the session's GitHub branch. "
         "Do this after finishing meaningful work.", {"message": S}, []),
@@ -125,7 +129,7 @@ BASE_TOOLS = [
     _fn("exit_plan_mode", "Plan mode only: present your finished plan to the user for approval.",
         {"plan": S}, ["plan"]),
 ]
-READONLY = {"read", "glob", "grep", "web_fetch", "web_search", "todo_write", "bash_output", "skill", "task", "share_file", "preview"}
+READONLY = {"read", "glob", "grep", "web_fetch", "web_search", "todo_write", "bash_output", "skill", "task", "share_file", "preview", "view_3d"}
 EDITS = {"write", "edit", "multiedit"}
 SUBAGENT_TOOLS = {"read", "glob", "grep", "bash", "bash_output", "kill_bash", "web_fetch", "web_search"}
 SUBAGENT_EDIT_TOOLS = SUBAGENT_TOOLS | EDITS
@@ -529,6 +533,18 @@ async def t_preview(ctx: Ctx, a: dict):
     return {"text": f"Preview ready for {ctx.rel(p)}. The user can open it from a card in this chat.", "preview": ctx.rel(p)}
 
 
+MODEL_EXTS = {".stl", ".obj", ".glb", ".gltf"}
+
+
+async def t_view_3d(ctx: Ctx, a: dict):
+    p = ctx.resolve(a["path"], must_exist=True)
+    if not p.is_file() or p.suffix.lower() not in MODEL_EXTS:
+        raise ToolError("view_3d needs a file ending in .stl, .obj, .glb or .gltf")
+    if p.stat().st_size > 40 * 1024 * 1024:
+        raise ToolError("model is over 40 MB; simplify or decimate it first")
+    return {"text": f"3D viewer ready for {ctx.rel(p)} ({p.stat().st_size} bytes). The user can open it from a card in this chat.", "model": ctx.rel(p)}
+
+
 async def t_exit_plan_mode(ctx: Ctx, a: dict):
     return "Plan approved. You may now edit files and run commands."
 
@@ -537,7 +553,7 @@ HANDLERS: dict[str, Callable[[Ctx, dict], Awaitable[Any]]] = {
     "read": t_read, "write": t_write, "edit": t_edit, "multiedit": t_multiedit, "glob": t_glob, "grep": t_grep,
     "bash": t_bash, "bash_output": t_bash_output, "kill_bash": t_kill_bash, "web_fetch": t_web_fetch,
     "web_search": t_web_search, "todo_write": t_todo_write, "task": t_task, "skill": t_skill,
-    "git_sync": t_git_sync, "create_pr": t_create_pr, "exit_plan_mode": t_exit_plan_mode, "share_file": t_share_file, "preview": t_preview,
+    "git_sync": t_git_sync, "create_pr": t_create_pr, "exit_plan_mode": t_exit_plan_mode, "share_file": t_share_file, "preview": t_preview, "view_3d": t_view_3d,
 }
 
 

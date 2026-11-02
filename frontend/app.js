@@ -243,13 +243,13 @@ function scrollDown(force) {
   if (force || S.stick) c.scrollTop = c.scrollHeight;
 }
 const ICONS = { read: '▤', write: '✎', edit: '✎', multiedit: '✎', bash: '$', bash_output: '$', kill_bash: '■', grep: '⌕', glob: '✱',
-  web_fetch: '◎', web_search: '◎', todo_write: '☑', task: '⋔', skill: '★', git_sync: '⎇', create_pr: '⎇', exit_plan_mode: '☰', share_file: '⬇', preview: '▶' };
+  web_fetch: '◎', web_search: '◎', todo_write: '☑', task: '⋔', skill: '★', git_sync: '⎇', create_pr: '⎇', exit_plan_mode: '☰', share_file: '⬇', preview: '▶', view_3d: '◈' };
 function toolSummary(name, a) {
   a = a || {};
   switch (name) {
     case 'read': case 'write': case 'edit': case 'multiedit': return a.path || '';
     case 'bash': return (a.command || '').split('\n')[0];
-    case 'share_file': case 'preview': return a.path || '';
+    case 'share_file': case 'preview': case 'view_3d': return a.path || '';
     case 'grep': return '/' + (a.pattern || '') + '/' + (a.path ? ' ' + a.path : '');
     case 'glob': return a.pattern || '';
     case 'web_fetch': return a.url || '';
@@ -290,7 +290,7 @@ async function answer(id, body, card) {
 function fillCard(card, call, result, approval) {
   const name = call.function.name;
   const a = parseArgs(call);
-  const open = approval ? true : (card.dataset.open === '1' || !!(result && (result._file || result._preview)));
+  const open = approval ? true : (card.dataset.open === '1' || !!(result && (result._file || result._preview || result._model)));
   card.className = 'tool' + (result && result._error ? ' err' : '') + (approval ? ' ask' : '');
   card.replaceChildren();
   const state = result ? h('span.tool-state ' + (result._error ? 'bad' : 'ok'), { text: result._error ? '✕' : '✓' })
@@ -311,6 +311,7 @@ function fillCard(card, call, result, approval) {
   }
   if (result && name !== 'exit_plan_mode' && !(result._diff && !result._error)) body.append(h('div.lbl', { text: 'output' }), h('pre', { text: result.content || '' }));
   if (result && result._preview) body.append(h('div', { style: 'padding:10px 12px' }, h('button.primary.small', { text: '▶ Open preview', onclick: () => openPreview(result._preview) })));
+  if (result && result._model) body.append(h('div', { style: 'padding:10px 12px' }, h('button.primary.small', { text: '◈ Open 3D viewer', onclick: () => openModel(result._model) })));
   if (result && result._file) body.append(h('div', { style: 'padding:10px 12px' }, h('button.primary.small', { text: '⬇ Download ' + result._file.split('/').pop(), onclick: () => downloadPath(result._file) })));
   card.append(body);
   if (approval) {
@@ -797,6 +798,7 @@ async function filesSheet(path = '') {
       body.append(h('div.filerow', {},
         h('button.fileitem', { onclick: () => it.dir ? filesSheet(full) : fileView(full) }, (it.dir ? '▸ ' : '  ') + it.name, it.dir ? '' : h('small', { text: it.size > 1024 ? Math.round(it.size / 1024) + ' KB' : it.size + ' B' })),
         /\.html?$/i.test(it.name) ? h('button.dl', { 'aria-label': 'Preview ' + it.name, text: '▶', onclick: () => openPreview(full) }) : null,
+        /\.(stl|obj|glb|gltf)$/i.test(it.name) ? h('button.dl', { 'aria-label': 'View in 3D ' + it.name, text: '◈', onclick: () => openModel(full) }) : null,
         h('button.dl', { 'aria-label': 'Download ' + it.name, text: '⬇', onclick: () => downloadPath(full) })));
     }
     if (!d.items.length) body.append(h('div.dim', { text: 'Empty' }));
@@ -1070,6 +1072,77 @@ async function loadPreview() {
 }
 function closePreview() { $('#previewpage').hidden = true; $('#pv-frame').src = 'about:blank'; }
 
+/* ============================================================ 3D viewer */
+const V3 = { T: null, r: null, scene: null, cam: null, ctl: null, raf: 0, obj: null, path: '', ro: null, wire: false, spin: true };
+async function openModel(path) {
+  if (!S.cur) return;
+  closeSheet();
+  V3.path = path;
+  const page = $('#modelpage'), wrap = $('#md-wrap');
+  page.hidden = false;
+  $('#md-title').textContent = path; $('#md-status').textContent = 'Loading…';
+  wrap.replaceChildren(h('div.mdmsg', { text: 'Loading viewer…' }));
+  try {
+    const [T, oc] = await Promise.all([import('three'), import('three/addons/controls/OrbitControls.js')]);
+    V3.T = T;
+    const ext = path.split('.').pop().toLowerCase();
+    const r = await fetch(`${S.api}/api/sessions/${S.cur.id}/download?path=${encodeURIComponent(path)}`, { headers: { Authorization: 'Bearer ' + S.token } });
+    if (!r.ok) throw new Error('Could not load the file: HTTP ' + r.status);
+    const buf = await r.arrayBuffer();
+    let obj;
+    if (ext === 'stl') {
+      const { STLLoader } = await import('three/addons/loaders/STLLoader.js');
+      const g = new STLLoader().parse(buf); g.computeVertexNormals();
+      obj = new T.Mesh(g, new T.MeshStandardMaterial({ color: 0xa78bfa, metalness: 0.15, roughness: 0.55 }));
+    } else if (ext === 'obj') {
+      const { OBJLoader } = await import('three/addons/loaders/OBJLoader.js');
+      obj = new OBJLoader().parse(new TextDecoder().decode(buf));
+      obj.traverse((o) => { if (o.isMesh) o.material = new T.MeshStandardMaterial({ color: 0xa78bfa, metalness: 0.15, roughness: 0.55 }); });
+    } else {
+      const { GLTFLoader } = await import('three/addons/loaders/GLTFLoader.js');
+      obj = (await new Promise((res, rej) => new GLTFLoader().parse(buf, '', res, rej))).scene;
+    }
+    wrap.replaceChildren();
+    if (V3.r) { cancelAnimationFrame(V3.raf); V3.r.dispose(); }
+    V3.r = new T.WebGLRenderer({ antialias: true, alpha: true });
+    V3.r.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    V3.r.domElement.id = 'md-canvas';
+    wrap.append(V3.r.domElement);
+    V3.scene = new T.Scene();
+    V3.scene.add(new T.HemisphereLight(0xffffff, 0x444466, 1.1));
+    const key = new T.DirectionalLight(0xffffff, 1.6); key.position.set(3, 5, 4); V3.scene.add(key);
+    const rim = new T.DirectionalLight(0xaabbff, 0.6); rim.position.set(-4, -2, -3); V3.scene.add(rim);
+    // centre the model, put Z up the way CAD/STL files expect
+    V3.obj = new T.Group(); V3.obj.add(obj); V3.scene.add(V3.obj);
+    obj.rotation.x = ext === 'stl' ? -Math.PI / 2 : 0;
+    const box = new T.Box3().setFromObject(V3.obj), size = box.getSize(new T.Vector3()), mid = box.getCenter(new T.Vector3());
+    obj.position.sub(mid);
+    const dim = Math.max(size.x, size.y, size.z) || 1;
+    const grid = new T.GridHelper(dim * 2.4, 12, 0x888899, 0x444455); grid.position.y = -size.y / 2 - dim * 0.001; V3.scene.add(grid);
+    V3.cam = new T.PerspectiveCamera(40, 1, dim / 100, dim * 100);
+    V3.ctl = new oc.OrbitControls(V3.cam, V3.r.domElement);
+    V3.ctl.enableDamping = true; V3.ctl.autoRotate = V3.spin; V3.ctl.autoRotateSpeed = 1.4;
+    let tris = 0; V3.obj.traverse((o) => { if (o.isMesh) { const g = o.geometry; tris += (g.index ? g.index.count : g.attributes.position.count) / 3; } });
+    $('#md-status').textContent = `${Math.round(tris).toLocaleString()} triangles · ${[size.x, size.y, size.z].map((n) => +n.toFixed(1)).join(' × ')}`;
+    const fit = () => { const w = wrap.clientWidth || 1, hh = wrap.clientHeight || 1; V3.r.setSize(w, hh, false); V3.cam.aspect = w / hh; V3.cam.updateProjectionMatrix(); };
+    fit(); if (V3.ro) V3.ro.disconnect(); V3.ro = new ResizeObserver(fit); V3.ro.observe(wrap);
+    // back the camera off until the whole model fits in whichever direction (portrait phones are the narrow one)
+    const vf = T.MathUtils.degToRad(V3.cam.fov), hf = 2 * Math.atan(Math.tan(vf / 2) * V3.cam.aspect);
+    const dist = (size.length() / 2) / Math.sin(Math.min(vf, hf) / 2) * 1.12;
+    V3.cam.position.set(0.62, 0.45, 0.78).normalize().multiplyScalar(dist);
+    V3.ctl.minDistance = dist * 0.2; V3.ctl.maxDistance = dist * 6; V3.ctl.update();
+    $('#md-wire').classList.toggle('on', V3.wire); $('#md-spin').classList.toggle('on', V3.spin);
+    const loop = () => { V3.raf = requestAnimationFrame(loop); V3.ctl.update(); V3.r.render(V3.scene, V3.cam); };
+    loop();
+  } catch (e) {
+    wrap.replaceChildren(h('div.mdmsg', { text: /import|module|fetch|Failed/i.test(e.message) ? 'The 3D viewer could not load (it needs internet for three.js, and iOS 16.4 or newer). ' + e.message : e.message }));
+    $('#md-status').textContent = 'Error';
+  }
+}
+function closeModel() { $('#modelpage').hidden = true; cancelAnimationFrame(V3.raf); if (V3.ro) V3.ro.disconnect(); if (V3.r) { V3.r.dispose(); V3.r = null; } $('#md-wrap').replaceChildren(); }
+function toggleWire() { V3.wire = !V3.wire; if (V3.obj) V3.obj.traverse((o) => { if (o.isMesh && o.material) o.material.wireframe = V3.wire; }); $('#md-wire').classList.toggle('on', V3.wire); }
+function toggleSpin() { V3.spin = !V3.spin; if (V3.ctl) V3.ctl.autoRotate = V3.spin; $('#md-spin').classList.toggle('on', V3.spin); }
+
 /* ============================================================ wiring */
 function wire() {
   $('#in-url').value = S.api || window.AGENT_API || '';
@@ -1089,6 +1162,10 @@ function wire() {
   $('#ev-back').onclick = closeEval;
   $('#set-back').onclick = closeSettings;
   $('#pv-back').onclick = closePreview;
+  $('#md-back').onclick = closeModel;
+  $('#md-wire').onclick = toggleWire;
+  $('#md-spin').onclick = toggleSpin;
+  $('#md-dl').onclick = () => downloadPath(V3.path);
   $('#pv-reload').onclick = loadPreview;
   $('#pv-open').onclick = () => { if (PV.url) window.open(PV.url, '_blank', 'noopener'); };
   $('#dr-settings').onclick = openSettings;

@@ -466,6 +466,8 @@ async def run_turn(s: dict, run: Run):
                     tm["_file"] = res["file"]
                 if res.get("preview"):
                     tm["_preview"] = res["preview"]
+                if res.get("model"):
+                    tm["_model"] = res["model"]
                 await commit_message(run, s, tm)
             if any(c["function"]["name"] == "exit_plan_mode" and s.get("mode") == "plan" for c in calls):
                 # plan was denied (mode still plan): stop and let the user respond

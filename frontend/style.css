@@ -282,3 +282,8 @@ footer { padding: 6px 10px calc(var(--safe-b) + 8px); background: var(--bg); }
 #subbar li .sl { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #subbar li.sub-done { color: var(--dim); } #subbar li.sub-failed { color: var(--bad); }
 .pv-frame { flex: 1; width: 100%; border: 0; background: #fff; }
+
+.md-wrap { flex: 1; position: relative; min-height: 0; background: radial-gradient(circle at 50% 35%, color-mix(in srgb, var(--accent) 14%, var(--bg)), var(--bg) 70%); touch-action: none; }
+.md-wrap canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.md-wrap .mdmsg { position: absolute; inset: 0; display: grid; place-items: center; color: var(--dim); padding: 24px; text-align: center; }
+#md-wire.on, #md-spin.on { color: var(--accent); }
