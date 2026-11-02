@@ -494,7 +494,6 @@ function handle(ev) {
       S.pending[ev.id] = ev;
       ensureApprovalCard(ev);
       scrollDown(true);
-      if (document.hidden && 'Notification' in window && Notification.permission === 'granted') new Notification('Agent needs approval', { body: ev.tool });
       break;
     }
     case 'approval_done': {
@@ -877,6 +876,51 @@ function applyTheme() {
   if (t === 'system') document.documentElement.removeAttribute('data-theme'); else document.documentElement.setAttribute('data-theme', t);
 }
 
+/* ============================================================ push notifications + presence */
+const urlB64 = (b) => { const p = '='.repeat((4 - b.length % 4) % 4); const r = atob((b + p).replace(/-/g, '+').replace(/_/g, '/')); return Uint8Array.from([...r].map((c) => c.charCodeAt(0))); };
+const PUSH = { state: 'unknown', devices: 0, err: '' };
+async function pushRefresh() {
+  PUSH.err = '';
+  if (!('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)) { PUSH.state = 'unsupported'; return; }
+  if (Notification.permission === 'denied') { PUSH.state = 'blocked'; return; }
+  try {
+    const reg = await navigator.serviceWorker.ready;
+    const sub = await reg.pushManager.getSubscription();
+    PUSH.state = sub && Notification.permission === 'granted' ? 'on' : 'off';
+    const k = await api('/api/push/key'); PUSH.devices = k.devices; if (!k.available) PUSH.state = 'server-off';
+  } catch (e) { PUSH.err = e.message; }
+}
+async function pushEnable() {
+  PUSH.err = '';
+  try {
+    if (Notification.permission !== 'granted' && (await Notification.requestPermission()) !== 'granted') { PUSH.state = 'blocked'; return; }
+    const { key, available } = await api('/api/push/key');
+    if (!available) { PUSH.state = 'server-off'; return; }
+    const reg = await navigator.serviceWorker.ready;
+    let sub = await reg.pushManager.getSubscription();
+    if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlB64(key) });
+    await api('/api/push/subscribe', { body: { subscription: sub.toJSON() } });
+    toast('Notifications on');
+  } catch (e) { PUSH.err = /standalone|home screen|not allowed/i.test(e.message) ? 'On iPhone, add the app to your Home Screen first, then turn this on from the installed app.' : e.message; }
+  await pushRefresh();
+}
+async function pushDisable() {
+  try {
+    const reg = await navigator.serviceWorker.ready;
+    const sub = await reg.pushManager.getSubscription();
+    if (sub) { await api('/api/push/unsubscribe', { body: { endpoint: sub.endpoint } }); await sub.unsubscribe(); }
+  } catch (e) { PUSH.err = e.message; }
+  await pushRefresh();
+}
+async function pushTest() { try { const r = await api('/api/push/test', { method: 'POST' }); toast(r.sent ? 'Sent. Lock your phone to see it.' : 'No device is subscribed yet.'); } catch (e) { toast(e.message, true); } }
+let lastPresence = null;
+function sendPresence() {
+  if (!S.token) return;
+  const v = !document.hidden;
+  lastPresence = v;
+  fetch(S.api + '/api/presence', { method: 'POST', headers: { Authorization: 'Bearer ' + S.token, 'Content-Type': 'application/json' }, body: JSON.stringify({ visible: v }), keepalive: true }).catch(() => {});
+}
+
 /* ============================================================ settings page */
 function serverKV() {
   const inf = S.info || {};
@@ -886,7 +930,7 @@ function serverKV() {
     h('dt', { text: 'Tools' }), h('dd', { text: `git ${inf.git ? '✓' : '✕'} · ripgrep ${inf.rg ? '✓' : 'fallback'}` }));
 }
 let setNote = '';
-function openSettings() { closeDrawer(); $('#settings').hidden = false; setNote = ''; drawSettings(); checkUpdate(); }
+function openSettings() { closeDrawer(); $('#settings').hidden = false; setNote = ''; drawSettings(); checkUpdate(); pushRefresh().then(drawSettings); }
 function closeSettings() { $('#settings').hidden = true; }
 function drawSettings() {
   const box = $('#setbody');
@@ -895,12 +939,14 @@ function drawSettings() {
   const theme = store.get('theme') || 'system';
   const row = (ic, label, fn, right, cls = '') => h('button.mi' + cls, { onclick: fn }, h('span.mic', { text: ic }), h('span', { text: label }), right ? h('span.val', { text: right }) : null, h('span.chev', { text: '›' }));
   const seg = h('div.seg', {}, ...[['system', 'System'], ['light', 'Light'], ['dark', 'Dark']].map(([k, n]) => h('button' + (theme === k ? '.on' : ''), { text: n, onclick: () => { store.set('theme', k); applyTheme(); drawSettings(); } })));
-  const notifState = 'Notification' in window ? Notification.permission : 'n/a';
   box.replaceChildren(
     h('div.setsec', { text: 'Appearance' }), h('div.setcard', {}, seg),
     h('div.setsec', { text: 'Agent' }), h('div.setcard', {},
       row('✓', 'Capability check', openEval),
-      row('🔔', 'Approval notifications', async () => { if ('Notification' in window) { const r = await Notification.requestPermission(); toast(r === 'granted' ? 'Notifications on' : 'Blocked'); drawSettings(); } else toast('Not supported here'); }, notifState === 'granted' ? 'On' : notifState === 'denied' ? 'Blocked' : 'Off')),
+      row('🔔', 'Push notifications', async () => { if (PUSH.state === 'on') await pushDisable(); else await pushEnable(); drawSettings(); },
+        { on: 'On', off: 'Off', blocked: 'Blocked', unsupported: 'Not supported', 'server-off': 'Server off', unknown: '…' }[PUSH.state] || ''),
+      PUSH.state === 'on' ? row('✉', 'Send a test notification', pushTest, `${PUSH.devices} device${PUSH.devices === 1 ? '' : 's'}`) : null,
+      PUSH.err ? h('div.dim', { style: 'padding:4px 12px 10px;font-size:13px', text: PUSH.err }) : null),
     h('div.setsec', { text: 'Server' }), h('div.setcard', {}, serverKV()),
     h('div.setsec', { text: 'About' }), h('div.setcard', {},
       h('dl.kv', {}, h('dt', { text: 'App' }), h('dd', { text: verText() }), h('dt', { text: 'Server' }), h('dd', { text: inf.version ? inf.version : 'unknown' })),
@@ -1064,13 +1110,19 @@ function wire() {
     if (b) { navigator.clipboard.writeText(b.parentElement.querySelector('code').textContent).then(() => { b.textContent = 'copied'; setTimeout(() => (b.textContent = 'copy'), 1200); }).catch(() => toast('Copy failed')); }
   });
   document.addEventListener('visibilitychange', async () => {
+    sendPresence();
     if (!document.hidden) checkUpdate();
     if (document.hidden || !S.token || !S.cur) return;
     try { await loadSessions(); if (S.run.running || !S.finished) { await openSession(S.cur.id); } } catch { /* offline */ }
   });
   // keep the free-tier server awake while the app is open and visible
   setInterval(() => { if (!document.hidden && S.token) fetch(S.api + '/health').catch(() => {}); }, 4 * 60 * 1000);
-  if ('serviceWorker' in navigator && location.protocol.startsWith('http')) navigator.serviceWorker.register('sw.js').catch(() => {});
+  if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
+    navigator.serviceWorker.register('sw.js').catch(() => {});
+    navigator.serviceWorker.addEventListener('message', (e) => { if (e.data && e.data.type === 'open-chat' && e.data.sid && S.token) openSession(e.data.sid).catch(() => {}); });
+  }
+  setInterval(() => { if (!document.hidden) sendPresence(); }, 25000);
+  window.addEventListener('pagehide', sendPresence);
 }
 
 applyTheme();
@@ -1080,6 +1132,7 @@ wire();
 if (S.token && S.api) start(); else show('setup');
 updateUI();
 setTimeout(checkUpdate, 1500);
+setTimeout(sendPresence, 800);
 setInterval(checkUpdate, 5 * 60 * 1000);
 S.checkUpdate = checkUpdate;
 window.__agent = S; // handy for debugging in devtools

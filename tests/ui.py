@@ -138,7 +138,7 @@ try:
         time.sleep(0.4)
         p.screenshot(path=f"{OUT}/10c-settings.png")
         txt = p.inner_text("#setbody")
-        check("settings has server info + about", all(t in txt for t in ("History sync", "Check for updates", "Sign out", "Capability check", "dev build")))
+        check("settings has server info + about", all(t in txt for t in ("History sync", "Check for updates", "Sign out", "Capability check", "dev build", "Push notifications")))
         p.click("#setbody .seg button:has-text('Dark')")
         check("theme dark applies", p.evaluate("document.documentElement.getAttribute('data-theme')") == "dark")
         p.click("#setbody .seg button:has-text('System')")

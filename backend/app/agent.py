@@ -7,7 +7,7 @@ import time
 from pathlib import Path
 from typing import Optional
 
-from . import config, llm, perms, store, tools, workspace
+from . import push, config, llm, perms, store, tools, workspace
 
 runs: dict[str, "Run"] = {}
 MCP = None  # set by main (mcp.MCP instance)
@@ -22,6 +22,7 @@ class Run:
         self.base = 0                      # seq of events[0] - 1 (we trim old events)
         self.cond = asyncio.Condition()
         self.done = False
+        self.started = time.time()
         self.task: Optional[asyncio.Task] = None
         self.approvals: dict[str, asyncio.Future] = {}
         self.pending: dict[str, dict] = {}   # approval id -> event (for reattach)
@@ -247,6 +248,10 @@ async def request_approval(run: Run, s: dict, call_id: str, name: str, args: dic
     ev = {"type": "approval", "id": call_id, "tool": name, "args": args, "reason": reason, "label": label}
     run.pending[call_id] = ev
     await run.emit(ev)
+    if not s.get("_ephemeral"):
+        detail = (args.get("command") or args.get("path") or args.get("description") or "")[:100] if isinstance(args, dict) else ""
+        asyncio.create_task(push.notify("Needs your approval", f"{(label + ': ') if label else ''}{name} {detail}".strip(),
+                                        sid=s["id"], tag="appr-" + call_id))
     try:
         return await fut
     finally:
@@ -486,6 +491,9 @@ async def run_turn(s: dict, run: Run):
         await store.flush_all()
         run.done = True
         await run.emit({"type": "done", "status": status})
+        if not s.get("_ephemeral") and status in ("done", "error") and time.time() - run.started > 15:
+            last = next((m.get("content") or "" for m in reversed(s["messages"]) if m["role"] == "assistant" and m.get("content")), "")
+            asyncio.create_task(push.notify(s["title"] if status == "done" else "Run failed", (last or "Finished.").replace("\n", " "), sid=s["id"], tag="done-" + s["id"]))
 
 
 async def _autosync(s: dict, ws: Path, run: Run):

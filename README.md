@@ -68,6 +68,10 @@ Read, write, edit, multi-edit, glob, grep, bash (incl. background jobs), live pa
 - `.agent/hooks.json`: `{"PostToolUse":[{"matcher":"edit|write","command":"python -m pyflakes ."}]}`. A failing `PreToolUse` hook blocks the call.
 - Remote MCP: set `MCP_SERVERS='[{"name":"x","url":"https://…","headers":{"Authorization":"Bearer …"}}]'`.
 
+## Push notifications
+Settings → **Push notifications**. The server pings your phone when the agent needs an approval or a long run (15 s+) finishes, but only when the app isn't on screen. The signing keys and your device subscriptions live in the private `agent-state` repo, so a Render restart doesn't lose them.
+**iPhone:** this only works from the app added to your Home Screen (iOS 16.4+): open the installed app, then turn it on. Each iPhone/browser subscribes separately.
+
 ## Limits you should know about
 - **Free-tier model limits.** NVIDIA's free endpoints are limited to roughly 40 requests/min. The server throttles itself to 35 (`LLM_RPM`), shared by all sub-agents. 429s retry with backoff, then fall back to a smaller model.
 - **512 MB RAM, no persistent disk.** Light builds only. Uncommitted work is lost on restart, so it auto-commits and pushes after every turn.

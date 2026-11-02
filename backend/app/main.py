@@ -20,7 +20,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from starlette.background import BackgroundTask
 
-from . import agent, config, evals, llm, mcp, perms, store, workspace
+from . import agent, config, evals, kv, llm, mcp, perms, push, store, workspace
 
 mcp_client = mcp.MCP()
 agent.MCP = mcp_client
@@ -29,6 +29,8 @@ agent.MCP = mcp_client
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await store.init()
+    await kv.init()
+    await push.init()
     asyncio.create_task(mcp_client.refresh())
     asyncio.create_task(_warm())
     yield
@@ -501,3 +503,36 @@ async def preview_serve(sid: str, ptoken: str, path: str = ""):
     return FileResponse(target, headers={
         "Content-Security-Policy": "sandbox allow-scripts allow-forms allow-modals allow-popups allow-pointer-lock",
         "Access-Control-Allow-Origin": "*", "X-Content-Type-Options": "nosniff", "Cache-Control": "no-store"})
+
+
+# ------------------------------------------------------------------ push notifications
+@app.get("/api/push/key", dependencies=[Depends(auth)])
+async def push_key():
+    return {"available": push.AVAILABLE and bool(push.public_key()), "key": push.public_key(), "devices": len(push.subs())}
+
+
+@app.post("/api/push/subscribe", dependencies=[Depends(auth)])
+async def push_subscribe(body: dict):
+    sub = body.get("subscription") or {}
+    if not sub.get("endpoint") or not (sub.get("keys") or {}).get("p256dh"):
+        raise HTTPException(400, "not a push subscription")
+    await push.subscribe(sub)
+    return {"ok": True, "devices": len(push.subs())}
+
+
+@app.post("/api/push/unsubscribe", dependencies=[Depends(auth)])
+async def push_unsubscribe(body: dict):
+    await push.unsubscribe(body.get("endpoint", ""))
+    return {"ok": True, "devices": len(push.subs())}
+
+
+@app.post("/api/push/test", dependencies=[Depends(auth)])
+async def push_test():
+    n = await push.notify("Pocket Agent", "Notifications work.", tag="test", force=True)
+    return {"sent": n}
+
+
+@app.post("/api/presence", dependencies=[Depends(auth)])
+async def presence(body: dict):
+    push.set_presence(bool(body.get("visible")))
+    return {"ok": True}

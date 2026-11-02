@@ -254,6 +254,16 @@ try:
     pb11 = c2.post(f"/api/sessions/{s11['id']}/preview-token").json()["base"]
     check("agent-built page is served", "mock page" in httpx.get(B + pb11 + "index.html").text)
 
+    # --- push endpoints
+    pk = c2.get("/api/push/key").json()
+    check("push key served", pk["available"] and len(pk["key"]) >= 80, str(pk))
+    check("bad subscription rejected", c2.post("/api/push/subscribe", json={"subscription": {"endpoint": "x"}}).status_code == 400)
+    ok_sub = c2.post("/api/push/subscribe", json={"subscription": {"endpoint": "https://push.example/e2e", "keys": {"p256dh": "k", "auth": "a"}}}).json()
+    check("subscription stored", ok_sub["devices"] == 1, str(ok_sub))
+    check("presence accepted", c2.post("/api/presence", json={"visible": True}).json()["ok"])
+    check("unsubscribe works", c2.post("/api/push/unsubscribe", json={"endpoint": "https://push.example/e2e"}).json()["devices"] == 0)
+    check("push endpoints need login", httpx.Client(base_url=B).get("/api/push/key").status_code == 401)
+
     # --- live preview: scoped token, sandbox CSP, confinement, expiry
     up = c2.put(f"/api/sessions/{s10['id']}/upload", params={"name": "page.html", "extract": "false"}, content=b"<h1>hi preview</h1>").json()
     pb = c2.post(f"/api/sessions/{s10['id']}/preview-token").json()["base"]

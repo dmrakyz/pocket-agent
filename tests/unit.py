@@ -43,3 +43,29 @@ async def seed_test():
     workspace.drop_workspace(sid)
     print("PASS eval seed files survive workspace setup")
 asyncio.run(seed_test())
+
+# push: keys, presence gating, de-dupe, dead-subscription cleanup (delivery itself is stubbed)
+from app import kv, push
+import types
+async def push_test():
+    await push.init()
+    assert push.AVAILABLE and len(push.public_key()) >= 80, "vapid public key missing"
+    sent = []
+    class Resp: status_code = 410
+    def fake(sub, payload):
+        if "dead" in sub["endpoint"]:
+            raise push.WebPushException("gone", response=Resp())
+        sent.append((sub["endpoint"], payload))
+    push._send_one = fake
+    await push.subscribe({"endpoint": "https://push.example/ok", "keys": {"p256dh": "a", "auth": "b"}})
+    await push.subscribe({"endpoint": "https://push.example/dead", "keys": {"p256dh": "a", "auth": "b"}})
+    push.set_presence(True)
+    assert await push.notify("t", "b", sid="s1", tag="x") == 0, "must not push while the app is on screen"
+    push.set_presence(False)
+    assert await push.notify("t", "b", sid="s1", tag="x") == 1 and len(sent) == 1, "should push when the app is hidden"
+    assert await push.notify("t", "b", sid="s1", tag="x") == 0, "de-dupe within 20s"
+    assert "https://push.example/dead" not in push.subs(), "410 should drop the dead subscription"
+    import json as _j
+    assert _j.loads(sent[0][1])["sid"] == "s1"
+    print("PASS push gating, de-dupe, cleanup")
+asyncio.run(push_test())
