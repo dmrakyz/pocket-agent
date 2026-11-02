@@ -270,6 +270,10 @@ try:
         p.wait_for_selector("#apphost:not([hidden])")
         afr = p.frame_locator("#ah-frame")
         afr.locator("#t").wait_for(timeout=15000)
+        check("localStorage/sessionStorage work inside the sandbox (no 'operation is insecure')", afr.locator("#ls").inner_text() == "null|x|1", afr.locator("#ls").inner_text())
+        p.wait_for_timeout(800)      # let the async save land
+        p.click("#ah-reload"); afr = p.frame_locator("#ah-frame"); afr.locator("#ls:has-text('seen')").wait_for(timeout=15000)
+        check("localStorage persists across opens", afr.locator("#ls").inner_text() == "seen|x|1", afr.locator("#ls").inner_text())
         check("app opens inside the host with its own title", p.inner_text("#ah-title") == "Tip Calc" and afr.locator("#t").inner_text() == "Tip calc v2")
         afr.locator("#b").click()
         p.wait_for_function("document.querySelector('#ah-frame').contentWindow && true")

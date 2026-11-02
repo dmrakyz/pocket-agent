@@ -24,7 +24,18 @@ SDK = """<script>(function(){var P={},n=0;function call(t,d){return new Promise(
 parent.postMessage(Object.assign({__pa:1,id:id,type:t},d||{}),'*');setTimeout(function(){if(P[id]){delete P[id];rej(new Error('timed out'))}},120000)})}
 addEventListener('message',function(e){var m=e.data;if(!m||!m.__pa_r)return;var p=P[m.id];if(!p)return;delete P[m.id];m.error?p.rej(new Error(m.error)):p.res(m.value)});
 window.agent={ask:function(q,o){return call('ask',{prompt:String(q),system:o&&o.system?String(o.system):''})},act:function(q){return call('act',{prompt:String(q)})},get:function(k){return call('get',{key:String(k)})},
-set:function(k,v){return call('set',{key:String(k),value:v})},del:function(k){return call('del',{key:String(k)})},keys:function(){return call('keys')}}})();</script>"""
+set:function(k,v){return call('set',{key:String(k),value:v})},del:function(k){return call('del',{key:String(k)})},keys:function(){return call('keys')}};
+/* localStorage/sessionStorage throw in an opaque-origin sandbox; give apps working ones. localStorage is kept in the app's saved data (keys 'ls:...'), sessionStorage lives until the app closes. */
+function store(persist){var D=persist?(window.__PA_DATA||{}):{},M={};function ks(){return Object.keys(D).filter(function(k){return !persist||k.indexOf('ls:')===0})}
+function nm(k){return persist?'ls:'+k:k}
+M.getItem=function(k){k=nm(String(k));return k in D&&D[k]!==null?String(D[k]):null};
+M.setItem=function(k,v){k=nm(String(k));v=String(v);D[k]=v;if(persist)call('set',{key:k,value:v}).catch(function(){})};
+M.removeItem=function(k){k=nm(String(k));delete D[k];if(persist)call('del',{key:k}).catch(function(){})};
+M.clear=function(){ks().forEach(function(k){delete D[k];if(persist)call('del',{key:k}).catch(function(){})})};
+M.key=function(i){var a=ks();return i<a.length?(persist?a[i].slice(3):a[i]):null};
+return new Proxy(M,{get:function(t,p){if(p==='length')return ks().length;if(p in t)return t[p];return typeof p==='string'?t.getItem(p):undefined},
+set:function(t,p,v){t.setItem(p,v);return true},deleteProperty:function(t,p){t.removeItem(p);return true},has:function(t,p){return p in t||t.getItem(String(p))!==null}})}
+['localStorage','sessionStorage'].forEach(function(n,i){try{Object.defineProperty(window,n,{value:store(i===0),configurable:true})}catch(e){}})})();</script>"""
 
 
 class AppError(Exception):
@@ -51,9 +62,12 @@ def public(a: dict) -> dict:
     return {k: a.get(k) for k in ("id", "name", "icon", "description", "created", "updated", "ai", "size", "act", "granted")}
 
 
-def with_sdk(html: str) -> str:
+def with_sdk(html: str, app_id: str = "") -> str:
+    # the app's saved data goes in the page itself so localStorage can be read synchronously
+    seed = json.dumps(data(app_id) if app_id else {}).replace("<", "\\u003c")
+    sdk = "<script>window.__PA_DATA=" + seed + ";</script>" + SDK
     m = re.search(r"<head[^>]*>", html, re.I)
-    return (html[:m.end()] + SDK + html[m.end():]) if m else (SDK + html)
+    return (html[:m.end()] + sdk + html[m.end():]) if m else (sdk + html)
 
 
 async def save(spec: dict) -> dict:

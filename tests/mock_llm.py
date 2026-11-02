@@ -150,7 +150,9 @@ def scenario(msgs, model):
     if "MAKEAPP" in prompt:
         html = ("<!doctype html><html><head><meta name='viewport' content='width=device-width'><title>Tip</title></head><body><h1 id='t'>Tip calc</h1>"
                 "<button id='b' onclick=\"agent.ask('hi').then(function(r){document.getElementById('t').textContent=r})\">ask</button>"
-                "<script>agent.get('n').then(function(v){agent.set('n',(v||0)+1)})</script></body></html>")
+                "<div id='ls'></div><script>var prev=localStorage.getItem('k');localStorage.setItem('k','seen');sessionStorage.setItem('s','x');"
+                "document.getElementById('ls').textContent=String(prev)+'|'+sessionStorage.getItem('s')+'|'+localStorage.length;"
+                "agent.get('n').then(function(v){agent.set('n',(v||0)+1)})</script></body></html>")
         if k == 0:
             return "tools", [tool_call("create_app", {"name": "Tip Calc", "icon": "🧮", "description": "splits a bill", "html": html})]
         if k == 1:

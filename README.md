@@ -218,6 +218,7 @@ Ask the agent to build you a little tool ("make me a tip calculator", "a habit t
 
 - Apps run in a sandboxed iframe with a strict CSP: no network, opaque origin, no access to your token or the rest of the app.
 - They talk to the host through a tiny SDK (`agent.ask(prompt)`, `agent.get/set/del/keys`) over postMessage. Data is stored per app; AI calls are rate-limited.
+- `localStorage` and `sessionStorage` work inside apps even though the sandbox has no real origin: `localStorage` is kept in the app's saved data, `sessionStorage` until the app closes. (`indexedDB` and cookies still don't work.)
 - Apps that need an outside service (Notion, mail, ...) call `agent.act("save this note: ...")`. That makes the real agent do it with its connectors and return a one-line result. You approve it once per app (and again whenever the app's code changes), each act runs as a visible chat, only connector tools are allowed (no shell, files, or email), and there is a cap of 20 a hour per app. Apps still have no network and never see a token.
 - The agent can show an app anywhere in its answer with `[Name](app:ID)`: on its own line it becomes a card with an Open button, inside a sentence it becomes a chip (the app's name works as well as the id). A link to an app that does not exist is sent back to the model to fix, like a missing file.
 - Long-press an app in the drawer for rename / delete. Ask the agent to edit one and it rewrites the file.

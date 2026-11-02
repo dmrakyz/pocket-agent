@@ -944,7 +944,7 @@ async def app_host(app_id: str, ptoken: str):
     if not ok:
         raise HTTPException(403, "link expired; reopen the app")
     _need_app(app_id)
-    return HTMLResponse(apps.with_sdk(apps.html_of(app_id)), headers={"Content-Security-Policy": apps.CSP, "X-Content-Type-Options": "nosniff",
+    return HTMLResponse(apps.with_sdk(apps.html_of(app_id), app_id), headers={"Content-Security-Policy": apps.CSP, "X-Content-Type-Options": "nosniff",
                                                                        "Cache-Control": "no-store", "Referrer-Policy": "no-referrer"})
 
 
