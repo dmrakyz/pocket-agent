@@ -110,7 +110,7 @@ async def info():
     return {"version": os.environ.get("RENDER_GIT_COMMIT", "")[:7], "providers": list(config.providers()), "state": store.remote_status | {"repo": config.STATE_REPO},
             "github": bool(config.GITHUB_TOKEN), "git": bool(workspace.shutil.which("git")),
             "rg": bool(workspace.shutil.which("rg")), "default_model": await llm.default_model(),
-            "fallback_model": await llm.fallback_model(), "modes": perms.MODES,
+            "fallback_model": await llm.fallback_model(), "modes": perms.MODES, "self_repo": config.SELF_REPO,
             "mcp": {n: True for n in mcp_client.tools}, "search": "tavily" if config.TAVILY_API_KEY else (
                 "brave" if config.BRAVE_API_KEY else "duckduckgo")}
 

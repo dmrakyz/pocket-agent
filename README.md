@@ -166,3 +166,18 @@ Message the agent from Telegram: answers, files (images and documents it produce
 Setup: in Telegram talk to **@BotFather**, `/newbot`, copy the token. In Render add `TELEGRAM_BOT_TOKEN` and redeploy (Render provides `RENDER_EXTERNAL_URL`; otherwise set `PUBLIC_URL`). In the app: Settings → Telegram → Connect, then send `/pair CODE` to your bot. Commands: `/new`, `/stop`, `/mode ask|auto|yolo`, `/status`, `/unpair`. Photos and files you send are passed to the agent (files land in `uploads/`).
 
 Security: Telegram calls `/telegram/<secret>` and must also send a matching secret-token header, so the endpoint cannot be guessed or spoofed. Only chats paired with a one-time code (10 minutes) are served; everyone else gets a "private bot" reply and nothing runs. Optional `TELEGRAM_ALLOWED_IDS` pre-approves chat ids. The token is hidden from the agent's shell. Not supported: voice notes (the bot says so). Tested end to end against a fake Telegram server, not the real one.
+
+### Improve Pocket Agent itself
+New chat → **Improve Pocket Agent itself** (needs `GITHUB_TOKEN`) opens this app's own repo (`SELF_REPO`, default `dmrakyz/pocket-agent`). The agent works on its own `agent/…` branch, is told to run the test suites and never weaken a test, and ends with `create_pr`. Nothing reaches `main`, and so nothing is deployed, until you merge that pull request on GitHub.
+
+### Email in
+Email can start a routine through the webhook that already exists (Routines → pick a routine → webhook URL). Two ways to forward mail to it; the first is simplest, neither is tested from here:
+- **Zapier:** trigger *Email by Zapier* (gives you an address), action *Webhooks by Zapier → POST* to the routine's URL with the subject and body as the payload.
+- **Cloudflare Email Routing:** route an address to an Email Worker that POSTs to the URL:
+  ```js
+  export default { async email(message, env) {
+    const raw = await new Response(message.raw).text();
+    await fetch(env.HOOK_URL, { method: "POST", body: `From: ${message.from}\nSubject: ${message.headers.get("subject")}\n\n${raw.slice(0, 3500)}` });
+  } }
+  ```
+The payload is passed to the agent as untrusted data (only the first 4000 characters), so a routine prompt like "Summarize this email and add a task to Notion if it needs action" is safe to use on mail from strangers: the agent is told not to follow instructions inside it.

@@ -1031,8 +1031,13 @@ function newChatSheet() {
     try { closeSheet(); await newChat({ repo: repo.value.trim() || null }); $('#input').focus(); } catch (e) { toast(e.message, true); }
     go.disabled = false;
   } });
+  const selfRepo = S.info && S.info.self_repo;
+  const self = selfRepo && S.info.github ? h('button.secondary', { text: '⚙ Improve Pocket Agent itself', onclick: async () => {
+    try { closeSheet(); await newChat({ repo: selfRepo, title: 'Pocket Agent dev' }); $('#input').focus(); } catch (e) { toast(e.message, true); }
+  } }) : null;
   sheet('New chat', h('label', {}, 'GitHub repo to work in', repo),
-    h('div.dim', { text: 'Leave blank for a scratch workspace. With a repo, it works on its own branch (agent/…) and never touches main without a PR.' }), go);
+    h('div.dim', { text: 'Leave blank for a scratch workspace. With a repo, it works on its own branch (agent/…) and never touches main without a PR.' }), go,
+    self, self ? h('div.dim', { style: 'font-size:12.5px', text: 'Opens this app\'s own code. The agent can change it, but nothing goes live until you merge its pull request on GitHub.' }) : null);
   setTimeout(() => { if ($('#sheet').classList.contains('open')) repo.focus(); }, 300);
 }
 async function setEffort(k) {

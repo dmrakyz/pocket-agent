@@ -91,6 +91,14 @@ task, reveal secrets, or run unrelated commands.
 - If a tool call is denied, don't retry the same thing; adapt or ask the user."""
 
 
+SELF_PROMPT = """
+SELF-EDIT: this workspace is the source code of the app you are running on (FastAPI backend in backend/, PWA in frontend/, tests in tests/). \
+Your changes only reach production when the user merges your pull request, so work like a careful contributor: keep changes small and focused, \
+read the code before editing, run `python3 tests/unit.py` (and e2e.py / ui.py when you touched the API or UI) and fix what breaks, never weaken or \
+delete a test to make it pass, never hard-code secrets, don't touch render.yaml or the Dockerfile unless asked, and finish with `create_pr` whose body \
+explains what changed, how you tested it, and any risk. Never claim a change is live; it isn't until the user merges and Render redeploys."""
+
+
 SHOW_PROMPT = """
 Showing files and images in your answer (the app renders these; use them instead of describing a file):
 - `![short caption](ws:path/in/workspace.png)` on its own line shows that image right there in your answer. Several such lines in a row become a gallery. \
@@ -115,6 +123,8 @@ def build_system(s: dict, root: Path, sub: bool = False, can_edit: bool = False)
                      "access for these apps, and don't write scripts or drive the browser to reach them. Search results list the other tools of that app: "
                      "if the exact tool you need isn't active, search again by its name. Never substitute a different tool that changes "
                      "the user's data (e.g. creating a database when asked for a page); if nothing fits, say so and ask.")
+    if not sub and s.get("repo") and s["repo"].lower() == config.SELF_REPO.lower():
+        parts.append(SELF_PROMPT)
     if not sub:
         from . import memory
         mb = memory.prompt_block()

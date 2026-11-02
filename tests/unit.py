@@ -309,6 +309,19 @@ async def genimg_test():
     print("PASS image generation: request shape, both response formats, errors")
 asyncio.run(genimg_test())
 
+# self-edit: the app's own repo gets the contributor rules, other repos don't
+def self_edit_test():
+    from app import agent as AG, config as C
+    root = Path(tempfile.mkdtemp())
+    mine = AG.build_system({"id": "se1", "mode": "ask", "repo": C.SELF_REPO}, root)
+    other = AG.build_system({"id": "se2", "mode": "ask", "repo": "someone/else"}, root)
+    scratch = AG.build_system({"id": "se3", "mode": "ask"}, root)
+    assert "SELF-EDIT" in mine and "create_pr" in mine and "never weaken or" in mine
+    assert "SELF-EDIT" not in other and "SELF-EDIT" not in scratch
+    assert "SELF-EDIT" not in AG.build_system({"id": "se1", "mode": "ask", "repo": C.SELF_REPO}, root, sub=True)
+    print("PASS self-edit chat gets contributor rules, other chats don't")
+self_edit_test()
+
 # built-in skills: listed for every workspace, and every recipe in them actually runs
 def skills_test():
     import subprocess, re as _re, sys

@@ -25,6 +25,7 @@ GIT_USER_NAME = env("GIT_USER_NAME", "Mobile Agent")
 GIT_USER_EMAIL = env("GIT_USER_EMAIL", "agent@users.noreply.github.com")
 
 DEFAULT_MODEL = env("DEFAULT_MODEL")        # "provider:model-id"; auto-picked if empty
+SELF_REPO = env("SELF_REPO", "dmrakyz/pocket-agent")   # this app's own source repo, for the "improve Pocket Agent" chat
 TELEGRAM_BOT_TOKEN = env("TELEGRAM_BOT_TOKEN")
 TELEGRAM_ALLOWED_IDS = {int(x) for x in env("TELEGRAM_ALLOWED_IDS").replace(" ", "").split(",") if x.lstrip("-").isdigit()}
 PUBLIC_URL = (env("PUBLIC_URL") or env("RENDER_EXTERNAL_URL")).rstrip("/")
