@@ -22,7 +22,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from starlette.background import BackgroundTask
 
 from .browser import browser, BrowserError
-from . import agent, config, evals, kv, llm, mcp, memory, oauth, perms, push, routines, store, tools, workspace
+from . import agent, config, evals, kv, llm, mcp, memory, oauth, perms, push, routines, store, tools, usage, workspace
 
 mcp_client = mcp.MCP()
 agent.MCP = mcp_client
@@ -39,6 +39,7 @@ async def lifespan(app: FastAPI):
     asyncio.create_task(_warm())
     yield
     await browser.shutdown()
+    await usage.flush(force=True)
     await store.flush_all()
 
 
@@ -852,3 +853,8 @@ async def connectors_perm(name: str, body: dict):
     d[name] = perm
     await kv.put("connector_perms", d)
     return {"connectors": _connector_view()}
+
+
+@app.get("/api/usage", dependencies=[Depends(auth)])
+async def usage_view():
+    return usage.view(14)

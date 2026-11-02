@@ -1445,6 +1445,24 @@ function cnAdd() {
   sheet('Add connector', seg, h('label', {}, 'Name', name), h('label', {}, 'Server URL (https)', url), authLabel, note, go);
 }
 
+/* ============================================================ usage */
+async function openUsage() {
+  const body = h('div', {}, h('div.dim', { text: 'Loading…' }));
+  sheet('Usage', body);
+  try {
+    const u = await api('/api/usage');
+    const fmt = (n) => n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e3 ? (n / 1e3).toFixed(1) + 'k' : String(n);
+    const max = Math.max(1, ...u.days.map((d) => d.in + d.out));
+    body.replaceChildren(
+      h('div.dim', { style: 'font-size:13px', text: `Last ${u.days.length} day${u.days.length === 1 ? '' : 's'}: ${fmt(u.total.in + u.total.out)} tokens (${fmt(u.total.in)} in, ${fmt(u.total.out)} out), ${u.total.runs} runs, ${u.total.calls} model calls. Counts are for this server only; free tiers have no bill.` }),
+      u.days.length ? h('div.usage', {}, ...u.days.map((d) => h('div.urow', {},
+        h('div.uday', { text: d.day.slice(5) }),
+        h('div.ubar', {}, h('i', { style: `width:${Math.max(2, Math.round(100 * (d.in + d.out) / max))}%` })),
+        h('div.unum', { text: fmt(d.in + d.out) }),
+        h('div.usub', { text: `${d.runs} runs · ` + Object.entries(d.models).sort((a, b) => (b[1].in + b[1].out) - (a[1].in + a[1].out)).slice(0, 2).map(([m, v]) => `${shortModel(m)} ${fmt(v.in + v.out)}`).join(', ') })))) : h('div.dim', { text: 'Nothing recorded yet. Run something and check back.' }));
+  } catch (e) { body.replaceChildren(h('div.dim', { style: 'color:var(--bad)', text: e.message })); }
+}
+
 /* ============================================================ memory (notes every chat sees) + import */
 const MEM = { notes: [], max: 200 };
 async function openMemory() { $('#mempage').hidden = false; await memLoad(); }
@@ -1528,6 +1546,7 @@ function drawSettings() {
       row('⏱', 'Routines', openRoutines),
       row('◍', 'Memory', openMemory, MEM.notes.length ? String(MEM.notes.length) : ''),
       row('⚭', 'Connectors', openConnectors),
+      row('▤', 'Usage', openUsage),
       row('✓', 'Capability check', openEval),
       row('🔔', 'Push notifications', async () => { if (PUSH.state === 'on') await pushDisable(); else await pushEnable(); drawSettings(); },
         { on: 'On', off: 'Off', blocked: 'Blocked', unsupported: 'Not supported', 'server-off': 'Server off', unknown: '…' }[PUSH.state] || ''),

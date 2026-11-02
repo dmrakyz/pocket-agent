@@ -150,3 +150,6 @@ A 503 or 429 from the provider is retried once, then the step falls back to the 
 
 ### Connector permissions
 Each connector has a policy (Connectors screen): **Ask before writes** (default: reads run automatically, anything that creates/edits/deletes asks), **Read-only** (writes are blocked, even in YOLO) or **Trusted** (everything runs). A tool counts as read-only if the server says so (`readOnlyHint`) or its name is a read verb (get, list, search, fetch…); anything unclear counts as a write. Plan mode never allows connector writes.
+
+### Usage
+Settings → Usage shows tokens (in/out), runs and model calls per day for the last two weeks, split by model. Counts are kept on the server (kv `usage`, flushed at most every two minutes and on shutdown). Free tiers have no bill; this is for seeing what a routine or a long run actually burns.

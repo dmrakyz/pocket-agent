@@ -388,6 +388,9 @@ try:
         p.evaluate("__setStatus('preparing workspace…')")
         check("ordinary notices have no retry button", p.locator(".notice .notice-btn").count() == 0)
         p.evaluate("__setStatus('')")
+        p.click("#setbody >> text=Usage"); p.wait_for_selector(".usage .urow", timeout=10000)
+        check("usage sheet shows today's runs", "runs" in p.inner_text(".usage") and "tokens" in p.inner_text("#sheet-body"))
+        p.screenshot(path=f"{OUT}/24-usage.png"); p.click("#sheet-close"); p.wait_for_timeout(300)
         # memory screen: add, secret refused, import with preview, edit, forget
         p.click("#setbody >> text=Memory")
         p.wait_for_selector("#mempage:not([hidden]) >> text=Nothing remembered yet")

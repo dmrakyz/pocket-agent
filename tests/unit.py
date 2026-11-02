@@ -276,6 +276,25 @@ async def memory_test():
     print("PASS memory: notes, secrets refused, prompt, tools, import parsing, distill")
 asyncio.run(memory_test())
 
+# usage: counts per day and model, throttled flush, view merges unflushed numbers
+async def usage_test():
+    from app import usage as U
+    U._pending.clear(); U._runs.clear(); U._last_flush = 0
+    await kv.put("usage", {})
+    U.record("nvidia:ultra", 1000, 200); U.record("nvidia:ultra", 500, 100); U.record("nvidia:light", 50, 5); U.record_run()
+    v = U.view(); d = v["days"][0]
+    assert d["in"] == 1550 and d["out"] == 305 and d["calls"] == 3 and d["runs"] == 1 and set(d["models"]) == {"nvidia:ultra", "nvidia:light"}, v
+    await U.flush(); assert kv.get("usage")["days"][d["day"]]["models"]["nvidia:ultra"]["in"] == 1500 and not U._pending
+    U.record("nvidia:ultra", 10, 1); await U.flush()      # throttled: stays pending, still visible in the view
+    assert U._pending and U.view()["days"][0]["in"] == 1560, "throttled numbers still show"
+    await U.flush(force=True); assert not U._pending and kv.get("usage")["days"][d["day"]]["models"]["nvidia:ultra"]["in"] == 1510
+    old_days = {f"2020-{mo:02d}-{i:02d}": {"runs": 1, "models": {}} for mo in (1, 2, 3) for i in range(1, 29)}
+    await kv.put("usage", {"days": old_days})
+    U.record("m", 1, 1); await U.flush(force=True); assert len(kv.get("usage")["days"]) <= U.KEEP_DAYS
+    await kv.put("usage", {})
+    print("PASS usage: record, throttle, merge, prune")
+asyncio.run(usage_test())
+
 # connector permissions: read/write classification and per-connector policy
 async def perm_test():
     from app import mcp as mcpmod, perms

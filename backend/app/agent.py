@@ -7,7 +7,7 @@ import time
 from pathlib import Path
 from typing import Optional
 
-from . import push, config, llm, perms, store, tools, workspace
+from . import push, config, llm, perms, store, tools, usage, workspace
 
 runs: dict[str, "Run"] = {}
 MCP = None  # set by main (mcp.MCP instance)
@@ -410,6 +410,7 @@ async def run_subagent(run: Run, s: dict, root: Path, description: str, prompt: 
                 resp = await llm.chat(ref, [{"role": "system", "content": build_system(s, root, True, can_edit)}] + msgs,
                                       sch, nop, nop, notify, thinking=False)
             m = resp["message"]
+            usage.record(ref, (resp.get("usage") or {}).get("prompt_tokens", 0), (resp.get("usage") or {}).get("completion_tokens", 0))
             msgs.append({k: v for k, v in m.items() if not k.startswith("_")})
             calls = m.get("tool_calls")
             if not calls:
@@ -509,6 +510,7 @@ async def run_turn(s: dict, run: Run):
             if resp.get("usage"):
                 s["usage"]["in"] += resp["usage"].get("prompt_tokens", 0)
                 s["usage"]["out"] += resp["usage"].get("completion_tokens", 0)
+            usage.record(s["model"], (resp.get("usage") or {}).get("prompt_tokens", 0), (resp.get("usage") or {}).get("completion_tokens", 0))
             calls = m.get("tool_calls")
             if not calls and not (m.get("content") or "").strip():
                 if nudged < 2:       # model returned nothing: poke it once or twice
@@ -580,6 +582,11 @@ async def run_turn(s: dict, run: Run):
         await run.emit({"type": "error", "text": f"{type(e).__name__}: {e}"})
     finally:
         s["_running"] = False
+        usage.record_run()
+        try:
+            await usage.flush()
+        except Exception:  # noqa: BLE001
+            pass
         if ws and ws.exists():
             try:
                 await asyncio.shield(_autosync(s, ws, run))

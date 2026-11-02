@@ -439,3 +439,9 @@ label.memrow { flex-direction: row; gap: 12px; align-items: flex-start; }
 .notice .notice-btn { display: block; margin: 8px auto 0; padding: 7px 14px; border-radius: 999px; border: 1px solid var(--line); background: var(--panel2); color: var(--accent); font-size: 13.5px; font-weight: 600; }
 
 .cnperm { display: flex; flex-direction: column; gap: 6px; margin-top: 2px; } .cnperm .seg button { font-size: 13px; padding: 7px 6px; }
+
+.usage { display: flex; flex-direction: column; gap: 10px; margin-top: 8px; }
+.urow { display: grid; grid-template-columns: 46px 1fr 52px; gap: 2px 10px; align-items: center; }
+.uday { font: 12.5px var(--mono); color: var(--dim); } .unum { font: 13px var(--mono); text-align: right; }
+.ubar { height: 8px; border-radius: 6px; background: var(--panel2); overflow: hidden; } .ubar i { display: block; height: 100%; background: var(--accent); border-radius: 6px; }
+.usub { grid-column: 2 / 4; font-size: 12px; color: var(--dim); }
