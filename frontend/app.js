@@ -431,7 +431,7 @@ async function answer(id, body, card) {
 function fillCard(card, call, result, approval) {
   const name = call.function.name;
   const a = parseArgs(call);
-  const dflt = false;
+  const dflt = !!(result && result._app && !result._error);   // an app you just asked for: show its Open button right away
   const open = approval ? true : card.dataset.open ? card.dataset.open === '1' : dflt;
   card.className = 'tool' + (result && result._error ? ' err' : '') + (approval ? ' ask' : '');
   card.replaceChildren();
@@ -448,14 +448,17 @@ function fillCard(card, call, result, approval) {
     body.append(h('div.lbl', { text: 'command' }), h('pre', { text: a.command || '' }));
   } else {
     const d = (result && result._diff) || previewDiff(name, a);
-    if (d) body.append(diffNode(d));
+    if (name === 'create_app' && result && result._app) { /* the HTML is long and useless here: the card below is the result */ }
+    else if (d) body.append(diffNode(d));
     else if (name !== 'todo_write') body.append(h('div.lbl', { text: 'input' }), h('pre', { text: JSON.stringify(a, null, 2) }));
   }
-  if (result && name !== 'exit_plan_mode' && !(result._diff && !result._error)) body.append(h('div.lbl', { text: 'output' }), h('pre', { text: result.content || '' }));
+  if (result && name !== 'exit_plan_mode' && !(result._diff && !result._error) && !(name === 'create_app' && result._app)) body.append(h('div.lbl', { text: 'output' }), h('pre', { text: result.content || '' }));
   if (result && result._browser) body.append(h('div', { style: 'padding:10px 12px' }, h('button.primary.small', { text: '◫ Open browser', onclick: openBrowser })));
   if (result && result._image) body.append(imgNode(result._image, call.id));
   if (result && result._preview) body.append(h('div', { style: 'padding:10px 12px' }, h('button.primary.small', { text: '▶ Open preview', onclick: () => openPreview(result._preview) })));
-  if (result && result._app) body.append(h('div', { style: 'padding:10px 12px' }, h('button.primary.small', { text: '▦ Open app', onclick: () => openApp(result._app) })));
+  if (result && result._app) body.append(h('div', { style: 'padding:10px 12px;display:flex;align-items:center;gap:10px' },
+    h('div', { style: 'flex:1;min-width:0;font-weight:600', text: ((a.icon || '▦') + ' ' + (a.name || 'App')).trim() }),
+    h('button.primary.small', { text: 'Open app', onclick: () => openApp(result._app, a.name) })));
   if (result && result._model) body.append(h('div', { style: 'padding:10px 12px' }, h('button.primary.small', { text: '◈ Open 3D viewer', onclick: () => openModel(result._model) })));
   if (result && result._file) body.append(h('div', { style: 'padding:10px 12px' }, fileCardNode(result._file)));
   card.append(body);

@@ -734,7 +734,7 @@ async def t_create_app(ctx: Ctx, a: dict):
         raise ToolError(str(e))
     html = str(a.get("html") or "")
     warn = " Warning: it references external resources (http/https), which the sandbox blocks: inline them." if re.search(r"(src|href)=[\"']https?://|@import\s+url\(\s*[\"']?https?://", html, re.I) else ""
-    return {"text": f"App '{app['name']}' saved (id {app['id']}). The user can open it from the card below or the Apps drawer.{warn}", "app": app["id"]}
+    return {"text": f"App '{app['name']}' saved (id {app['id']}). An 'Open app' card is shown to the user automatically and it is also in their Apps drawer (menu → Apps). The app is NOT a workspace file: do not link or embed it with ws: and do not write it to a file; just say it is ready and what it does.{warn}", "app": app["id"]}
 
 
 async def t_app_list(ctx: Ctx, a: dict):

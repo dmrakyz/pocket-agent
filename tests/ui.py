@@ -261,8 +261,8 @@ try:
         p.wait_for_function("window.__agent.run.running === false", timeout=30000)
         p.wait_for_selector(".tool-head:has-text('Tip Calc')", timeout=30000)
         check("a built app's card stays visible outside the collapsed group", p.locator("text=Built 2 apps").count() == 1 or p.locator(".tool-head:has-text('Tip Calc')").count() >= 1)
-        p.locator(".tool-head:has-text('Tip Calc')").last.click()
-        p.wait_for_selector("text=Open app", timeout=30000)
+        p.wait_for_selector("text=Open app", timeout=30000)      # open by default: no tapping to find the button
+        check("a built app shows an Open app card without the HTML dump", "<!doctype" not in p.inner_text("#chat").lower())
         p.click("text=Open app")
         p.wait_for_selector("#apphost:not([hidden])")
         afr = p.frame_locator("#ah-frame")
