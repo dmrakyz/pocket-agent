@@ -4,7 +4,15 @@ import re
 
 import httpx
 
-from . import config, kv
+from . import config, kv, oauth
+
+
+_transport = None   # tests inject a fake transport
+
+
+class NeedsSignIn(Exception):
+    def __init__(self):
+        super().__init__("this connector needs you to sign in again (Settings > Connectors)")
 
 
 class MCP:
@@ -16,12 +24,17 @@ class MCP:
     async def _rpc(self, srv: dict, method: str, params: dict | None = None, notify: bool = False):
         h = {"Content-Type": "application/json", "Accept": "application/json, text/event-stream",
              **(srv.get("headers") or {})}
+        if srv.get("oauth"):
+            auth = await oauth.header(srv["name"])
+            if not auth:
+                raise NeedsSignIn()
+            h["Authorization"] = auth
         if srv["name"] in self.sessions:
             h["Mcp-Session-Id"] = self.sessions[srv["name"]]
         body = {"jsonrpc": "2.0", "method": method, "params": params or {}}
         if not notify:
             body["id"] = 1
-        async with httpx.AsyncClient(timeout=60) as c:
+        async with httpx.AsyncClient(timeout=60, transport=_transport) as c:
             r = await c.post(srv["url"], headers=h, json=body)
         if r.headers.get("Mcp-Session-Id"):
             self.sessions[srv["name"]] = r.headers["Mcp-Session-Id"]
@@ -67,6 +80,10 @@ class MCP:
                     self.tools[f"mcp__{srv['name']}__{safe}"] = {"server": srv, "name": t["name"], "def": t}
                     n += 1
                 report[srv["name"]] = f"{n} tools"
+            except NeedsSignIn:
+                report[srv["name"]] = "needs sign-in"
+            except httpx.HTTPStatusError as e:
+                report[srv["name"]] = "needs sign-in" if e.response.status_code == 401 and srv.get("oauth") else f"error: HTTP {e.response.status_code}"
             except Exception as e:  # noqa: BLE001
                 report[srv["name"]] = f"error: {type(e).__name__}: {e}"
         self.report = report

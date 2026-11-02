@@ -337,3 +337,4 @@ header, .sheet, .menu, .ctx { -webkit-backdrop-filter: saturate(1.4) blur(18px);
 .skel { background: linear-gradient(100deg, var(--panel) 30%, var(--panel2) 50%, var(--panel) 70%); background-size: 300% 100%; animation: shimmer 1.3s linear infinite; border-radius: 14px; }
 .skel-msg { height: 54px; } .skel-row { height: 52px; margin: 6px 10px; }
 @keyframes shimmer { from { background-position: 100% 0; } to { background-position: -100% 0; } }
+.btn-link { display: block; text-align: center; padding: 14px; border-radius: 14px; background: var(--accent); color: var(--accent-ink); font-weight: 700; text-decoration: none; font-size: 16px; }

@@ -291,6 +291,11 @@ try:
     check("connector rejects http", c2.post("/api/connectors", json={"name": "a", "url": "http://example.com/mcp"}).status_code == 400)
     check("connector rejects private addresses", c2.post("/api/connectors", json={"name": "a", "url": "https://127.0.0.1/mcp"}).status_code == 400)
     check("connector list works", "connectors" in c2.get("/api/connectors").json())
+    check("oauth connector rejects private addresses", c2.post("/api/connectors", json={"name": "a", "url": "https://127.0.0.1/mcp", "oauth": True}).status_code == 400)
+    check("sign-in for an unknown connector is 404", c2.post("/api/connectors/nope/login", json={"base": "https://x.example"}).status_code == 404)
+    cb = c2.get("/oauth/callback?state=forged&code=abc")
+    check("oauth callback with a forged state is refused", cb.status_code == 200 and "Sign-in failed" in cb.text and "Connected" not in cb.text)
+    check("oauth callback cancel page", "cancelled" in c2.get("/oauth/callback?error=access_denied").text)
 
     # --- 3D tool
     s12 = c2.post("/api/sessions", json={"mode": "yolo"}).json()

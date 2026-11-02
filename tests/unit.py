@@ -91,3 +91,73 @@ assert not routines.due(r, ts(2026, 11, 2, 12, 45)), "not due again right after 
 r["enabled"] = False
 assert not routines.due(r, ts(2026, 11, 3, 12, 31)), "disabled routines never fire"
 print("PASS routine schedule maths")
+
+
+# OAuth for MCP connectors: discovery, registration, PKCE exchange, refresh, bearer on requests (fake server, no network)
+import base64, hashlib, json as _json, httpx
+from urllib.parse import urlparse, parse_qs
+from app import oauth, mcp as mcpmod, tools as _tools
+async def oauth_test():
+    _tools._check_public = lambda url: None
+    st = {"codes": {}, "tokens": {"at1": "live"}, "refreshes": {"rt1": True}, "n": 0, "reg": 0}
+    def handler(req: httpx.Request) -> httpx.Response:
+        u = urlparse(str(req.url)); path = u.path
+        if u.netloc == "mcp.example":
+            if path == "/.well-known/oauth-protected-resource":
+                return httpx.Response(200, json={"authorization_servers": ["https://auth.example"], "scopes_supported": ["read"]})
+            auth = req.headers.get("authorization", "")
+            if auth.replace("Bearer ", "") not in st["tokens"]:
+                return httpx.Response(401, headers={"www-authenticate": 'Bearer resource_metadata="https://mcp.example/.well-known/oauth-protected-resource"'})
+            m = _json.loads(req.content)
+            if m["method"] == "initialize": return httpx.Response(200, json={"jsonrpc": "2.0", "id": 1, "result": {}})
+            if m["method"] == "tools/list": return httpx.Response(200, json={"jsonrpc": "2.0", "id": 1, "result": {"tools": [{"name": "ping", "inputSchema": {}}]}})
+            return httpx.Response(202)
+        if u.netloc == "auth.example":
+            if path == "/.well-known/oauth-authorization-server":
+                return httpx.Response(200, json={"authorization_endpoint": "https://auth.example/authorize", "token_endpoint": "https://auth.example/token", "registration_endpoint": "https://auth.example/register"})
+            if path == "/register":
+                st["reg"] += 1
+                body = _json.loads(req.content)
+                assert body["token_endpoint_auth_method"] == "none" and body["redirect_uris"] == ["https://me.example/oauth/callback"]
+                return httpx.Response(201, json={"client_id": "cid-1"})
+            if path == "/token":
+                f = {k: v[0] for k, v in parse_qs(req.content.decode()).items()}
+                assert f["client_id"] == "cid-1" and f["resource"] == "https://mcp.example/mcp"
+                if f["grant_type"] == "authorization_code":
+                    c = st["codes"].pop(f["code"], None)
+                    if not c: return httpx.Response(400, json={"error": "invalid_grant"})
+                    chal = base64.urlsafe_b64encode(hashlib.sha256(f["code_verifier"].encode()).digest()).rstrip(b"=").decode()
+                    if chal != c: return httpx.Response(400, json={"error": "invalid_grant", "error_description": "bad pkce"})
+                    return httpx.Response(200, json={"access_token": "at1", "refresh_token": "rt1", "expires_in": 3600})
+                if f["grant_type"] == "refresh_token" and st["refreshes"].get(f["refresh_token"]):
+                    st["n"] += 1; st["tokens"]["at2"] = "live"
+                    return httpx.Response(200, json={"access_token": "at2", "expires_in": 3600})
+                return httpx.Response(400, json={"error": "invalid_grant"})
+        return httpx.Response(404)
+    oauth._transport = mcpmod._transport = httpx.MockTransport(handler)
+    await kv.put("connectors", [{"name": "fake", "url": "https://mcp.example/mcp", "oauth": True}])
+    try:
+        await oauth.start("fake", "https://mcp.example/mcp", "http://evil.example"); assert False, "http app address must be refused"
+    except oauth.OAuthError: pass
+    rep = await mcpmod.MCP().refresh()
+    assert rep["fake"] == "needs sign-in", rep
+    url = await oauth.start("fake", "https://mcp.example/mcp", "https://me.example")
+    q = {k: v[0] for k, v in parse_qs(urlparse(url).query).items()}
+    assert q["code_challenge_method"] == "S256" and q["resource"] == "https://mcp.example/mcp" and q["scope"] == "read"
+    st["codes"]["good"] = q["code_challenge"]
+    try: await oauth.finish("forged-state", "good"); assert False, "unknown state must fail"
+    except oauth.OAuthError: pass
+    assert await oauth.finish(q["state"], "good") == "fake" and oauth.signed_in("fake")
+    try: await oauth.finish(q["state"], "good"); assert False, "state is single-use"
+    except oauth.OAuthError: pass
+    m = mcpmod.MCP(); rep = await m.refresh()
+    assert rep["fake"] == "1 tools" and "mcp__fake__ping" in m.tools, rep
+    db = kv.get("oauth"); db["fake"]["token"]["expires_at"] = time.time() + 5; await kv.put("oauth", db)
+    rep = await mcpmod.MCP().refresh()
+    assert rep["fake"] == "1 tools" and st["n"] == 1 and kv.get("oauth")["fake"]["token"]["access_token"] == "at2", "token refreshed once"
+    assert st["reg"] == 1, "client registered once and reused"
+    st["refreshes"].clear(); db = kv.get("oauth"); db["fake"]["token"]["expires_at"] = 0; await kv.put("oauth", db)
+    assert (await mcpmod.MCP().refresh())["fake"] == "needs sign-in", "dead refresh token asks to sign in again"
+    await oauth.forget("fake"); assert not oauth.signed_in("fake")
+    print("PASS oauth discovery, PKCE, refresh, sign-in expiry")
+asyncio.run(oauth_test())

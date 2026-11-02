@@ -110,3 +110,7 @@ This server runs shell commands, on the internet, in the same container as your 
 - Hold a message: your prompts get Edit and Copy, answers get Regenerate and Copy. "Select text" lets you pick part of a message.
 - Swipe a bottom sheet down from its top handle to close it (a flick or a long drag closes, a short one snaps back).
 - Swipe in from the left edge to open the chat list, swipe it left to close.
+
+## OAuth connectors
+
+In Settings -> Connectors choose "Sign in (OAuth)". The app discovers the server's login endpoints, registers itself, and shows a "Continue to sign in" link. After you approve on the service's own page, the callback lands on your Render URL (`/oauth/callback`), tokens are stored in the private state repo and refreshed automatically. If a refresh fails the connector shows "sign in" again. Works with servers that support dynamic client registration (most hosted MCP servers do); servers that need a pre-registered client are not supported yet.

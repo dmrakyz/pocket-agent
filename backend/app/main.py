@@ -3,6 +3,7 @@ import asyncio
 import base64
 import hashlib
 import hmac
+import html
 import json
 import os
 import re
@@ -17,10 +18,10 @@ from typing import Optional
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
 from starlette.background import BackgroundTask
 
-from . import agent, config, evals, kv, llm, mcp, perms, push, routines, store, tools, workspace
+from . import agent, config, evals, kv, llm, mcp, oauth, perms, push, routines, store, tools, workspace
 
 mcp_client = mcp.MCP()
 agent.MCP = mcp_client
@@ -615,7 +616,8 @@ def _connector_view():
         names = [n.split("__", 2)[-1] for n, t in mcp_client.tools.items() if t["server"]["name"] == srv["name"]]
         out.append({"name": srv["name"], "url": srv["url"], "source": srv.get("source", "app"),
                     "status": mcp_client.report.get(srv["name"], "not connected yet"), "tools": names,
-                    "has_headers": bool(srv.get("headers"))})
+                    "has_headers": bool(srv.get("headers")), "oauth": bool(srv.get("oauth")),
+                    "signed_in": oauth.signed_in(srv["name"]) if srv.get("oauth") else None})
     return out
 
 
@@ -635,10 +637,10 @@ async def connectors_add(body: dict):
     except tools.ToolError as e:
         raise HTTPException(400, str(e))
     hdr = {}
-    if body.get("auth"):
+    if body.get("auth") and not body.get("oauth"):
         hdr["Authorization"] = str(body["auth"])[:2000]
     items = [c for c in (kv.get("connectors", []) or []) if c.get("name") != name]
-    items.append({"name": name, "url": url, **({"headers": hdr} if hdr else {})})
+    items.append({"name": name, "url": url, **({"headers": hdr} if hdr else {}), **({"oauth": True} if body.get("oauth") else {})})
     await kv.put("connectors", items)
     await mcp_client.refresh()
     return {"connectors": _connector_view()}
@@ -648,8 +650,33 @@ async def connectors_add(body: dict):
 async def connectors_delete(name: str):
     items = [c for c in (kv.get("connectors", []) or []) if c.get("name") != name]
     await kv.put("connectors", items)
+    await oauth.forget(name)
     await mcp_client.refresh()
     return {"connectors": _connector_view()}
+
+
+@app.post("/api/connectors/{name}/login", dependencies=[Depends(auth)])
+async def connectors_login(name: str, body: dict):
+    srv = next((c for c in (kv.get("connectors", []) or []) if c.get("name") == name and c.get("oauth")), None)
+    if not srv:
+        raise HTTPException(404, "no such sign-in connector")
+    try:
+        return {"url": await oauth.start(name, srv["url"], str(body.get("base", "")))}
+    except oauth.OAuthError as e:
+        raise HTTPException(400, str(e))
+
+
+@app.get("/oauth/callback")
+async def oauth_callback(state: str = "", code: str = "", error: str = ""):
+    page = lambda title, text: HTMLResponse(f"<!doctype html><meta name=viewport content='width=device-width,initial-scale=1'><body style='font:18px system-ui;background:#0f1115;color:#eee;padding:40px;text-align:center'><h2>{title}</h2><p>{text}</p>", headers={"Cache-Control": "no-store"})
+    if error or not code or not state:
+        return page("Sign-in cancelled", "Nothing was connected. You can close this page and try again from the app.")
+    try:
+        name = await oauth.finish(state, code)
+    except oauth.OAuthError as e:
+        return page("Sign-in failed", html.escape(str(e)))
+    await mcp_client.refresh()
+    return page("Connected", f"{html.escape(name)} is signed in. Go back to the app.")
 
 
 @app.post("/api/connectors/refresh", dependencies=[Depends(auth)])

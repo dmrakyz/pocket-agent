@@ -1074,19 +1074,45 @@ function cnDraw() {
   const box = $('#cnbody');
   if (!CN.list.length) { box.replaceChildren(h('div.evhead', {}, h('div.big', { text: 'No connectors yet' }), h('div.dim', { text: 'A connector is a remote MCP server: it gives the agent extra tools, like your calendar, notes, a smart home, or any service that offers one. It needs an https URL that works from the internet.' })), h('button.primary', { text: 'Add a connector', onclick: cnAdd })); return; }
   box.replaceChildren(...CN.list.map((c) => h('div.rtcard', {},
-    h('div.rttop', {}, h('span.nm', { text: c.name }), h('span.badge ' + (/^\d+ tools/.test(c.status) ? 'ok' : 'bad'), { text: /^\d+ tools/.test(c.status) ? c.status : 'problem' })),
+    h('div.rttop', {}, h('span.nm', { text: c.name }), h('span.badge ' + (/^\d+ tools/.test(c.status) ? 'ok' : c.status === 'needs sign-in' ? 'run' : 'bad'), { text: /^\d+ tools/.test(c.status) ? c.status : c.status === 'needs sign-in' ? 'sign in' : 'problem' })),
     h('div.rtmeta', { text: c.url.replace(/^https:\/\//, '').slice(0, 60) + (c.source === 'env' ? ' · set on the server' : '') }),
-    /^\d+ tools/.test(c.status) ? h('div.rtlast', { text: c.tools.join(', ') }) : h('div.rtlast', { style: 'color:var(--bad)', text: c.status }),
-    c.source === 'app' ? h('div.rtbtns', {}, h('button', { text: 'Remove', onclick: async () => { if (!(await confirmSheet('Remove ' + c.name + '?', 'The agent loses those tools.', 'Remove', true))) return; try { CN.list = (await api('/api/connectors/' + c.name, { method: 'DELETE' })).connectors; cnDraw(); closeSheet(); } catch (e) { toast(e.message, true); } } })) : null)),
+    /^\d+ tools/.test(c.status) ? h('div.rtlast', { text: c.tools.join(', ') }) : c.status === 'needs sign-in' ? h('div.rtlast', { text: 'Tap Sign in, log in on the page that opens, then come back here.' }) : h('div.rtlast', { style: 'color:var(--bad)', text: c.status }),
+    c.source === 'app' ? h('div.rtbtns', {}, c.oauth ? h('button', { text: c.signed_in ? 'Sign in again' : 'Sign in', onclick: () => cnLogin(c.name) }) : null, h('button', { text: 'Remove', onclick: async () => { if (!(await confirmSheet('Remove ' + c.name + '?', 'The agent loses those tools.', 'Remove', true))) return; try { CN.list = (await api('/api/connectors/' + c.name, { method: 'DELETE' })).connectors; cnDraw(); closeSheet(); } catch (e) { toast(e.message, true); } } })) : null)),
     h('button.secondary', { text: 'Reconnect all', onclick: () => cnLoad(true) }));
 }
+async function cnLogin(name) {
+  const body = h('div', {}, h('div.dim', { text: 'Preparing the sign-in page…' }));
+  sheet('Sign in to ' + name, body);
+  try {
+    const { url } = await api(`/api/connectors/${encodeURIComponent(name)}/login`, { body: { base: S.api } });
+    body.replaceChildren(h('div.dim', { text: 'Opens the service\'s own login page. After you approve, come back to the app and it will connect by itself.' }),
+      h('a.btn-link', { href: url, target: '_blank', rel: 'noopener', text: 'Continue to sign in', onclick: () => setTimeout(closeSheet, 400) }));
+  } catch (e) { body.replaceChildren(h('div.dim', { style: 'color:var(--bad)', text: e.message })); }
+}
 function cnAdd() {
+  let mode = 'token';
   const name = h('input', { type: 'text', placeholder: 'short name, e.g. notes', autocapitalize: 'off', spellcheck: 'false' });
   const url = h('input', { type: 'url', placeholder: 'https://example.com/mcp', autocapitalize: 'off', spellcheck: 'false' });
-  const auth = h('input', { type: 'text', placeholder: 'e.g. Bearer abc123 (optional)', autocapitalize: 'off', spellcheck: 'false' });
-  const go = h('button.primary', { text: 'Connect', onclick: async () => { go.disabled = true; go.textContent = 'Connecting…'; try { CN.list = (await api('/api/connectors', { body: { name: name.value, url: url.value, auth: auth.value } })).connectors; cnDraw(); closeSheet(); } catch (e) { toast(e.message, true); go.disabled = false; go.textContent = 'Connect'; } } });
-  sheet('Add connector', h('label', {}, 'Name', name), h('label', {}, 'Server URL (https)', url), h('label', {}, 'Authorization header (optional)', auth),
-    h('div.dim', { style: 'font-size:12.5px', text: 'The header value is kept in your private agent-state repo. Only connect servers you trust: the agent can call their tools.' }), go);
+  const auth = h('input', { type: 'text', placeholder: 'e.g. Bearer abc123', autocapitalize: 'off', spellcheck: 'false' });
+  const authLabel = h('label', {}, 'Authorization header (optional)', auth);
+  const note = h('div.dim', { style: 'font-size:12.5px' });
+  const go = h('button.primary', { text: 'Connect' });
+  const seg = h('div.seg');
+  const draw = () => {
+    seg.replaceChildren(...[['token', 'Token / none'], ['oauth', 'Sign in (OAuth)']].map(([k, n]) => h('button' + (mode === k ? '.on' : ''), { text: n, onclick: () => { mode = k; draw(); } })));
+    authLabel.hidden = mode === 'oauth';
+    go.textContent = mode === 'oauth' ? 'Add and sign in' : 'Connect';
+    note.textContent = mode === 'oauth' ? 'For services with a normal login page (Google, Notion, Linear and similar). You approve access on their site; no token to copy.' : 'The header value is kept in your private agent-state repo. Only connect servers you trust: the agent can call their tools.';
+  };
+  go.onclick = async () => {
+    go.disabled = true; go.textContent = 'Connecting…';
+    try {
+      CN.list = (await api('/api/connectors', { body: { name: name.value, url: url.value, auth: auth.value, oauth: mode === 'oauth' } })).connectors; cnDraw();
+      if (mode === 'oauth') { const n = name.value.toLowerCase().replace(/[^a-z0-9_-]/g, '').slice(0, 24); closeSheet(); await cnLogin(n); } else closeSheet();
+    } catch (e) { toast(e.message, true); go.disabled = false; draw(); }
+  };
+  draw();
+  sheet('Add connector', seg, h('label', {}, 'Name', name), h('label', {}, 'Server URL (https)', url), authLabel, note, go);
 }
 
 /* ============================================================ settings page */
@@ -1355,6 +1381,7 @@ function wire() {
   chat().addEventListener('scroll', () => { S.stick = nearBottom(); $('#btn-jump').hidden = S.stick; });
   $('#btn-jump').onclick = () => { S.stick = true; scrollDown(true); };
   initLongPress(); initSheetSwipe(); initEdgeSwipe();
+  document.addEventListener('visibilitychange', () => { if (!document.hidden && !$('#connpage').hidden) cnLoad(true); });
   document.addEventListener('click', (e) => {
     const b = e.target.closest('[data-copy]');
     if (b) { navigator.clipboard.writeText(b.parentElement.querySelector('code').textContent).then(() => { b.textContent = 'copied'; setTimeout(() => (b.textContent = 'copy'), 1200); }).catch(() => toast('Copy failed')); }
