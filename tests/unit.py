@@ -69,3 +69,25 @@ async def push_test():
     assert _j.loads(sent[0][1])["sid"] == "s1"
     print("PASS push gating, de-dupe, cleanup")
 asyncio.run(push_test())
+
+# routines: schedule maths
+from app import routines
+from datetime import datetime
+from zoneinfo import ZoneInfo
+def ts(y, mo, d, h, mi, tz="Europe/Istanbul"): return datetime(y, mo, d, h, mi, tzinfo=ZoneInfo(tz)).timestamp()
+r = {"created": ts(2026, 11, 2, 12, 0), "tz": "Europe/Istanbul", "enabled": True, "schedule": {"kind": "every", "minutes": 30}}
+assert routines.next_run(r, ts(2026, 11, 2, 12, 0)) == ts(2026, 11, 2, 12, 30)
+assert routines.next_run(r, ts(2026, 11, 2, 12, 31)) == ts(2026, 11, 2, 13, 0)
+r["schedule"] = {"kind": "daily", "time": "08:30"}
+assert routines.next_run(r, ts(2026, 11, 2, 9, 0)) == ts(2026, 11, 3, 8, 30), "daily rolls to tomorrow"
+assert routines.next_run(r, ts(2026, 11, 2, 7, 0)) == ts(2026, 11, 2, 8, 30), "daily later today"
+r["schedule"] = {"kind": "weekly", "time": "10:00", "days": [0, 4]}     # Mon, Fri (2026-11-02 is a Monday)
+assert routines.next_run(r, ts(2026, 11, 2, 11, 0)) == ts(2026, 11, 6, 10, 0), "weekly skips to Friday"
+assert routines.next_run({"schedule": {"kind": "none"}}, 0) is None
+r["schedule"] = {"kind": "every", "minutes": 30}
+assert routines.due(r, ts(2026, 11, 2, 12, 31)) and not routines.due(r, ts(2026, 11, 2, 12, 20)), "due only after the slot"
+r["last_run"] = ts(2026, 11, 2, 12, 31)
+assert not routines.due(r, ts(2026, 11, 2, 12, 45)), "not due again right after running"
+r["enabled"] = False
+assert not routines.due(r, ts(2026, 11, 3, 12, 31)), "disabled routines never fire"
+print("PASS routine schedule maths")

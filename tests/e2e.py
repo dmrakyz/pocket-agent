@@ -254,6 +254,44 @@ try:
     pb11 = c2.post(f"/api/sessions/{s11['id']}/preview-token").json()["base"]
     check("agent-built page is served", "mock page" in httpx.get(B + pb11 + "index.html").text)
 
+    # --- routines: create, run now, webhook, disable, delete
+    MOCK = "mock:mock/ultra-550b"
+    check("routine needs a prompt", c2.post("/api/routines", json={"name": "x"}).status_code == 400)
+    rt = c2.post("/api/routines", json={"name": "Daily check", "prompt": "ROUTINE hello", "mode": "yolo", "model": MOCK,
+                                        "schedule": {"kind": "every", "minutes": 5}, "tz": "Europe/Istanbul"}).json()
+    check("routine created with next run + hook", rt["id"] and rt["next_run"] and rt["hook_path"].startswith("/hook/" + rt["id"]), str(rt))
+    r1 = c2.post(f"/api/routines/{rt['id']}/run")
+    check("routine runs now", r1.status_code == 200, r1.text)
+    rsid = r1.json()["chat"]
+    for _ in range(60):
+        st = c2.get(f"/api/sessions/{rsid}").json()
+        if not st["run"]["running"]:
+            break
+        time.sleep(0.3)
+    time.sleep(0.5)
+    rm = c2.get(f"/api/sessions/{rsid}").json()["session"]["messages"]
+    check("routine chat got the prompt", any(m["role"] == "user" and "Routine 'Daily check'" in str(m["content"]) and "ROUTINE hello" in str(m["content"]) for m in rm))
+    rl = {x["id"]: x for x in c2.get("/api/routines").json()["routines"]}
+    check("routine records its last result", rl[rt["id"]]["last_status"] == "done" and rl[rt["id"]]["last_chat"] == rsid, str(rl[rt["id"]]))
+    hk = httpx.post(B + rt["hook_path"], content=b"temp=31 door=open")
+    check("webhook starts a run", hk.status_code == 200 and hk.json()["started"], hk.text)
+    for _ in range(60):
+        if not c2.get(f"/api/sessions/{hk.json()['chat']}").json()["run"]["running"]:
+            break
+        time.sleep(0.3)
+    hm = c2.get(f"/api/sessions/{hk.json()['chat']}").json()["session"]["messages"]
+    check("webhook payload is passed as untrusted data", any(m["role"] == "user" and "temp=31 door=open" in str(m["content"]) and "untrusted" in str(m["content"]) for m in hm))
+    check("webhook with a wrong token is 404", httpx.post(B + "/hook/" + rt["id"] + "/wrong").status_code == 404)
+    off = c2.patch(f"/api/routines/{rt['id']}", json={"enabled": False}).json()
+    check("disabling clears next run", off["enabled"] is False and off["next_run"] is None)
+    check("disabled routine's webhook is refused", httpx.post(B + rt["hook_path"]).status_code == 409)
+    check("routine endpoints need login", httpx.Client(base_url=B).get("/api/routines").status_code == 401)
+    check("routine delete works", c2.delete(f"/api/routines/{rt['id']}").json()["ok"] and not c2.get("/api/routines").json()["routines"])
+    # connectors: only public https servers are accepted
+    check("connector rejects http", c2.post("/api/connectors", json={"name": "a", "url": "http://example.com/mcp"}).status_code == 400)
+    check("connector rejects private addresses", c2.post("/api/connectors", json={"name": "a", "url": "https://127.0.0.1/mcp"}).status_code == 400)
+    check("connector list works", "connectors" in c2.get("/api/connectors").json())
+
     # --- 3D tool
     s12 = c2.post("/api/sessions", json={"mode": "yolo"}).json()
     run_turn(c2, s12["id"], "SHOWMODEL now", timeout=60)

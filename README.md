@@ -97,3 +97,10 @@ This server runs shell commands, on the internet, in the same container as your 
 
 ## Tests
 `python tests/unit.py && python tests/e2e.py && python tests/ui.py` (the UI test needs Playwright). They run the real server against a scripted fake model.
+
+
+## Routines and connectors
+
+**Routines** (Settings -> Routines): prompts the agent runs on its own. Schedule them daily, weekly, every N minutes (min 5), or leave them manual and trigger them with a secret webhook URL (GET or POST; a POST body is passed to the agent as untrusted data). Each routine picks a permission mode, optionally a model, and either a fresh chat per run or the same chat. Runs that need approval stop and send a push notification. Missed runs catch up once after the server wakes.
+
+**Connectors** (Settings -> Connectors): remote MCP servers (https only, public hosts only) that give the agent extra tools. Added from the app and stored in the private state repo, or set on the server with `MCP_SERVERS`.

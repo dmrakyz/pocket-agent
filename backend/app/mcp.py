@@ -4,13 +4,14 @@ import re
 
 import httpx
 
-from . import config
+from . import config, kv
 
 
 class MCP:
     def __init__(self):
         self.tools: dict[str, dict] = {}     # full name -> {server, tool, schema}
         self.sessions: dict[str, str] = {}
+        self.report: dict[str, str] = {}
 
     async def _rpc(self, srv: dict, method: str, params: dict | None = None, notify: bool = False):
         h = {"Content-Type": "application/json", "Accept": "application/json, text/event-stream",
@@ -45,10 +46,16 @@ class MCP:
             raise RuntimeError(msg["error"].get("message", str(msg["error"])))
         return msg.get("result")
 
+    @staticmethod
+    def servers() -> list:
+        env = [dict(x, source="env") for x in config.mcp_servers()]
+        names = {x["name"] for x in env}
+        return env + [dict(x, source="app") for x in (kv.get("connectors", []) or []) if x.get("name") not in names]
+
     async def refresh(self) -> dict:
         self.tools.clear()
         report = {}
-        for srv in config.mcp_servers():
+        for srv in self.servers():
             try:
                 await self._rpc(srv, "initialize", {"protocolVersion": "2025-03-26", "capabilities": {},
                                                     "clientInfo": {"name": "mobile-agent", "version": "1"}})
@@ -62,6 +69,7 @@ class MCP:
                 report[srv["name"]] = f"{n} tools"
             except Exception as e:  # noqa: BLE001
                 report[srv["name"]] = f"error: {type(e).__name__}: {e}"
+        self.report = report
         return report
 
     def schemas(self) -> list[dict]:

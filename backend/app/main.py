@@ -20,7 +20,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from starlette.background import BackgroundTask
 
-from . import agent, config, evals, kv, llm, mcp, perms, push, store, workspace
+from . import agent, config, evals, kv, llm, mcp, perms, push, routines, store, tools, workspace
 
 mcp_client = mcp.MCP()
 agent.MCP = mcp_client
@@ -31,6 +31,7 @@ async def lifespan(app: FastAPI):
     await store.init()
     await kv.init()
     await push.init()
+    routines.start_loop()
     asyncio.create_task(mcp_client.refresh())
     asyncio.create_task(_warm())
     yield
@@ -536,3 +537,122 @@ async def push_test():
 async def presence(body: dict):
     push.set_presence(bool(body.get("visible")))
     return {"ok": True}
+
+
+# ------------------------------------------------------------------ routines (scheduled / webhook runs)
+@app.get("/api/routines", dependencies=[Depends(auth)])
+async def routines_list():
+    return {"routines": [routines.public(r) for r in routines.all_routines()]}
+
+
+@app.post("/api/routines", dependencies=[Depends(auth)])
+async def routines_create(body: dict):
+    if not (body.get("prompt") or "").strip():
+        raise HTTPException(400, "a routine needs a prompt")
+    rs = routines.all_routines()
+    if len(rs) >= 30:
+        raise HTTPException(400, "too many routines (30 max)")
+    r = routines.clean(body)
+    rs.append(r)
+    await routines.save(rs)
+    return routines.public(r)
+
+
+@app.patch("/api/routines/{rid}", dependencies=[Depends(auth)])
+async def routines_patch(rid: str, body: dict):
+    rs = routines.all_routines()
+    i = next((i for i, r in enumerate(rs) if r["id"] == rid), None)
+    if i is None:
+        raise HTTPException(404, "no such routine")
+    if body.get("regenerate_hook"):
+        rs[i]["hook"] = routines.secrets.token_urlsafe(12)
+    rs[i] = routines.clean(body, rs[i])
+    await routines.save(rs)
+    return routines.public(rs[i])
+
+
+@app.delete("/api/routines/{rid}", dependencies=[Depends(auth)])
+async def routines_delete(rid: str):
+    rs = [r for r in routines.all_routines() if r["id"] != rid]
+    await routines.save(rs)
+    return {"ok": True}
+
+
+@app.post("/api/routines/{rid}/run", dependencies=[Depends(auth)])
+async def routines_run(rid: str):
+    r = routines.find(rid)
+    if not r:
+        raise HTTPException(404, "no such routine")
+    sid = await routines.fire(r, why="you (run now)")
+    if not sid:
+        raise HTTPException(409, "that routine is still running")
+    return {"chat": sid}
+
+
+_hook_hits: dict[str, list[float]] = {}
+
+
+@app.api_route("/hook/{rid}/{token}", methods=["GET", "POST"])
+async def routine_hook(rid: str, token: str, request: Request):
+    r = routines.find(rid)
+    if not r or not r.get("hook") or not hmac.compare_digest(token.encode(), r["hook"].encode()):
+        raise HTTPException(404, "not found")
+    if not r.get("enabled"):
+        raise HTTPException(409, "routine is disabled")
+    hits = [t for t in _hook_hits.get(rid, []) if time.time() - t < 60]
+    if len(hits) >= 6:
+        raise HTTPException(429, "too many calls, slow down")
+    _hook_hits[rid] = hits + [time.time()]
+    payload = (await request.body())[:4000].decode("utf-8", "replace") if request.method == "POST" else str(request.query_params)[:4000]
+    sid = await routines.fire(r, payload=payload, why="a webhook")
+    return {"started": bool(sid), "chat": sid}
+
+
+# ------------------------------------------------------------------ connectors (remote MCP servers managed in the app)
+def _connector_view():
+    out = []
+    for srv in mcp_client.servers():
+        names = [n.split("__", 2)[-1] for n, t in mcp_client.tools.items() if t["server"]["name"] == srv["name"]]
+        out.append({"name": srv["name"], "url": srv["url"], "source": srv.get("source", "app"),
+                    "status": mcp_client.report.get(srv["name"], "not connected yet"), "tools": names,
+                    "has_headers": bool(srv.get("headers"))})
+    return out
+
+
+@app.get("/api/connectors", dependencies=[Depends(auth)])
+async def connectors_list():
+    return {"connectors": _connector_view()}
+
+
+@app.post("/api/connectors", dependencies=[Depends(auth)])
+async def connectors_add(body: dict):
+    name = re.sub(r"[^a-z0-9_-]", "", str(body.get("name", "")).lower())[:24]
+    url = str(body.get("url", "")).strip()
+    if not name or not url.startswith("https://"):
+        raise HTTPException(400, "give it a short name and an https:// URL")
+    try:
+        tools._check_public(url)
+    except tools.ToolError as e:
+        raise HTTPException(400, str(e))
+    hdr = {}
+    if body.get("auth"):
+        hdr["Authorization"] = str(body["auth"])[:2000]
+    items = [c for c in (kv.get("connectors", []) or []) if c.get("name") != name]
+    items.append({"name": name, "url": url, **({"headers": hdr} if hdr else {})})
+    await kv.put("connectors", items)
+    await mcp_client.refresh()
+    return {"connectors": _connector_view()}
+
+
+@app.delete("/api/connectors/{name}", dependencies=[Depends(auth)])
+async def connectors_delete(name: str):
+    items = [c for c in (kv.get("connectors", []) or []) if c.get("name") != name]
+    await kv.put("connectors", items)
+    await mcp_client.refresh()
+    return {"connectors": _connector_view()}
+
+
+@app.post("/api/connectors/refresh", dependencies=[Depends(auth)])
+async def connectors_refresh():
+    await mcp_client.refresh()
+    return {"connectors": _connector_view()}

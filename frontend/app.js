@@ -923,6 +923,98 @@ function sendPresence() {
   fetch(S.api + '/api/presence', { method: 'POST', headers: { Authorization: 'Bearer ' + S.token, 'Content-Type': 'application/json' }, body: JSON.stringify({ visible: v }), keepalive: true }).catch(() => {});
 }
 
+/* ============================================================ routines */
+const RT = { list: [], timer: null };
+const DAYS = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
+const when = (ts) => { if (!ts) return ''; const d = ts * 1000 - Date.now(); const m = Math.round(Math.abs(d) / 60000); const t = m < 60 ? `${m} min` : m < 1440 ? `${Math.round(m / 60)} h` : `${Math.round(m / 1440)} d`; return d >= 0 ? `in ${t}` : `${t} ago`; };
+function schedText(r) {
+  const s = r.schedule || {};
+  if (s.kind === 'every') return s.minutes % 60 === 0 ? `Every ${s.minutes / 60} h` : `Every ${s.minutes} min`;
+  if (s.kind === 'daily') return `Daily at ${s.time}`;
+  if (s.kind === 'weekly') return `${(s.days || []).map((d) => 'Mon Tue Wed Thu Fri Sat Sun'.split(' ')[d]).join(', ') || 'Weekly'} at ${s.time}`;
+  return 'Webhook / manual only';
+}
+async function openRoutines() { $('#routinespage').hidden = false; await rtLoad(); clearInterval(RT.timer); RT.timer = setInterval(() => { if (!$('#routinespage').hidden) rtLoad(); }, 8000); }
+function closeRoutines() { $('#routinespage').hidden = true; clearInterval(RT.timer); }
+async function rtLoad() { try { RT.list = (await api('/api/routines')).routines; } catch (e) { toast(e.message, true); } rtDraw(); }
+function rtDraw() {
+  const box = $('#rtbody');
+  if (!RT.list.length) { box.replaceChildren(h('div.evhead', {}, h('div.big', { text: 'No routines yet' }), h('div.dim', { text: 'A routine is a prompt the agent runs by itself: every few hours, every morning, or when a webhook is called (a smart-home event, a GitHub action, IFTTT). Results land in a chat and can ping you.' })), h('button.primary', { text: 'Create a routine', onclick: () => rtEdit(null) })); return; }
+  box.replaceChildren(...RT.list.map((r) => h('div.rtcard' + (r.enabled ? '' : '.off'), {},
+    h('div.rttop', {}, h('span.nm', { text: r.name }), r.running ? h('span.badge.run', { text: 'running' }) : r.last_status ? h('span.badge ' + (r.last_status === 'done' ? 'ok' : 'bad'), { text: r.last_status }) : null),
+    h('div.rtmeta', { text: schedText(r) + (r.enabled && r.next_run ? ` · next ${when(r.next_run)}` : r.enabled ? '' : ' · paused') }),
+    r.last_run ? h('div.rtmeta', { text: `Last run ${when(r.last_run)}` }) : null,
+    r.last_text ? h('div.rtlast', { text: r.last_text }) : null,
+    h('div.rtbtns', {}, h('button', { text: 'Run now', onclick: async () => { try { const x = await api(`/api/routines/${r.id}/run`, { method: 'POST' }); toast('Started'); await rtLoad(); closeRoutines(); openSession(x.chat); } catch (e) { toast(e.message, true); } } }),
+      r.last_chat ? h('button', { text: 'Open chat', onclick: () => { closeRoutines(); closeSettings(); openSession(r.last_chat).catch((e) => toast(e.message, true)); } }) : null,
+      h('button', { text: 'Edit', onclick: () => rtEdit(r) })))));
+}
+function rtEdit(r) {
+  const isNew = !r;
+  r = r || { name: '', prompt: '', mode: 'ask', chat: 'new', enabled: true, schedule: { kind: 'daily', time: '09:00', days: [0, 1, 2, 3, 4, 5, 6] }, model: '' };
+  const f = { kind: (r.schedule || {}).kind || 'none', minutes: (r.schedule || {}).minutes || 60, time: (r.schedule || {}).time || '09:00', days: new Set((r.schedule || {}).days && r.schedule.days.length ? r.schedule.days : [0, 1, 2, 3, 4]), mode: r.mode, chat: r.chat, enabled: r.enabled };
+  const name = h('input', { type: 'text', value: r.name, placeholder: 'e.g. Morning briefing' });
+  const prompt = h('textarea', { placeholder: 'What should the agent do each time? e.g. Check my repo for failing CI and summarize.' }); prompt.value = r.prompt;
+  const model = h('input', { type: 'text', value: r.model || '', placeholder: 'leave empty for the default model', autocapitalize: 'off', spellcheck: 'false' });
+  const sched = h('div'); const hook = h('div');
+  const seg = (opts, get, set) => { const el = h('div.seg'); const draw = () => el.replaceChildren(...opts.map(([k, n]) => h('button' + (get() === k ? '.on' : ''), { text: n, onclick: () => { set(k); draw(); drawSched(); } }))); draw(); return el; };
+  const drawSched = () => {
+    const parts = [];
+    if (f.kind === 'every') { const n = h('input', { type: 'number', min: 5, value: f.minutes % 60 === 0 ? f.minutes / 60 : f.minutes }); const unit = f.minutes % 60 === 0 && f.minutes >= 60 ? 'h' : 'min'; const u = h('select', {}, h('option', { value: 'min', text: 'minutes', selected: unit === 'min' }), h('option', { value: 'h', text: 'hours', selected: unit === 'h' })); const sync = () => { f.minutes = Math.max(5, Math.round(+n.value * (u.value === 'h' ? 60 : 1)) || 60); }; n.oninput = sync; u.onchange = sync; parts.push(h('label', {}, 'Run every', h('div', { style: 'display:flex;gap:8px' }, n, u))); }
+    if (f.kind === 'daily' || f.kind === 'weekly') { const t = h('input', { type: 'time', value: f.time }); t.oninput = () => { f.time = t.value || '09:00'; }; parts.push(h('label', {}, 'At (your local time)', t)); }
+    if (f.kind === 'weekly') parts.push(h('div.days', {}, ...DAYS.map((d, i) => h('button' + (f.days.has(i) ? '.on' : ''), { text: d, onclick: (e) => { f.days.has(i) ? f.days.delete(i) : f.days.add(i); e.currentTarget.classList.toggle('on'); } }))));
+    if (f.kind === 'none') parts.push(h('div.dim', { text: 'No schedule. Run it by hand or call its webhook.' }));
+    sched.replaceChildren(...parts);
+  };
+  drawSched();
+  if (!isNew) {
+    const url = S.api + r.hook_path;
+    hook.append(h('div.sec', { text: 'Webhook' }), h('div.dim', { style: 'font-size:13px', text: 'Anything that can call a URL (GET or POST) can start this routine. A POST body is passed in as untrusted data. Keep the link secret.' }), h('div.hookbox', { text: url }),
+      h('div.rtbtns', {}, h('button', { text: 'Copy link', onclick: () => navigator.clipboard.writeText(url).then(() => toast('Copied')).catch(() => toast('Copy failed')) }), h('button', { text: 'New link', onclick: async () => { const x = await api('/api/routines/' + r.id, { method: 'PATCH', body: { regenerate_hook: true } }); r.hook_path = x.hook_path; toast('Old link no longer works'); rtEdit({ ...r, ...x }); } })));
+  }
+  const save = h('button.primary', { text: isNew ? 'Create routine' : 'Save', onclick: async () => {
+    const body = { name: name.value, prompt: prompt.value, model: model.value.trim(), mode: f.mode, chat: f.chat, enabled: f.enabled, tz: Intl.DateTimeFormat().resolvedOptions().timeZone,
+      schedule: f.kind === 'every' ? { kind: 'every', minutes: f.minutes } : f.kind === 'none' ? { kind: 'none' } : { kind: f.kind, time: f.time, days: f.kind === 'weekly' ? [...f.days] : [] } };
+    if (!body.prompt.trim()) { toast('Write what it should do', true); return; }
+    save.disabled = true;
+    try { await api(isNew ? '/api/routines' : '/api/routines/' + r.id, { method: isNew ? 'POST' : 'PATCH', body }); closeSheet(); await rtLoad(); } catch (e) { toast(e.message, true); save.disabled = false; }
+  } });
+  sheet(isNew ? 'New routine' : 'Edit routine',
+    h('label', {}, 'Name', name), h('label', {}, 'Prompt', prompt),
+    h('div.sec', { text: 'When' }), seg([['daily', 'Daily'], ['weekly', 'Weekly'], ['every', 'Every…'], ['none', 'Manual']], () => f.kind, (k) => { f.kind = k; }), sched,
+    h('div.sec', { text: 'Permissions' }), seg([['plan', 'Read-only'], ['ask', 'Ask me'], ['auto', 'Auto-edit']], () => f.mode, (k) => { f.mode = k; }),
+    h('div.dim', { style: 'font-size:12.5px', text: 'Unattended runs stop and ping you when they need approval. Read-only can look things up but not change anything.' }),
+    h('div.sec', { text: 'Chat' }), seg([['new', 'New chat each run'], ['same', 'Same chat']], () => f.chat, (k) => { f.chat = k; }),
+    h('label', {}, 'Model (optional)', model),
+    h('label.switch', {}, h('span', { text: 'Enabled' }), (() => { const c = h('input', { type: 'checkbox', checked: f.enabled }); c.onchange = () => { f.enabled = c.checked; }; return c; })()),
+    isNew ? null : hook, save,
+    isNew ? null : h('button.secondary.danger', { text: 'Delete routine', onclick: async () => { if (!(await confirmSheet('Delete this routine?', 'Its past chats stay.', 'Delete', true))) return; await api('/api/routines/' + r.id, { method: 'DELETE' }); closeSheet(); await rtLoad(); } }));
+}
+
+/* ============================================================ connectors */
+async function openConnectors() { $('#connpage').hidden = false; await cnLoad(); }
+function closeConnectors() { $('#connpage').hidden = true; }
+async function cnLoad(refresh) { try { CN.list = (await api(refresh ? '/api/connectors/refresh' : '/api/connectors', refresh ? { method: 'POST' } : {})).connectors; } catch (e) { toast(e.message, true); } cnDraw(); }
+const CN = { list: [] };
+function cnDraw() {
+  const box = $('#cnbody');
+  if (!CN.list.length) { box.replaceChildren(h('div.evhead', {}, h('div.big', { text: 'No connectors yet' }), h('div.dim', { text: 'A connector is a remote MCP server: it gives the agent extra tools, like your calendar, notes, a smart home, or any service that offers one. It needs an https URL that works from the internet.' })), h('button.primary', { text: 'Add a connector', onclick: cnAdd })); return; }
+  box.replaceChildren(...CN.list.map((c) => h('div.rtcard', {},
+    h('div.rttop', {}, h('span.nm', { text: c.name }), h('span.badge ' + (/^\d+ tools/.test(c.status) ? 'ok' : 'bad'), { text: /^\d+ tools/.test(c.status) ? c.status : 'problem' })),
+    h('div.rtmeta', { text: c.url.replace(/^https:\/\//, '').slice(0, 60) + (c.source === 'env' ? ' · set on the server' : '') }),
+    /^\d+ tools/.test(c.status) ? h('div.rtlast', { text: c.tools.join(', ') }) : h('div.rtlast', { style: 'color:var(--bad)', text: c.status }),
+    c.source === 'app' ? h('div.rtbtns', {}, h('button', { text: 'Remove', onclick: async () => { if (!(await confirmSheet('Remove ' + c.name + '?', 'The agent loses those tools.', 'Remove', true))) return; try { CN.list = (await api('/api/connectors/' + c.name, { method: 'DELETE' })).connectors; cnDraw(); closeSheet(); } catch (e) { toast(e.message, true); } } })) : null)),
+    h('button.secondary', { text: 'Reconnect all', onclick: () => cnLoad(true) }));
+}
+function cnAdd() {
+  const name = h('input', { type: 'text', placeholder: 'short name, e.g. notes', autocapitalize: 'off', spellcheck: 'false' });
+  const url = h('input', { type: 'url', placeholder: 'https://example.com/mcp', autocapitalize: 'off', spellcheck: 'false' });
+  const auth = h('input', { type: 'text', placeholder: 'e.g. Bearer abc123 (optional)', autocapitalize: 'off', spellcheck: 'false' });
+  const go = h('button.primary', { text: 'Connect', onclick: async () => { go.disabled = true; go.textContent = 'Connecting…'; try { CN.list = (await api('/api/connectors', { body: { name: name.value, url: url.value, auth: auth.value } })).connectors; cnDraw(); closeSheet(); } catch (e) { toast(e.message, true); go.disabled = false; go.textContent = 'Connect'; } } });
+  sheet('Add connector', h('label', {}, 'Name', name), h('label', {}, 'Server URL (https)', url), h('label', {}, 'Authorization header (optional)', auth),
+    h('div.dim', { style: 'font-size:12.5px', text: 'The header value is kept in your private agent-state repo. Only connect servers you trust: the agent can call their tools.' }), go);
+}
+
 /* ============================================================ settings page */
 function serverKV() {
   const inf = S.info || {};
@@ -944,6 +1036,8 @@ function drawSettings() {
   box.replaceChildren(
     h('div.setsec', { text: 'Appearance' }), h('div.setcard', {}, seg),
     h('div.setsec', { text: 'Agent' }), h('div.setcard', {},
+      row('⏱', 'Routines', openRoutines),
+      row('⚭', 'Connectors', openConnectors),
       row('✓', 'Capability check', openEval),
       row('🔔', 'Push notifications', async () => { if (PUSH.state === 'on') await pushDisable(); else await pushEnable(); drawSettings(); },
         { on: 'On', off: 'Off', blocked: 'Blocked', unsupported: 'Not supported', 'server-off': 'Server off', unknown: '…' }[PUSH.state] || ''),
@@ -1161,6 +1255,10 @@ function wire() {
   $('#menu-scrim').onclick = closeMenu;
   $('#ev-back').onclick = closeEval;
   $('#set-back').onclick = closeSettings;
+  $('#rt-back').onclick = closeRoutines;
+  $('#rt-new').onclick = () => rtEdit(null);
+  $('#cn-back').onclick = closeConnectors;
+  $('#cn-new').onclick = cnAdd;
   $('#pv-back').onclick = closePreview;
   $('#md-back').onclick = closeModel;
   $('#md-wire').onclick = toggleWire;
