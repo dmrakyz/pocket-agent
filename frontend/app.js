@@ -194,7 +194,10 @@ async function start() {
 }
 
 /* ============================================================ sessions */
+function skeleton(n, cls = 'skel-msg') { const f = document.createDocumentFragment(); for (let i = 0; i < n; i++) f.append(h('div.skel.' + cls, { style: `width:${55 + ((i * 23) % 40)}%;${cls === 'skel-msg' && i % 2 ? 'align-self:flex-end;' : ''}` })); return f; }
 async function loadSessions() {
+  if (!S.sessions.length && !S.listLoaded) $('#chat-list').replaceChildren(skeleton(5, 'skel-row'));
+  S.listLoaded = true;
   S.sessions = await api('/api/sessions');
   renderList();
 }
@@ -202,6 +205,7 @@ async function openSession(id) {
   closeDrawer();
   if (S.abort) S.abort.abort();
   S.streaming = false;
+  if (!S.cur || S.cur.id !== id) { $('#empty').hidden = true; msgsEl().replaceChildren(skeleton(3)); }
   const d = await api('/api/sessions/' + id);
   S.cur = d.session; S.run = d.run; S.commands = d.commands || [];
   S.pending = {}; for (const p of d.run.pending || []) S.pending[p.id] = p;
@@ -377,7 +381,7 @@ function renderChat(forceScroll) {
 let liveRaf = 0;
 function renderLive() {
   if (!S.run.running) { if (S.live) S.live.remove(); S.live = null; if (S.statusEl) S.statusEl.remove(); S.statusEl = null; return; }
-  if (!S.live) { S.live = h('div.msg-ai'); msgsEl().append(S.live); }
+  if (!S.live) { S.live = h('div.msg-ai.fresh'); msgsEl().append(S.live); }
   if (liveRaf) return;
   liveRaf = requestAnimationFrame(() => {
     liveRaf = 0;
@@ -580,7 +584,7 @@ async function dispatch({ text, images }) {
   const msg = { role: 'user', content: images.length ? [{ type: 'text', text }, ...images.map((u) => ({ type: 'image_url', image_url: { url: u } }))] : text };
   S.cur.messages.push(msg);
   S.subs = []; renderSubs();
-  msgsEl().append(userNode(msg, S.cur.messages.length - 1));
+  { const un = userNode(msg, S.cur.messages.length - 1); un.classList.add('fresh'); msgsEl().append(un); }
   $('#empty').hidden = true;
   S.run = { running: true }; S.partial = { text: '', reasoning: '' }; S.finished = false; S.stick = true;
   renderLive(); applyChips(); updateSend(); scrollDown(true);
@@ -743,7 +747,7 @@ function initSheetSwipe() {
     const fast = dy / Math.max(1, e.timeStamp - t0) > 0.5;
     sh.style.transition = 'transform .2s ease';
     $('#sheet-scrim').style.opacity = '';
-    if (dy > 90 || (fast && dy > 24)) { sh.style.transform = 'translateY(104%)'; setTimeout(() => { sh.style.transition = ''; sh.style.transform = ''; closeSheet(); }, 190); }
+    if (dy > Math.max(170, sh.offsetHeight * 0.34) || (fast && dy > 100)) { sh.style.transform = 'translateY(104%)'; setTimeout(() => { sh.style.transition = ''; sh.style.transform = ''; closeSheet(); }, 190); }
     else { sh.style.transform = ''; setTimeout(() => { sh.style.transition = ''; }, 210); }
   };
   for (const el of [sh.querySelector('.sheet-grab'), sh.querySelector('.sheet-head')]) {
