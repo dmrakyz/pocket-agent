@@ -22,7 +22,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from starlette.background import BackgroundTask
 
 from .browser import browser, BrowserError
-from . import agent, config, evals, forge, instagram, kv, llm, shortcut, mcp, memory, oauth, perms, push, routines, store, telegram, tools, usage, workspace
+from . import agent, apps, config, evals, forge, instagram, kv, llm, shortcut, mcp, memory, oauth, perms, push, routines, store, telegram, tools, usage, workspace
 
 mcp_client = mcp.MCP()
 agent.MCP = mcp_client
@@ -908,6 +908,105 @@ async def telegram_webhook(secret: str, request: Request):
 def _tg_view():
     return {"enabled": telegram.enabled(), "bot": telegram.status["bot"], "webhook": telegram.status["webhook"],
             "error": telegram.status["error"], "paired": len(telegram.allowed_ids()), "public_url": config.PUBLIC_URL}
+
+
+# ------------------------------------------------------------------ app drawer
+def _app_sig(app_id: str, exp: str) -> str:
+    return hmac.new(config.APP_SECRET.encode(), f"app:{app_id}:{exp}".encode(), hashlib.sha256).hexdigest()
+
+
+def _need_app(app_id: str) -> dict:
+    a = apps.get(app_id)
+    if not a:
+        raise HTTPException(404, "no such app")
+    return a
+
+
+@app.get("/api/apps", dependencies=[Depends(auth)])
+async def apps_list():
+    return {"apps": [apps.public(a) for a in sorted(apps.index().values(), key=lambda a: -a.get("updated", 0))]}
+
+
+@app.post("/api/apps/{app_id}/token", dependencies=[Depends(auth)])
+async def app_token(app_id: str):
+    _need_app(app_id)
+    exp = str(int(time.time()) + 3600)
+    return {"url": f"/app-host/{app_id}/{exp}.{_app_sig(app_id, exp)}"}
+
+
+@app.get("/app-host/{app_id}/{ptoken}")
+async def app_host(app_id: str, ptoken: str):
+    """The app's page, served with a CSP that sandboxes it (opaque origin) and blocks all network. The token is scoped to this one app."""
+    try:
+        exp, sig = ptoken.split(".", 1)
+        ok = hmac.compare_digest(sig, _app_sig(app_id, exp)) and int(exp) > time.time()
+    except Exception:  # noqa: BLE001
+        ok = False
+    if not ok:
+        raise HTTPException(403, "link expired; reopen the app")
+    _need_app(app_id)
+    return HTMLResponse(apps.with_sdk(apps.html_of(app_id)), headers={"Content-Security-Policy": apps.CSP, "X-Content-Type-Options": "nosniff",
+                                                                       "Cache-Control": "no-store", "Referrer-Policy": "no-referrer"})
+
+
+@app.patch("/api/apps/{app_id}", dependencies=[Depends(auth)])
+async def app_patch(app_id: str, body: dict):
+    a = await apps.rename(app_id, str(body.get("name") or ""), str(body.get("icon") or ""))
+    if not a:
+        raise HTTPException(404, "no such app")
+    return apps.public(a)
+
+
+@app.delete("/api/apps/{app_id}", dependencies=[Depends(auth)])
+async def app_delete(app_id: str):
+    if not await apps.delete(app_id):
+        raise HTTPException(404, "no such app")
+    return {"ok": True}
+
+
+@app.post("/api/apps/{app_id}/ask", dependencies=[Depends(auth)])
+async def app_ask(app_id: str, body: dict):
+    """What an app's agent.ask() turns into: one answer from the default model, no tools, rate-limited per app."""
+    a = _need_app(app_id)
+    prompt = str(body.get("prompt") or "")[:apps.MAX_ASK_CHARS]
+    if not prompt.strip():
+        raise HTTPException(400, "empty prompt")
+    if not apps.ask_ok(app_id):
+        raise HTTPException(429, f"this app has used its {apps.ASKS_PER_HOUR} AI calls for the hour")
+    system = (f"You are the AI engine inside a small phone app called '{a['name']}'. Answer exactly in the format the app asks for, concisely, with no preamble. "
+              + str(body.get("system") or "")[:1500])
+
+    async def nop(*_a):
+        return None
+    try:
+        r = await llm.chat(await llm.default_model(), [{"role": "system", "content": system}, {"role": "user", "content": prompt}], [], nop, nop, nop, thinking=False)
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(502, f"the model failed: {str(e)[:160]}")
+    usage.record(await llm.default_model(), (r.get("usage") or {}).get("prompt_tokens", 0), (r.get("usage") or {}).get("completion_tokens", 0))
+    return {"text": (r["message"].get("content") or "").strip()}
+
+
+@app.get("/api/apps/{app_id}/data", dependencies=[Depends(auth)])
+async def app_data(app_id: str):
+    _need_app(app_id)
+    return {"data": apps.data(app_id)}
+
+
+@app.put("/api/apps/{app_id}/data/{key}", dependencies=[Depends(auth)])
+async def app_data_set(app_id: str, key: str, body: dict):
+    _need_app(app_id)
+    try:
+        await apps.data_set(app_id, key, body.get("value"))
+    except apps.AppError as e:
+        raise HTTPException(400, str(e))
+    return {"ok": True}
+
+
+@app.delete("/api/apps/{app_id}/data/{key}", dependencies=[Depends(auth)])
+async def app_data_del(app_id: str, key: str):
+    _need_app(app_id)
+    await apps.data_del(app_id, key)
+    return {"ok": True}
 
 
 # ------------------------------------------------------------------ forged tools

@@ -373,7 +373,7 @@ function scrollDown(force) {
   if (force || S.stick) c.scrollTop = c.scrollHeight;
 }
 const ICONS = { read: '▤', write: '✎', edit: '✎', multiedit: '✎', bash: '$', bash_output: '$', kill_bash: '■', grep: '⌕', glob: '✱',
-  web_fetch: '◎', web_search: '◎', browser_read: '◫', browser_act: '◫', todo_write: '☑', task: '⋔', skill: '★', git_sync: '⎇', create_pr: '⎇', exit_plan_mode: '☰', share_file: '⬇', preview: '▶', view_3d: '◈', image_search: '⌕', fetch_image: '▣', view_image: '◉', annotate_image: '✐', generate_image: '✦', send_email: '✉', forge_tool: '⚒', forge_list: '⚒', models: '⋔', connector_search: '⌕' };
+  web_fetch: '◎', web_search: '◎', browser_read: '◫', browser_act: '◫', todo_write: '☑', task: '⋔', skill: '★', git_sync: '⎇', create_pr: '⎇', exit_plan_mode: '☰', share_file: '⬇', preview: '▶', view_3d: '◈', image_search: '⌕', fetch_image: '▣', view_image: '◉', annotate_image: '✐', generate_image: '✦', send_email: '✉', create_app: '▦', app_list: '▦', app_read: '▦', forge_tool: '⚒', forge_list: '⚒', models: '⋔', connector_search: '⌕' };
 function toolSummary(name, a) {
   a = a || {};
   switch (name) {
@@ -384,6 +384,8 @@ function toolSummary(name, a) {
     case 'fetch_image': return a.url || '';
     case 'generate_image': return (a.prompt || '').slice(0, 80);
     case 'forge_tool': return (a.name || '') + (a.network ? ' (network)' : '') + ' · ' + (a.description || '').slice(0, 50);
+    case 'create_app': return (a.icon || '') + ' ' + (a.name || '');
+    case 'app_read': return a.id || '';
     case 'send_email': return ((a.to || []).join?.(', ') || a.to || '') + ' · ' + (a.subject || '').slice(0, 60);
     case 'models': return 'list models';
     case 'connector_search': return a.query || '';
@@ -453,6 +455,7 @@ function fillCard(card, call, result, approval) {
   if (result && result._browser) body.append(h('div', { style: 'padding:10px 12px' }, h('button.primary.small', { text: '◫ Open browser', onclick: openBrowser })));
   if (result && result._image) body.append(imgNode(result._image, call.id));
   if (result && result._preview) body.append(h('div', { style: 'padding:10px 12px' }, h('button.primary.small', { text: '▶ Open preview', onclick: () => openPreview(result._preview) })));
+  if (result && result._app) body.append(h('div', { style: 'padding:10px 12px' }, h('button.primary.small', { text: '▦ Open app', onclick: () => openApp(result._app) })));
   if (result && result._model) body.append(h('div', { style: 'padding:10px 12px' }, h('button.primary.small', { text: '◈ Open 3D viewer', onclick: () => openModel(result._model) })));
   if (result && result._file) body.append(h('div', { style: 'padding:10px 12px' }, fileCardNode(result._file)));
   card.append(body);
@@ -511,8 +514,8 @@ const KIND = { bash: ['Ran', 'command', 'commands'], bash_output: ['Ran', 'comma
   read: ['Read', 'file', 'files'], glob: ['Searched', 'folder', 'folders'], grep: ['Searched', 'code search', 'code searches'],
   write: ['Edited', 'file', 'files'], edit: ['Edited', 'file', 'files'], multiedit: ['Edited', 'file', 'files'], annotate_image: ['Edited', 'image', 'images'],
   web_fetch: ['Opened', 'page', 'pages'], web_search: ['Searched the web', 'time', 'times'], browser_read: ['Browsed', 'page', 'pages'], browser_act: ['Used the browser', 'time', 'times'], image_search: ['Searched images', 'time', 'times'],
-  fetch_image: ['Downloaded', 'image', 'images'], generate_image: ['Generated', 'image', 'images'], send_email: ['Sent', 'email', 'emails'], forge_tool: ['Forged', 'tool', 'tools'], forge_list: ['Listed', 'forged tools', 'forged tool lists'], view_image: ['Looked at', 'image', 'images'], task: ['Delegated', 'task', 'tasks'], git_sync: ['Synced', 'time', 'times'], todo_write: ['Updated', 'task list', 'task lists'], skill: ['Loaded', 'skill', 'skills'], models: ['Checked', 'model list', 'model lists'], connector_search: ['Looked up', 'connector tool', 'connector tools'], create_pr: ['Opened', 'pull request', 'pull requests'] };
-const isPinned = (c) => { const r = S.results[c._call.id]; return !!(r && (r._file || r._preview || r._model || r._image)) || c._call.function.name === 'exit_plan_mode'; };
+  fetch_image: ['Downloaded', 'image', 'images'], generate_image: ['Generated', 'image', 'images'], send_email: ['Sent', 'email', 'emails'], create_app: ['Built', 'app', 'apps'], app_list: ['Listed', 'app list', 'app lists'], app_read: ['Read', 'app', 'apps'], forge_tool: ['Forged', 'tool', 'tools'], forge_list: ['Listed', 'forged tools', 'forged tool lists'], view_image: ['Looked at', 'image', 'images'], task: ['Delegated', 'task', 'tasks'], git_sync: ['Synced', 'time', 'times'], todo_write: ['Updated', 'task list', 'task lists'], skill: ['Loaded', 'skill', 'skills'], models: ['Checked', 'model list', 'model lists'], connector_search: ['Looked up', 'connector tool', 'connector tools'], create_pr: ['Opened', 'pull request', 'pull requests'] };
+const isPinned = (c) => { const r = S.results[c._call.id]; return !!(r && (r._file || r._preview || r._model || r._image || r._app)) || c._call.function.name === 'exit_plan_mode'; };
 const isDone = (c) => !!S.results[c._call.id] && !S.pending[c._call.id];
 function tgLabel(cards) {
   const by = new Map();
@@ -1161,13 +1164,14 @@ function openMenu() {
     rows.push(
       item('✎', 'Rename chat', () => renameSheet(c)),
       item('◫', 'Browser', openBrowser),
+      item('▦', 'Apps', openApps),
       item('⇣', 'Compact context', () => { $('#input').value = '/compact'; send(); }),
       h('button.mi', { onclick: async () => {
         const v = !c.autopilot;
         try { await api('/api/sessions/' + c.id, { method: 'PATCH', body: { autopilot: v } }); c.autopilot = v; tg.classList.toggle('on', v); applyChips(); } catch (e) { toast(e.message, true); }
       } }, h('span.mic', { text: '∞' }), h('span', { text: 'Autopilot' }), tg),
       item('⎇', 'Save workspace to GitHub', async () => { try { const r = await api(`/api/sessions/${c.id}/sync`, { method: 'POST' }); toast(r.result); } catch (er) { toast(er.message, true); } }));
-  } else rows.push(h('div.dim', { style: 'padding:12px', text: 'Open or start a chat to see chat actions.' }));
+  } else rows.push(item('▦', 'Apps', openApps), h('div.dim', { style: 'padding:12px', text: 'Open or start a chat to see chat actions.' }));
   menu.replaceChildren(...rows);
   menu.hidden = false; $('#menu-scrim').hidden = false;
 }
@@ -1573,6 +1577,64 @@ async function openInstagram() {
   try { draw(await api('/api/instagram?base=' + encodeURIComponent(S.api))); } catch (e) { body.replaceChildren(h('div.dim', { style: 'color:var(--bad)', text: e.message })); }
 }
 
+/* ============================================================ app drawer */
+const AH = { id: '', name: '', frame: null, data: null };
+async function openApps() {
+  $('#appspage').hidden = false;
+  const grid = $('#ap-grid'); grid.replaceChildren(h('div.dim.ap-empty', { text: 'Loading…' }));
+  let list;
+  try { list = (await api('/api/apps')).apps; } catch (e) { grid.replaceChildren(h('div.dim.ap-empty', { style: 'color:var(--bad)', text: e.message })); return; }
+  if (!list.length) { grid.replaceChildren(h('div.dim.ap-empty', {}, h('div', { style: 'font-size:34px', text: '▦' }), h('div', { style: 'margin-top:8px', text: 'No apps yet. Ask the agent to build one:' }), h('div', { style: 'margin-top:6px;font-size:13.5px;line-height:1.6', html: '“make me a pomodoro timer that remembers my sessions”<br>“build a unit converter for my wearable project”<br>“a flashcard app that quizzes me with AI”' }))); return; }
+  grid.replaceChildren(...list.map((a) => {
+    let pressT = 0, long = false;
+    const t = h('button.ap-tile', {}, a.ai ? h('span.ap-ai', { text: 'AI' }) : null, h('div.ap-ico', { text: a.icon || '▦' }), h('div.ap-nm', { text: a.name }));
+    t.addEventListener('pointerdown', () => { long = false; pressT = setTimeout(() => { long = true; appMenu(a); }, 550); });
+    for (const ev of ['pointerup', 'pointerleave', 'pointercancel']) t.addEventListener(ev, () => clearTimeout(pressT));
+    t.onclick = () => { if (!long) openApp(a.id, a.name); };
+    t.addEventListener('contextmenu', (e) => { e.preventDefault(); appMenu(a); });
+    return t;
+  }));
+}
+function appMenu(a) {
+  sheet(a.name,
+    h('div.dim', { style: 'font-size:13.5px;margin-bottom:8px', text: a.description || 'No description' }),
+    h('button.primary', { text: 'Open', onclick: () => { closeSheet(); openApp(a.id, a.name); } }),
+    h('button.secondary', { text: 'Rename', onclick: async () => { const n = prompt('New name', a.name); if (!n) return; try { await api('/api/apps/' + a.id, { method: 'PATCH', body: { name: n } }); closeSheet(); openApps(); } catch (e) { toast(e.message, true); } } }),
+    h('button.secondary', { text: 'Delete', onclick: async () => { if (!(await confirmSheet('Delete this app?', `${a.name} and its saved data will be removed for good.`, 'Delete'))) return; try { await api('/api/apps/' + a.id, { method: 'DELETE' }); closeSheet(); openApps(); } catch (e) { toast(e.message, true); } } }));
+}
+async function openApp(id, name) {
+  AH.id = id; AH.name = name || id; AH.data = null;
+  $('#ah-title').textContent = AH.name; $('#apphost').hidden = false;
+  try {
+    if (!name) { const a = (await api('/api/apps')).apps.find((x) => x.id === id); if (a) { AH.name = a.name; $('#ah-title').textContent = a.name; } }
+    const { url } = await api(`/api/apps/${id}/token`, { method: 'POST' });
+    $('#ah-frame').src = S.api + url;
+  } catch (e) { toast(e.message, true); closeApp(); }
+}
+function closeApp() { $('#apphost').hidden = true; $('#ah-frame').src = 'about:blank'; AH.id = ''; }
+async function appBridge(e) {
+  const f = $('#ah-frame'), m = e.data;
+  if (!AH.id || !m || !m.__pa || e.source !== f.contentWindow) return;
+  const reply = (o) => { try { f.contentWindow.postMessage({ __pa_r: 1, id: m.id, ...o }, '*'); } catch { /* app closed */ } };
+  const id = AH.id;
+  try {
+    if (m.type === 'ask') { reply({ value: (await api(`/api/apps/${id}/ask`, { body: { prompt: m.prompt, system: m.system } })).text }); return; }
+    if (AH.data === null || AH.dataFor !== id) { AH.data = (await api(`/api/apps/${id}/data`)).data || {}; AH.dataFor = id; }
+    if (m.type === 'get') reply({ value: m.key in AH.data ? AH.data[m.key] : null });
+    else if (m.type === 'keys') reply({ value: Object.keys(AH.data) });
+    else if (m.type === 'set') { await api(`/api/apps/${id}/data/${encodeURIComponent(m.key)}`, { method: 'PUT', body: { value: m.value } }); AH.data[m.key] = m.value; reply({ value: true }); }
+    else if (m.type === 'del') { await api(`/api/apps/${id}/data/${encodeURIComponent(m.key)}`, { method: 'DELETE' }); delete AH.data[m.key]; reply({ value: true }); }
+    else reply({ error: 'unknown call' });
+  } catch (er) { reply({ error: er.message }); }
+}
+function initApps() {
+  $('#ap-back').onclick = () => { $('#appspage').hidden = true; };
+  $('#ah-back').onclick = closeApp;
+  $('#ah-reload').onclick = () => { if (AH.id) openApp(AH.id, AH.name); };
+  $('#ah-edit').onclick = () => { const id = AH.id, nm = AH.name; closeApp(); $('#appspage').hidden = true; const i = $('#input'); i.value = `Change my app "${nm}" (id: ${id}): `; i.focus(); };
+  window.addEventListener('message', appBridge);
+}
+
 /* ============================================================ forged tools */
 async function openForge() {
   const body = h('div', {}, h('div.dim', { text: 'Loading…' }));
@@ -1945,6 +2007,7 @@ function wire() {
   $('#ev-back').onclick = closeEval;
   $('#set-back').onclick = closeSettings;
   initBrowser();
+  initApps();
   $('#rt-back').onclick = closeRoutines;
   $('#rt-new').onclick = () => rtEdit(null);
   $('#cn-back').onclick = closeConnectors;

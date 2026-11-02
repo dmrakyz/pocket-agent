@@ -211,3 +211,11 @@ Triple-tap the back of your iPhone (or press the Action Button on an iPhone 15 P
 
 ### Tool forging
 Ask the agent to "forge a tool that…" (or it may suggest one when a job keeps recurring). It writes Python defining `def run(args)`, plus tests; **you are shown the code and must approve every time** (even in YOLO; plan mode refuses). After approval the tests run in a sandbox, and only if they pass is the tool kept as `forged_<name>`, available from the agent's next step. Tools that need no network run without asking (pure computation); tools that declare network use ask on each call (YOLO or an "always allow" rule skips that). Manage them in Settings → Forged tools (switch off, read the code, delete). Each call runs in a throwaway process with a stripped environment (no keys), memory/CPU/time limits, a scratch directory, and sockets disabled unless the tool declared network use. That is best-effort containment for code an LLM wrote and you read, not a hardened sandbox, so don't approve code you don't understand. Sub-agents don't get forged tools. Up to 25 tools.
+
+## App drawer
+
+Ask the agent to build you a little tool ("make me a tip calculator", "a habit tracker") and it writes a single-file HTML app with `create_app`. Apps live in the state repo's kv store and open from **Apps** in the menu, full screen inside the PWA.
+
+- Apps run in a sandboxed iframe with a strict CSP: no network, opaque origin, no access to your token or the rest of the app.
+- They talk to the host through a tiny SDK (`agent.ask(prompt)`, `agent.get/set/del/keys`) over postMessage. Data is stored per app; AI calls are rate-limited.
+- Long-press an app in the drawer for rename / delete. Ask the agent to edit one and it rewrites the file.

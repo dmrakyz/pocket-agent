@@ -16,7 +16,7 @@ from urllib.parse import urlparse
 
 import httpx
 
-from . import config, forge, llm, workspace
+from . import apps, config, forge, llm, workspace
 
 LIMIT = config.TOOL_OUTPUT_LIMIT
 SKIP_DIRS = {".git", "node_modules", "__pycache__", ".venv", "venv", "dist", "build", ".next", ".cache"}
@@ -167,6 +167,17 @@ BASE_TOOLS = [
          "network": {"type": "boolean"},
          "tests": {"type": "array", "items": {"type": "object", "properties": {"args": {"type": "object"}, "expect": {"type": "string"}}}}},
         ["name", "description", "code", "parameters", "tests"]),
+    _fn("create_app", "Build a small app that lives on the user's phone, in their Apps drawer with its own icon: a calculator, tracker, timer, quiz, visualizer, "
+        "generator, mini-game, dashboard for their data. Give ONE complete self-contained HTML page (inline CSS and JS; mobile-first, touch-friendly, dark-mode friendly, "
+        "big tap targets). It runs in a locked sandbox with NO network: no CDN scripts, no fetch to the internet, no external fonts or images; use vanilla JS, canvas or inline SVG. "
+        "It gets window.agent: `await agent.ask(prompt, {system})` returns text from an AI model (use for anything needing language or reasoning; keep prompts short), "
+        "`await agent.get(key)`, `agent.set(key, jsonValue)`, `agent.del(key)`, `agent.keys()` for saved data that persists across opens (use it so the app remembers things). "
+        "To change an existing app, pass its id (use app_list / app_read first). The user opens it from a card in this chat or the Apps drawer.",
+        {"name": {"type": "string", "description": "short app name"}, "icon": {"type": "string", "description": "one emoji"},
+         "description": {"type": "string", "description": "one line"}, "html": {"type": "string", "description": "complete HTML document"},
+         "id": {"type": "string", "description": "existing app id to replace (omit to create)"}}, ["name", "html"]),
+    _fn("app_list", "List the user's apps (id, name, description).", {}, []),
+    _fn("app_read", "Read the HTML of one of the user's apps, so you can modify it.", {"id": {"type": "string"}}, ["id"]),
     _fn("forge_list", "List the custom tools that have been forged so far (name, what it does, whether it is switched on).", {}, []),
     _fn("memory_save", "Save durable facts about the user that every future chat should know (identity basics, ongoing projects, tools, "
         "how they like answers). Use when they ask you to remember something, or state a clear lasting preference. One short fact per note, "
@@ -197,8 +208,8 @@ BASE_TOOLS = [
     _fn("exit_plan_mode", "Plan mode only: present your finished plan to the user for approval.",
         {"plan": S}, ["plan"]),
 ]
-READONLY = {"read", "glob", "grep", "web_fetch", "web_search", "image_search", "view_image", "models", "browser_read", "todo_write", "bash_output", "skill", "task", "share_file", "preview", "view_3d", "connector_search", "memory_save", "memory_list", "forge_list"}
-EDITS = {"write", "edit", "multiedit", "fetch_image", "annotate_image", "generate_image"}
+READONLY = {"read", "glob", "grep", "web_fetch", "web_search", "image_search", "view_image", "models", "browser_read", "todo_write", "bash_output", "skill", "task", "share_file", "preview", "view_3d", "connector_search", "memory_save", "memory_list", "forge_list", "app_list", "app_read"}
+EDITS = {"write", "edit", "multiedit", "fetch_image", "annotate_image", "generate_image", "create_app"}
 SUBAGENT_TOOLS = {"read", "glob", "grep", "bash", "bash_output", "kill_bash", "web_fetch", "web_search"}
 SUBAGENT_EDIT_TOOLS = SUBAGENT_TOOLS | EDITS
 
@@ -716,6 +727,27 @@ async def t_forge_tool(ctx: Ctx, a: dict):
             f"{', uses the network' if t['network'] else ''}). Call it directly from your next step.")
 
 
+async def t_create_app(ctx: Ctx, a: dict):
+    try:
+        app = await apps.save(a)
+    except apps.AppError as e:
+        raise ToolError(str(e))
+    html = str(a.get("html") or "")
+    warn = " Warning: it references external resources (http/https), which the sandbox blocks: inline them." if re.search(r"(src|href)=[\"']https?://|@import\s+url\(\s*[\"']?https?://", html, re.I) else ""
+    return {"text": f"App '{app['name']}' saved (id {app['id']}). The user can open it from the card below or the Apps drawer.{warn}", "app": app["id"]}
+
+
+async def t_app_list(ctx: Ctx, a: dict):
+    d = apps.index()
+    return "\n".join(f"- {x['id']}: {x['icon']} {x['name']} — {x['description']}" for x in d.values()) or "No apps yet."
+
+
+async def t_app_read(ctx: Ctx, a: dict):
+    if not apps.get(a["id"]):
+        raise ToolError(f"no app with id {a['id']!r}. Use app_list.")
+    return apps.html_of(a["id"])
+
+
 async def t_forge_list(ctx: Ctx, a: dict):
     ts = list(forge.all_tools().values())
     if not ts:
@@ -1100,7 +1132,7 @@ HANDLERS: dict[str, Callable[[Ctx, dict], Awaitable[Any]]] = {
     "git_sync": t_git_sync, "create_pr": t_create_pr, "exit_plan_mode": t_exit_plan_mode, "share_file": t_share_file, "preview": t_preview, "view_3d": t_view_3d,
     "image_search": t_image_search, "fetch_image": t_fetch_image, "view_image": t_view_image,
     "annotate_image": t_annotate_image, "models": t_models, "connector_search": t_connector_search,
-    "generate_image": t_generate_image, "send_email": t_send_email, "forge_tool": t_forge_tool, "forge_list": t_forge_list, "memory_save": t_memory_save, "memory_forget": t_memory_forget, "memory_list": t_memory_list,
+    "generate_image": t_generate_image, "send_email": t_send_email, "forge_tool": t_forge_tool, "forge_list": t_forge_list, "create_app": t_create_app, "app_list": t_app_list, "app_read": t_app_read, "memory_save": t_memory_save, "memory_forget": t_memory_forget, "memory_list": t_memory_list,
     "browser_read": t_browser_read, "browser_act": t_browser_act,
 }
 

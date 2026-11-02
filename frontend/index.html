@@ -140,6 +140,24 @@
     <iframe id="pv-frame" class="pv-frame" title="Preview" sandbox="allow-scripts allow-forms allow-modals allow-popups allow-pointer-lock" referrerpolicy="no-referrer"></iframe>
   </section>
 
+  <!-- app drawer: grid + host -->
+  <section id="appspage" class="screen overlay" hidden>
+    <header>
+      <button id="ap-back" class="icon" aria-label="Close apps">←</button>
+      <div class="title-wrap"><div class="title">Apps</div><div class="subtitle">Built by your agent · sandboxed</div></div>
+    </header>
+    <div id="ap-grid" class="ap-grid"></div>
+  </section>
+  <section id="apphost" class="screen overlay" hidden>
+    <header>
+      <button id="ah-back" class="icon" aria-label="Close app">←</button>
+      <div class="title-wrap"><div id="ah-title" class="title"></div><div id="ah-sub" class="subtitle">Sandboxed · no internet</div></div>
+      <button id="ah-reload" class="icon" aria-label="Reload app">↻</button>
+      <button id="ah-edit" class="icon" aria-label="Ask the agent to change this app">✎</button>
+    </header>
+    <iframe id="ah-frame" class="pv-frame" title="App" sandbox="allow-scripts allow-forms allow-modals" referrerpolicy="no-referrer"></iframe>
+  </section>
+
   <!-- 3D model viewer -->
   <section id="modelpage" class="screen overlay" hidden>
     <header>

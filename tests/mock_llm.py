@@ -128,6 +128,15 @@ def scenario(msgs, model):
         if k == 1:
             return "tools", [tool_call("annotate_image", {"path": "pics/a.png", "ops": [{"type": "rect", "x": 10, "y": 10, "w": 50, "h": 30}]})]
         return "text", "annotated"
+    if "MAKEAPP" in prompt:
+        html = ("<!doctype html><html><head><meta name='viewport' content='width=device-width'><title>Tip</title></head><body><h1 id='t'>Tip calc</h1>"
+                "<button id='b' onclick=\"agent.ask('hi').then(function(r){document.getElementById('t').textContent=r})\">ask</button>"
+                "<script>agent.get('n').then(function(v){agent.set('n',(v||0)+1)})</script></body></html>")
+        if k == 0:
+            return "tools", [tool_call("create_app", {"name": "Tip Calc", "icon": "🧮", "description": "splits a bill", "html": html})]
+        if k == 1:
+            return "tools", [tool_call("create_app", {"id": "tip-calc", "name": "Tip Calc", "html": html.replace("Tip calc", "Tip calc v2")})]
+        return "text", "app ready"
     if "SHOWMODEL" in prompt:
         if k == 0:
             return "tools", [tool_call("bash", {"command": "python3 -c \"import trimesh; trimesh.creation.box((10,10,10)).export('cube.stl')\""})]
