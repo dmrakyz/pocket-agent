@@ -181,3 +181,6 @@ Email can start a routine through the webhook that already exists (Routines → 
   } }
   ```
 The payload is passed to the agent as untrusted data (only the first 4000 characters), so a routine prompt like "Summarize this email and add a task to Notion if it needs action" is safe to use on mail from strangers: the agent is told not to follow instructions inside it.
+
+### Send email
+`send_email` sends plain-text mail through Resend's HTTPS API (Render's free tier blocks SMTP, so Gmail app passwords won't work there). Set `RESEND_API_KEY` in Render (and optionally `MAIL_FROM`, `MAIL_REPLY_TO`, `MAIL_ALLOWED_TO` = comma list of addresses or domains). Without a verified domain Resend only delivers to your own account address, which is enough for "mail me this". Every send asks for approval, even in YOLO mode, and "always allow" is never offered for it; plan mode denies it. The tool is hidden until the key is set. Tested against a fake server only.

@@ -27,6 +27,11 @@ GIT_USER_EMAIL = env("GIT_USER_EMAIL", "agent@users.noreply.github.com")
 DEFAULT_MODEL = env("DEFAULT_MODEL")        # "provider:model-id"; auto-picked if empty
 SELF_REPO = env("SELF_REPO", "dmrakyz/pocket-agent")   # this app's own source repo, for the "improve Pocket Agent" chat
 TELEGRAM_BOT_TOKEN = env("TELEGRAM_BOT_TOKEN")
+RESEND_API_KEY = env("RESEND_API_KEY")          # enables send_email (HTTPS; Render free blocks SMTP)
+MAIL_FROM = env("MAIL_FROM", "Pocket Agent <onboarding@resend.dev>")
+MAIL_REPLY_TO = env("MAIL_REPLY_TO")
+MAIL_ALLOWED_TO = env("MAIL_ALLOWED_TO")        # optional comma list of addresses/domains; empty = any (still asks every time)
+MAIL_API_BASE = env("MAIL_API_BASE", "https://api.resend.com")
 TELEGRAM_ALLOWED_IDS = {int(x) for x in env("TELEGRAM_ALLOWED_IDS").replace(" ", "").split(",") if x.lstrip("-").isdigit()}
 PUBLIC_URL = (env("PUBLIC_URL") or env("RENDER_EXTERNAL_URL")).rstrip("/")
 IMAGE_MODEL = env("IMAGE_MODEL", "black-forest-labs/flux.1-schnell")   # text-to-image model on NVIDIA
@@ -101,4 +106,5 @@ SECRET_ENV_KEYS = {
     "APP_PASSWORD", "APP_SECRET", "GITHUB_TOKEN", "NVIDIA_API_KEY", "OPENROUTER_API_KEY", "OPENAI_API_KEY",
     "ANTHROPIC_API_KEY", "GEMINI_API_KEY", "PROVIDERS_JSON", "MCP_SERVERS", "TAVILY_API_KEY", "BRAVE_API_KEY",
     "TELEGRAM_BOT_TOKEN",
+    "RESEND_API_KEY",
 }

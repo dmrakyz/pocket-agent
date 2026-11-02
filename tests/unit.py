@@ -485,3 +485,41 @@ async def browser_test():
     await B.browser.shutdown(); srv.shutdown()
     print("PASS browser: open, type, click, eval, scroll, screenshot, guard")
 asyncio.run(browser_test())
+
+# send_email: fake Resend, validation, always-ask permission, hidden when unconfigured
+async def mail_test():
+    import json as _json
+    from app import config as C, perms
+    seen = {}; mode = {"v": 200}
+    def handler(req: httpx.Request):
+        seen["url"] = str(req.url); seen["auth"] = req.headers.get("authorization"); seen["body"] = _json.loads(req.content)
+        return httpx.Response(mode["v"], json={"id": "m1"}) if mode["v"] < 400 else httpx.Response(mode["v"], text="x")
+    T._mail_transport = httpx.MockTransport(handler)
+    old = (C.RESEND_API_KEY, C.MAIL_ALLOWED_TO)
+    try:
+        root = Path(tempfile.mkdtemp()); ctx = T.Ctx({"id": "ml1"}, root, lambda e: asyncio.sleep(0), None, None)
+        C.RESEND_API_KEY = ""; C.MAIL_ALLOWED_TO = ""
+        assert "send_email" not in [t["function"]["name"] for t in T.schemas({})]
+        r = await T.execute(ctx, "send_email", {"to": ["a@b.co"], "subject": "s", "body": "b"}); assert r["error"] and "RESEND_API_KEY" in r["text"], r
+        C.RESEND_API_KEY = "re_test"
+        assert "send_email" in [t["function"]["name"] for t in T.schemas({})]
+        r = await T.execute(ctx, "send_email", {"to": ["me@x.com"], "subject": "Hi\nBcc: evil@x.com", "body": "hello"})
+        assert not r["error"] and seen["url"] == "https://api.resend.com/emails" and seen["auth"] == "Bearer re_test", r
+        assert seen["body"]["to"] == ["me@x.com"] and "\n" not in seen["body"]["subject"] and seen["body"]["text"] == "hello", seen
+        for bad in ({"to": [], "subject": "s", "body": "b"}, {"to": ["nope"], "subject": "s", "body": "b"}, {"to": ["a@b.co"] * 6, "subject": "s", "body": "b"},
+                    {"to": ["a@b.co"], "subject": "", "body": "b"}, {"to": ["a@b.co"], "subject": "s", "body": "x" * 20001}):
+            r = await T.execute(ctx, "send_email", bad); assert r["error"], bad
+        C.MAIL_ALLOWED_TO = "me@x.com, corp.com"
+        assert not (await T.execute(ctx, "send_email", {"to": ["ME@x.com", "bob@corp.com"], "subject": "s", "body": "b"}))["error"]
+        r = await T.execute(ctx, "send_email", {"to": ["eve@evil.com"], "subject": "s", "body": "b"}); assert r["error"] and "allowed recipient" in r["text"], r
+        for code, frag in ((403, "RESEND_API_KEY"), (422, "rejected"), (500, "check before retrying")):
+            mode["v"] = code; r = await T.execute(ctx, "send_email", {"to": ["me@x.com"], "subject": "s", "body": "b"}); assert r["error"] and frag in r["text"], (code, r)
+        for m in ("ask", "auto", "yolo"):
+            sess = {"mode": m, "allow": ["tool:send_email"]}
+            assert perms.decide(sess, "send_email", {})[0] == "ask", m
+        assert perms.decide({"mode": "plan"}, "send_email", {})[0] == "deny"
+        assert perms.always_rule("send_email", {}) is None
+    finally:
+        C.RESEND_API_KEY, C.MAIL_ALLOWED_TO = old; T._mail_transport = None
+    print("PASS send_email: shape, validation, allowlist, errors, always asks (even YOLO), hidden when unset")
+asyncio.run(mail_test())

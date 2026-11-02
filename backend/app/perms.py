@@ -95,6 +95,10 @@ def decide(session: dict, tool: str, args: dict) -> tuple[str, str]:
                 return "deny", why
     if tool == "exit_plan_mode":
         return "ask", "Approve this plan?"
+    if tool == "send_email":   # irreversible and outward-facing: asks every time, even in YOLO or with a saved rule
+        if mode == "plan":
+            return "deny", "Plan mode is read-only. Draft the email in your plan instead."
+        return "ask", "Send this email?"
     if tool.startswith("mcp__") and MCP is not None:
         srv, pol, kind = tool.split("__")[1], None, MCP.kind(tool)
         pol = MCP.perm(srv)
