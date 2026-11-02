@@ -1572,6 +1572,32 @@ async function openInstagram() {
   try { draw(await api('/api/instagram?base=' + encodeURIComponent(S.api))); } catch (e) { body.replaceChildren(h('div.dim', { style: 'color:var(--bad)', text: e.message })); }
 }
 
+/* ============================================================ back-tap assistant */
+async function openShortcut() {
+  const body = h('div', {}, h('div.dim', { text: 'Loading…' }));
+  sheet('Back-tap assistant', body);
+  const copy = (t) => h('div.hookbox', { text: t, onclick: () => { try { navigator.clipboard.writeText(t); toast('Copied'); } catch { /* selectable anyway */ } } });
+  const draw = (st, token) => {
+    const kids = [h('div.dim', { style: 'font-size:14px', text: 'Triple-tap the back of your iPhone: a screenshot goes to your agent, and the answer comes back as a notification. It also works from the share sheet with text or links.' })];
+    if (token) kids.push(h('div.dim', { style: 'font-size:13px;color:var(--warn,#e8b04a)', text: 'Your token (shown once, copy it now):' }), copy(token));
+    else if (st.enabled) kids.push(h('div.dim', { style: 'font-size:13px', text: `Token ${st.hint} · used ${st.uses} time${st.uses === 1 ? '' : 's'}` }));
+    kids.push(h('div.dim', { style: 'font-size:13px', text: 'Address to POST to:' }), copy(S.api + '/api/shortcut'));
+    kids.push(h('button.primary', { text: st.enabled ? 'Make a new token (old one stops working)' : 'Make a token', onclick: async (e) => { e.currentTarget.disabled = true; try { const r = await api('/api/shortcut/token', { body: {} }); draw({ enabled: true, hint: '', uses: 0 }, r.token); } catch (er) { toast(er.message, true); e.currentTarget.disabled = false; } } }));
+    if (st.enabled) kids.push(h('button.secondary', { text: 'Revoke', onclick: async () => { try { await api('/api/shortcut', { method: 'DELETE' }); draw({ enabled: false }); } catch (er) { toast(er.message, true); } } }));
+    kids.push(h('div.dim', { style: 'font-size:13px;font-weight:600;margin-top:6px', text: 'Set up the Shortcut' }));
+    kids.push(h('ol.dim', { style: 'padding-left:20px;font-size:13.5px;line-height:1.6' },
+      h('li', { text: 'Open Shortcuts → + → new shortcut. Add "Take Screenshot".' }),
+      h('li', { text: 'Add "Get Contents of URL". URL: the address above. Method: POST. Request Body: File, and pick the screenshot.' }),
+      h('li', { text: 'Under Headers add Authorization with the value  Bearer YOUR_TOKEN.' }),
+      h('li', { text: 'Add "Get Dictionary Value" for the key  answer, then "Show Notification" (or "Show Result") with it.' }),
+      h('li', { text: 'Settings → Accessibility → Touch → Back Tap → Triple Tap → choose your shortcut.' }),
+      h('li', { text: 'Optional: add ?text=your question to the address, e.g. ?text=translate%20this, for a dedicated shortcut.' })));
+    kids.push(h('div.dim', { style: 'font-size:12.5px', text: 'Nobody can tap Allow from a Shortcut, so it only uses actions that need no approval. Each use opens a chat called "Back-tap" you can read later. Up to 30 uses an hour.' }));
+    body.replaceChildren(...kids);
+  };
+  try { draw(await api('/api/shortcut/status')); } catch (e) { body.replaceChildren(h('div.dim', { style: 'color:var(--bad)', text: e.message })); }
+}
+
 /* ============================================================ usage */
 async function openUsage() {
   const body = h('div', {}, h('div.dim', { text: 'Loading…' }));
@@ -1675,6 +1701,7 @@ function drawSettings() {
       row('⚭', 'Connectors', openConnectors),
       row('✈', 'Telegram', openTelegram),
       row('◎', 'Instagram DMs', openInstagram),
+      row('⌘', 'Back-tap assistant', openShortcut),
       row('▤', 'Usage', openUsage),
       row('✓', 'Capability check', openEval),
       row('🔔', 'Push notifications', async () => { if (PUSH.state === 'on') await pushDisable(); else await pushEnable(); drawSettings(); },

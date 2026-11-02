@@ -22,7 +22,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from starlette.background import BackgroundTask
 
 from .browser import browser, BrowserError
-from . import agent, config, evals, instagram, kv, llm, mcp, memory, oauth, perms, push, routines, store, telegram, tools, usage, workspace
+from . import agent, config, evals, instagram, kv, llm, shortcut, mcp, memory, oauth, perms, push, routines, store, telegram, tools, usage, workspace
 
 mcp_client = mcp.MCP()
 agent.MCP = mcp_client
@@ -908,6 +908,60 @@ async def telegram_webhook(secret: str, request: Request):
 def _tg_view():
     return {"enabled": telegram.enabled(), "bot": telegram.status["bot"], "webhook": telegram.status["webhook"],
             "error": telegram.status["error"], "paired": len(telegram.allowed_ids()), "public_url": config.PUBLIC_URL}
+
+
+# ------------------------------------------------------------------ back-tap assistant (iOS Shortcut)
+@app.post("/api/shortcut")
+async def shortcut_run(request: Request, text: str = "", url: str = "", t: str = ""):
+    """Called by an iOS Shortcut. Body is either the raw screenshot (Content-Type image/*) or JSON {text, url, image_b64}."""
+    h = request.headers.get("authorization", "")
+    tok = h[7:] if h.lower().startswith("bearer ") else t
+    if not shortcut.check(tok):
+        raise HTTPException(401, "bad or revoked shortcut token")
+    if not shortcut.rate_ok():
+        raise HTTPException(429, "too many requests this hour")
+    raw = await request.body()
+    if len(raw) > 15 * 1024 * 1024:
+        raise HTTPException(413, "too large")
+    image = None
+    ct = request.headers.get("content-type", "")
+    if ct.startswith("application/json") and raw:
+        try:
+            j = json.loads(raw)
+        except Exception:  # noqa: BLE001
+            raise HTTPException(400, "bad JSON")
+        text, url = str(j.get("text") or text), str(j.get("url") or url)
+        if j.get("image_b64"):
+            try:
+                image = base64.b64decode(str(j["image_b64"]).split(",")[-1])
+            except Exception:  # noqa: BLE001
+                raise HTTPException(400, "bad image_b64")
+    elif raw:
+        image = raw
+    try:
+        return await shortcut.handle(text=text, url=url, image=image)
+    except Exception as e:  # noqa: BLE001
+        if image is not None and type(e).__name__ == "UnidentifiedImageError":
+            raise HTTPException(400, "that body is not an image")
+        raise
+
+
+@app.get("/api/shortcut/status", dependencies=[Depends(auth)])
+async def shortcut_status():
+    d = shortcut.state()
+    return {"enabled": shortcut.enabled(), "hint": d.get("hint", ""), "uses": d.get("uses", 0), "last": d.get("last", 0), "created": d.get("created", 0)}
+
+
+@app.post("/api/shortcut/token", dependencies=[Depends(auth)])
+async def shortcut_token():
+    """Make (or replace) the Shortcut token. It is shown once."""
+    return {"token": await shortcut.new_token()}
+
+
+@app.delete("/api/shortcut", dependencies=[Depends(auth)])
+async def shortcut_revoke():
+    await shortcut.revoke()
+    return {"enabled": False}
 
 
 # ------------------------------------------------------------------ instagram

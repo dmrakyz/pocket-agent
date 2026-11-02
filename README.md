@@ -205,3 +205,6 @@ Talk to the agent from the DMs of an Instagram **professional** (Creator or Busi
 6. From the account you want to control it with, DM your professional account `pair CODE`. Only paired accounts are answered; everyone else gets a single "private account" reply.
 
 Inside the DM: `/new`, `/stop`, `/mode ask|auto|yolo`, `/status`, `/unpair`. Approvals arrive as text; reply YES or NO. Replies are plain text (Instagram has no markdown), split to fit its 1000-byte limit, and files the agent makes stay in the app. Every webhook is checked against your app secret's HMAC signature.
+
+### Back-tap assistant
+Triple-tap the back of your iPhone and a screenshot goes to the agent; the answer comes back to the Shortcut and as a push notification. Settings → Back-tap assistant makes a token of its own (shown once, revocable, separate from your login). The endpoint is `POST /api/shortcut` with `Authorization: Bearer <token>` and either the raw image as the body, or JSON `{text, url, image_b64}`; `?text=` and `?url=` also work. Screenshots are shrunk to 1600 px first. Nobody can tap Allow from a Shortcut, so approvals are refused and the agent is told to describe what it would do; each use opens a chat called "⌘ Back-tap" you can read later. Limit 30 uses an hour. The Shortcuts steps in the app are from memory of the iOS UI and may be worded differently on your phone.
