@@ -427,3 +427,11 @@ a.ws-chip { display: inline-block; padding: 1px 9px; border-radius: 10px; backgr
 .br-dot { position: absolute; top: 8px; right: 8px; width: 8px; height: 8px; border-radius: 4px; background: var(--ok); }
 #btn-browser.busy .br-dot { background: var(--accent); animation: pulse 1s ease-in-out infinite; }
 @keyframes pulse { 50% { transform: scale(1.6); opacity: .5; } }
+
+.memnote { text-align: left; width: 100%; cursor: pointer; }
+.memtxt { font-size: 15px; line-height: 1.4; overflow-wrap: anywhere; }
+.memlist { display: flex; flex-direction: column; gap: 2px; max-height: 46vh; overflow-y: auto; margin: 4px 0; border: 1px solid var(--line); border-radius: 12px; padding: 4px 10px; }
+.memrow { display: flex; align-items: flex-start; gap: 10px; padding: 9px 0; font-size: 14.5px; line-height: 1.4; border-bottom: 1px solid var(--line); }
+.memrow:last-child { border-bottom: 0; } .memrow.off { opacity: .5; } .memrow input { margin-top: 3px; flex: none; width: 18px; height: 18px; } .memrow em { color: var(--dim); font-style: normal; font-size: 12.5px; }
+label.chk { display: flex; align-items: center; gap: 10px; font-size: 14px; flex-direction: row; } label.chk input { width: 18px; height: 18px; flex: none; }
+label.memrow { flex-direction: row; gap: 12px; align-items: flex-start; }

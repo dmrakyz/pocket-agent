@@ -144,6 +144,13 @@ BASE_TOOLS = [
         "Returns the best matches and activates them, so you can call them on your very next step.",
         {"query": {"type": "string", "description": "what you want to do, or a connector name"},
          "limit": {"type": "integer", "description": "max tools to activate (default 8, max 15)"}}, ["query"]),
+    _fn("memory_save", "Save durable facts about the user that every future chat should know (identity basics, ongoing projects, tools, "
+        "how they like answers). Use when they ask you to remember something, or state a clear lasting preference. One short fact per note, "
+        "no secrets (keys, passwords, card or ID numbers), nothing about a one-off task. Check your remembered notes first to avoid duplicates.",
+        {"notes": {"type": "array", "items": {"type": "string"}, "description": "short fact(s), one per entry"}}, ["notes"]),
+    _fn("memory_forget", "Delete a remembered note, by its [id] shown in your memory list, or by a phrase it contains.",
+        {"id": {"type": "string"}, "match": {"type": "string", "description": "phrase contained in the note (if no id)"}}, []),
+    _fn("memory_list", "Show everything you remember about the user, with ids.", {}, []),
     _fn("browser_read", "Use a real Chromium browser (JavaScript works, logins persist for this chat). Actions: "
         "open{url} loads a page and returns a snapshot; snapshot{} re-reads the current page (numbered clickable elements + visible text); "
         "screenshot{full?} saves a PNG and shows it in the chat (pair with view_image to inspect it); scroll{direction:'down'|'up', amount?}; "
@@ -166,7 +173,7 @@ BASE_TOOLS = [
     _fn("exit_plan_mode", "Plan mode only: present your finished plan to the user for approval.",
         {"plan": S}, ["plan"]),
 ]
-READONLY = {"read", "glob", "grep", "web_fetch", "web_search", "image_search", "view_image", "models", "browser_read", "todo_write", "bash_output", "skill", "task", "share_file", "preview", "view_3d", "connector_search"}
+READONLY = {"read", "glob", "grep", "web_fetch", "web_search", "image_search", "view_image", "models", "browser_read", "todo_write", "bash_output", "skill", "task", "share_file", "preview", "view_3d", "connector_search", "memory_save", "memory_list"}
 EDITS = {"write", "edit", "multiedit", "fetch_image", "annotate_image"}
 SUBAGENT_TOOLS = {"read", "glob", "grep", "bash", "bash_output", "kill_bash", "web_fetch", "web_search"}
 SUBAGENT_EDIT_TOOLS = SUBAGENT_TOOLS | EDITS
@@ -821,6 +828,32 @@ async def t_models(ctx: Ctx, a: dict):
 MAX_ACTIVE_MCP = 30
 
 
+async def t_memory_save(ctx: Ctx, a: dict):
+    from . import memory
+    raw = a.get("notes")
+    raw = [raw] if isinstance(raw, str) else [x for x in (raw or []) if isinstance(x, str)]
+    if not raw:
+        raise ToolError("notes is required (a list of short facts)")
+    r = await memory.save(raw[:20], source="agent")
+    out = [f"saved [{n['id']}] {n['text']}" for n in r["added"]] + [f"skipped ({x['why']}): {x['text'][:80]}" for x in r["skipped"]]
+    return "\n".join(out) or "nothing to save"
+
+
+async def t_memory_forget(ctx: Ctx, a: dict):
+    from . import memory
+    nid, match = str(a.get("id") or "").strip().strip("[]"), str(a.get("match") or "").strip()
+    if not nid and len(match) < 3:
+        raise ToolError("give an id or a phrase of at least 3 characters")
+    gone = await memory.forget(nid, match)
+    return ("forgot:\n" + "\n".join(f"- {n['text']}" for n in gone)) if gone else "no matching note"
+
+
+async def t_memory_list(ctx: Ctx, a: dict):
+    from . import memory
+    items = memory.notes()
+    return "\n".join(f"[{n['id']}] {n['text']}" for n in items) or "nothing saved yet"
+
+
 def activate(session: dict, hits: list):
     new = {h[0] for h in hits}
     act = [n for n in (session.get("mcp_active") or []) if n not in new]
@@ -922,6 +955,7 @@ HANDLERS: dict[str, Callable[[Ctx, dict], Awaitable[Any]]] = {
     "git_sync": t_git_sync, "create_pr": t_create_pr, "exit_plan_mode": t_exit_plan_mode, "share_file": t_share_file, "preview": t_preview, "view_3d": t_view_3d,
     "image_search": t_image_search, "fetch_image": t_fetch_image, "view_image": t_view_image,
     "annotate_image": t_annotate_image, "models": t_models, "connector_search": t_connector_search,
+    "memory_save": t_memory_save, "memory_forget": t_memory_forget, "memory_list": t_memory_list,
     "browser_read": t_browser_read, "browser_act": t_browser_act,
 }
 

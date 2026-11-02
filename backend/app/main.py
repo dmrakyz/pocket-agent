@@ -22,7 +22,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from starlette.background import BackgroundTask
 
 from .browser import browser, BrowserError
-from . import agent, config, evals, kv, llm, mcp, oauth, perms, push, routines, store, tools, workspace
+from . import agent, config, evals, kv, llm, mcp, memory, oauth, perms, push, routines, store, tools, workspace
 
 mcp_client = mcp.MCP()
 agent.MCP = mcp_client
@@ -772,3 +772,67 @@ async def oauth_callback(state: str = "", code: str = "", error: str = ""):
 async def connectors_refresh():
     await mcp_client.refresh()
     return {"connectors": _connector_view()}
+
+
+# ------------------------------------------------------------------ memory (notes every chat sees) + import
+@app.get("/api/memory", dependencies=[Depends(auth)])
+async def memory_list():
+    return {"notes": memory.notes(), "max": memory.MAX_NOTES}
+
+
+@app.post("/api/memory", dependencies=[Depends(auth)])
+async def memory_add(body: dict):
+    r = await memory.save([str(body.get("text", ""))], source="you")
+    if r["skipped"]:
+        raise HTTPException(400, r["skipped"][0]["why"])
+    return {"notes": memory.notes()}
+
+
+@app.patch("/api/memory/{nid}", dependencies=[Depends(auth)])
+async def memory_edit(nid: str, body: dict):
+    n, why = await memory.update(nid, str(body.get("text", "")))
+    if not n:
+        raise HTTPException(400, why)
+    return {"notes": memory.notes()}
+
+
+@app.delete("/api/memory/{nid}", dependencies=[Depends(auth)])
+async def memory_delete(nid: str):
+    await memory.forget(nid)
+    return {"notes": memory.notes()}
+
+
+@app.delete("/api/memory", dependencies=[Depends(auth)])
+async def memory_clear():
+    await memory.clear()
+    return {"notes": []}
+
+
+@app.post("/api/memory/import/preview", dependencies=[Depends(auth)])
+async def memory_import_preview(body: dict):
+    raw = str(body.get("text", ""))[:400_000]
+    if not raw.strip():
+        raise HTTPException(400, "paste something or choose a file")
+    text, needs = memory.extract(raw)
+    distilled = False
+    if body.get("distill") or needs:
+        try:
+            cands = await memory.distill(body.get("model") or await llm.default_model(), text)
+        except Exception as e:  # noqa: BLE001
+            raise HTTPException(502, f"the model could not process it ({e}). Try again, or paste the facts as a list.")
+        distilled = True
+    else:
+        cands = memory.split_notes(text)
+    items = memory.notes()
+    out = []
+    for t in cands[:300]:
+        why = memory.refusal(t)
+        out.append({"text": t, "dup": bool(memory.dupe_of(t, items)), "blocked": why})
+    return {"candidates": out, "distilled": distilled, "from_history": needs}
+
+
+@app.post("/api/memory/import", dependencies=[Depends(auth)])
+async def memory_import(body: dict):
+    texts = [str(t) for t in (body.get("notes") or [])][:300]
+    r = await memory.save(texts, source="import")
+    return {"added": len(r["added"]), "skipped": r["skipped"], "notes": memory.notes()}

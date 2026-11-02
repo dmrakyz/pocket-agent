@@ -114,6 +114,12 @@ def build_system(s: dict, root: Path, sub: bool = False, can_edit: bool = False)
                      "For any request that involves one of these apps, do that first. Never tell the user you lack an integration or API "
                      "access for these apps, and don't write scripts or drive the browser to reach them.")
     if not sub:
+        from . import memory
+        mb = memory.prompt_block()
+        parts.append("\nLong-term memory: `memory_save` keeps short facts about the user across chats (do it when they ask you to remember "
+                     "something or state a clear lasting preference, never for secrets or one-off tasks); `memory_forget` removes one.")
+        if mb:
+            parts.append(mb)
         parts.append(SHOW_PROMPT)
     if sub:
         parts.append("You are a sub-agent. Do the assigned task, then reply with a compact final report (findings, file "

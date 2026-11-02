@@ -1424,6 +1424,65 @@ function cnAdd() {
   sheet('Add connector', seg, h('label', {}, 'Name', name), h('label', {}, 'Server URL (https)', url), authLabel, note, go);
 }
 
+/* ============================================================ memory (notes every chat sees) + import */
+const MEM = { notes: [], max: 200 };
+async function openMemory() { $('#mempage').hidden = false; await memLoad(); }
+function closeMemory() { $('#mempage').hidden = true; }
+async function memLoad() { try { const r = await api('/api/memory'); MEM.notes = r.notes; MEM.max = r.max; } catch (e) { toast(e.message, true); } memDraw(); }
+function memDraw() {
+  const box = $('#membody');
+  const actions = h('div.rtbtns', {}, h('button', { text: 'Import', onclick: memImport }), h('button', { text: 'Add a note', onclick: () => memEdit(null) }));
+  if (!MEM.notes.length) { box.replaceChildren(h('div.evhead', {}, h('div.big', { text: 'Nothing remembered yet' }), h('div.dim', { text: 'Tell the agent "remember that I…", add notes yourself, or import what another assistant already knows about you. Every chat sees these notes.' })), actions); return; }
+  box.replaceChildren(h('div.dim', { style: 'font-size:13px', text: `${MEM.notes.length} of ${MEM.max} notes. Tap one to edit.` }), actions,
+    ...MEM.notes.slice().reverse().map((n) => h('button.rtcard.memnote', { onclick: () => memEdit(n) }, h('div', { class: 'memtxt', text: n.text }), h('div.rtmeta', { text: (n.source === 'agent' ? 'saved by the agent' : n.source === 'import' ? 'imported' : 'added by you') + ' · ' + new Date(n.ts * 1000).toLocaleDateString() }))),
+    h('button.secondary', { text: 'Forget everything', onclick: async () => { if (!(await confirmSheet('Forget everything?', 'All saved notes are deleted. Chats keep working, they just stop knowing these facts.', 'Delete all', true))) return; try { MEM.notes = (await api('/api/memory', { method: 'DELETE' })).notes; memDraw(); closeSheet(); } catch (e) { toast(e.message, true); } } }));
+}
+function memEdit(n) {
+  const ta = h('textarea', { placeholder: 'e.g. Prefers short answers. Works on a wearable project.', maxlength: 400 }); ta.value = n ? n.text : '';
+  const save = h('button.primary', { text: n ? 'Save' : 'Add note' });
+  save.onclick = async () => {
+    save.disabled = true;
+    try { MEM.notes = (await (n ? api('/api/memory/' + n.id, { method: 'PATCH', body: { text: ta.value } }) : api('/api/memory', { body: { text: ta.value } }))).notes; memDraw(); closeSheet(); } catch (e) { toast(e.message, true); save.disabled = false; }
+  };
+  const del = n ? h('button.secondary', { text: 'Forget this', onclick: async () => { try { MEM.notes = (await api('/api/memory/' + n.id, { method: 'DELETE' })).notes; memDraw(); closeSheet(); } catch (e) { toast(e.message, true); } } }) : null;
+  sheet(n ? 'Edit note' : 'New note', ta, save, del);
+}
+function memImport() {
+  const ta = h('textarea', { placeholder: 'Paste memories, a notes file, or a chat export here…', style: 'min-height:140px' });
+  const file = h('input', { type: 'file', accept: '.txt,.md,.json,.csv,text/plain,application/json', hidden: true });
+  const pick = h('button.secondary', { text: 'Choose a file', onclick: () => file.click() });
+  const dist = h('input', { type: 'checkbox' });
+  const go = h('button.primary', { text: 'Preview' });
+  file.onchange = async () => { const f = file.files[0]; if (!f) return; if (f.size > 8e6) { toast('That file is too big (8 MB max)', true); return; } ta.value = await f.text(); pick.textContent = f.name; };
+  go.onclick = async () => {
+    if (!ta.value.trim()) { toast('Paste something or choose a file', true); return; }
+    go.disabled = true; go.textContent = dist.checked ? 'Reading with AI…' : 'Reading…';
+    try { memPreview(await api('/api/memory/import/preview', { body: { text: ta.value, distill: dist.checked } })); }
+    catch (e) { toast(e.message, true); go.disabled = false; go.textContent = 'Preview'; }
+  };
+  sheet('Import memory',
+    h('div.dim', { style: 'font-size:13px', text: 'From ChatGPT: Settings → Personalization → Memory → Manage, copy the list. From any assistant: ask it "list everything you remember about me" and paste the answer. Chat exports (conversations.json) work too.' }),
+    ta, h('div.rtbtns', {}, pick), file,
+    h('label.chk', {}, dist, h('span', { text: 'Distill with AI (for messy text or chat history)' })),
+    h('div.dim', { style: 'font-size:12.5px', text: 'Nothing is saved until you confirm. Imports only add notes; secrets and account numbers are skipped; existing notes are never overwritten.' }), go);
+}
+function memPreview(r) {
+  const rows = r.candidates.map((c) => { const cb = h('input', { type: 'checkbox' }); cb.checked = !c.dup && !c.blocked; cb.disabled = !!(c.dup || c.blocked); return { c, cb }; });
+  const count = () => rows.filter((x) => x.cb.checked).length;
+  const ok = h('button.primary');
+  const upd = () => { ok.textContent = `Import ${count()} note${count() === 1 ? '' : 's'}`; ok.disabled = !count(); };
+  rows.forEach((x) => { x.cb.onchange = upd; });
+  ok.onclick = async () => {
+    ok.disabled = true;
+    try { const res = await api('/api/memory/import', { body: { notes: rows.filter((x) => x.cb.checked).map((x) => x.c.text) } }); MEM.notes = res.notes; memDraw(); closeSheet(); toast(`Imported ${res.added} note${res.added === 1 ? '' : 's'}`); } catch (e) { toast(e.message, true); ok.disabled = false; }
+  };
+  upd();
+  const list = h('div.memlist', {}, ...rows.map(({ c, cb }) => h('label.memrow' + (c.dup || c.blocked ? '.off' : ''), {}, cb, h('span', {}, c.text, (c.dup || c.blocked) ? h('em', { text: c.dup ? ' · already saved' : ' · skipped: ' + c.blocked }) : null))));
+  sheet(r.candidates.length ? 'Review what to import' : 'Nothing found',
+    h('div.dim', { style: 'font-size:13px', text: r.candidates.length ? (r.distilled ? 'Turned into notes by the AI. Untick anything wrong.' : 'Untick anything you do not want.') : 'No usable lines. Try "Distill with AI" for messy text.' }),
+    r.candidates.length ? list : null, r.candidates.length ? ok : h('button.secondary', { text: 'Back', onclick: memImport }));
+}
+
 /* ============================================================ settings page */
 function serverKV() {
   const inf = S.info || {};
@@ -1446,6 +1505,7 @@ function drawSettings() {
     h('div.setsec', { text: 'Appearance' }), h('div.setcard', {}, seg),
     h('div.setsec', { text: 'Agent' }), h('div.setcard', {},
       row('⏱', 'Routines', openRoutines),
+      row('◍', 'Memory', openMemory, MEM.notes.length ? String(MEM.notes.length) : ''),
       row('⚭', 'Connectors', openConnectors),
       row('✓', 'Capability check', openEval),
       row('🔔', 'Push notifications', async () => { if (PUSH.state === 'on') await pushDisable(); else await pushEnable(); drawSettings(); },
@@ -1668,6 +1728,8 @@ function wire() {
   $('#rt-back').onclick = closeRoutines;
   $('#rt-new').onclick = () => rtEdit(null);
   $('#cn-back').onclick = closeConnectors;
+  $('#mem-back').onclick = closeMemory;
+  $('#mem-new').onclick = () => memEdit(null);
   $('#cn-new').onclick = cnAdd;
   $('#pv-back').onclick = closePreview;
   $('#md-back').onclick = closeModel;

@@ -383,6 +383,35 @@ try:
         p.mouse.click(195, 40)
         p.wait_for_function("!document.querySelector('#sheet').classList.contains('open')")
         p.click("#cn-back")
+        # memory screen: add, secret refused, import with preview, edit, forget
+        p.click("#setbody >> text=Memory")
+        p.wait_for_selector("#mempage:not([hidden]) >> text=Nothing remembered yet")
+        p.click("#mem-new"); p.fill("#sheet-body textarea", "Prefers concise answers"); p.click("#sheet-body button.primary")
+        p.wait_for_selector("#membody >> text=Prefers concise answers")
+        check("note added", len(p.query_selector_all("#membody .memnote")) == 1)
+        p.click("#mem-new"); p.fill("#sheet-body textarea", "my password is hunter2hunter2"); p.click("#sheet-body button.primary")
+        try: p.wait_for_selector(".toast.err:has-text('secret')", timeout=5000); ok_t = True
+        except Exception: ok_t = False
+        check("secret refused with a message", ok_t)
+        p.mouse.click(195, 40); p.wait_for_function("!document.querySelector('#sheet').classList.contains('open')")
+        p.click("#membody .rtbtns button:has-text('Import')")
+        p.fill("#sheet-body textarea", "## About me\n- Prefers concise answers\n- Builds wearables\n* Uses Python\n- my token is abcdef123456")
+        p.click("#sheet-body button.primary"); p.wait_for_selector(".memrow")
+        rows = p.query_selector_all(".memrow")
+        check("import preview lists 4 lines (heading dropped)", len(rows) == 4, str(len(rows)))
+        check("duplicate and secret rows are disabled", p.evaluate("[...document.querySelectorAll('.memrow input')].map(i => i.disabled)") == [True, False, False, True])
+        check("import button counts only the usable ones", "Import 2 notes" in p.inner_text("#sheet-body button.primary"))
+        p.screenshot(path=f"{OUT}/22-memory-import.png")
+        p.click("#sheet-body button.primary"); p.wait_for_selector("#membody >> text=Builds wearables")
+        check("imported notes appear", len(p.query_selector_all("#membody .memnote")) == 3)
+        p.click("#membody .memnote:has-text('Builds wearables')")
+        p.fill("#sheet-body textarea", "Builds wearable tech"); p.click("#sheet-body button.primary")
+        p.wait_for_selector("#membody >> text=Builds wearable tech"); check("note edited", True)
+        p.click("#membody .memnote:has-text('Builds wearable tech')"); p.click("#sheet-body button.secondary")
+        p.wait_for_function("document.querySelectorAll('#membody .memnote').length === 2")
+        check("note forgotten", "Builds wearable tech" not in p.inner_text("#membody"))
+        p.screenshot(path=f"{OUT}/23-memory.png")
+        p.click("#mem-back")
         p.click("#set-back")
         # browser screen: open a local page, tap it, see the address change
         import http.server, threading
@@ -439,7 +468,7 @@ try:
         p.screenshot(path=f"{OUT}/12-desktop.png")
         b.close()
     real = [e for e in errors if "401" not in e and "400" not in e]   # deliberate wrong password (401) and rejected http connector (400)
-    check("no console/page errors", not real and len(errors) <= 2, str(errors[:5]))
+    check("no console/page errors", not real and len(errors) <= 3, str(errors[:5]))
 finally:
     for pr in procs:
         pr.terminate()

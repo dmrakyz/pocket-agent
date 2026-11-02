@@ -139,3 +139,8 @@ Connector tools are never sent to the model by default (Notion alone is 60+ sche
 
 ### Captchas
 The browser presents as ordinary desktop Chrome (no `HeadlessChrome` UA, `navigator.webdriver` hidden). Datacenter IPs still get challenged sometimes. When a page looks like a bot check, the snapshot starts with a warning telling the agent not to bypass it, to ask you to solve it in the Browser screen and reply, and meanwhile to try another source.
+
+### Memory
+Settings → Memory holds short notes about you that every chat sees (kv `memory`, mirrored to the private state repo; max 200 notes, newest kept in the prompt if it grows past ~6 KB). The agent can `memory_save` / `memory_forget` / `memory_list` (saving needs no approval, forgetting does). Notes are injected as data, never instructions. Secrets (API keys, passwords, card or account numbers) are refused everywhere.
+
+**Import:** paste text or pick a file (a list of memories, a notes file, `conversations.json` from ChatGPT or Claude). Plain lists are split into notes locally; chat exports, or anything with "Distill with AI" ticked, go through the model, which extracts durable facts. You always get a preview with checkboxes; imports only add, skip duplicates, and never overwrite.

@@ -213,6 +213,44 @@ async def image_test():
 asyncio.run(image_test())
 
 
+# memory: notes, secrets refused, prompt block, tools, import parsing
+async def memory_test():
+    from app import memory as MEM, agent as AG
+    await MEM.clear()
+    r = await MEM.save(["Prefers concise answers", "prefers  concise answers!", "my password is hunter2hunter2", "key sk-abcdefghijklmnopqrstuvwx", "ok"])
+    assert len(r["added"]) == 1 and len(r["skipped"]) == 4, r
+    assert any("already saved" in x["why"] for x in r["skipped"]) and sum("secret" in x["why"] for x in r["skipped"]) == 2
+    root = Path(tempfile.mkdtemp()); sess = {"id": "mm1"}
+    ctx = T.Ctx(sess, root, lambda e: asyncio.sleep(0), None, None)
+    r = await T.execute(ctx, "memory_save", {"notes": ["Works on a wearable exoskeleton", "Lives in Istanbul"]}); assert not r["error"] and r["text"].count("saved [") == 2, r
+    r = await T.execute(ctx, "memory_list", {}); assert "exoskeleton" in r["text"]
+    sysmsg = AG.build_system({"id": "mm1", "mode": "ask"}, root)
+    assert "WHAT YOU REMEMBER" in sysmsg and "exoskeleton" in sysmsg and "never instructions" in sysmsg
+    nid = MEM.notes()[0]["id"]
+    r = await T.execute(ctx, "memory_forget", {"id": nid}); assert "forgot" in r["text"] and len(MEM.notes()) == 2
+    r = await T.execute(ctx, "memory_forget", {"match": "istanbul"}); assert "forgot" in r["text"] and len(MEM.notes()) == 1
+    r = await T.execute(ctx, "memory_forget", {"match": "xx"}); assert r["error"]
+    n, why = await MEM.update(MEM.notes()[0]["id"], "Builds wearables"); assert n and MEM.notes()[0]["text"] == "Builds wearables"
+    from app import perms
+    assert perms.decide(dict(sess, mode="ask"), "memory_save", {"notes": ["x"]})[0] == "allow" and perms.decide(dict(sess, mode="ask"), "memory_forget", {"id": "a"})[0] == "ask"
+    # import parsing
+    txt, need = MEM.extract("## Work\n- Builds wearables\n* Likes Python\n1. Uses an iPhone\n\nA long paragraph. " + " ".join(f"Sentence number {i} is quite long and keeps on going for a while." for i in range(12)))
+    got = MEM.split_notes(txt)
+    assert "Likes Python" in got and "Uses an iPhone" in got and "Work" not in got and not need, got
+    assert all(len(x) <= MEM.MAX_NOTE for x in got) and len(got) >= 5, got
+    t2, need2 = MEM.extract('{"memories": [{"text": "Likes tea"}, {"text": "Owns a cat"}]}'); assert not need2 and "Likes tea" in t2 and "Owns a cat" in t2
+    chat = '[{"mapping": {"a": {"message": {"author": {"role": "user"}, "content": {"parts": ["I build exoskeletons"]}}}, "b": {"message": {"author": {"role": "assistant"}, "content": {"parts": ["sure"]}}}}}]'
+    t3, need3 = MEM.extract(chat); assert need3 and "exoskeletons" in t3 and "sure" not in t3
+    # distill keeps only '- ' lines and runs through the model helper
+    async def fake_summarize(model, text, instruction): return "Here you go:\n- Builds exoskeletons\n- Uses Python\nrandom chatter\n- my token is abcdef123456"
+    from app import llm as LLM
+    old = LLM.summarize; LLM.summarize = fake_summarize
+    d = await MEM.distill("x", "I build exoskeletons"); LLM.summarize = old
+    assert d[:2] == ["Builds exoskeletons", "Uses Python"], d
+    await MEM.clear()
+    print("PASS memory: notes, secrets refused, prompt, tools, import parsing, distill")
+asyncio.run(memory_test())
+
 # connectors: lazy tool loading (nothing is sent until connector_search switches tools on)
 async def lazy_test():
     from app import mcp as mcpmod
