@@ -247,7 +247,7 @@ function scrollDown(force) {
   if (force || S.stick) c.scrollTop = c.scrollHeight;
 }
 const ICONS = { read: '▤', write: '✎', edit: '✎', multiedit: '✎', bash: '$', bash_output: '$', kill_bash: '■', grep: '⌕', glob: '✱',
-  web_fetch: '◎', web_search: '◎', todo_write: '☑', task: '⋔', skill: '★', git_sync: '⎇', create_pr: '⎇', exit_plan_mode: '☰', share_file: '⬇', preview: '▶', view_3d: '◈', image_search: '⌕', fetch_image: '▣', view_image: '◉', annotate_image: '✐', models: '⋔' };
+  web_fetch: '◎', web_search: '◎', browser_read: '◫', browser_act: '◫', todo_write: '☑', task: '⋔', skill: '★', git_sync: '⎇', create_pr: '⎇', exit_plan_mode: '☰', share_file: '⬇', preview: '▶', view_3d: '◈', image_search: '⌕', fetch_image: '▣', view_image: '◉', annotate_image: '✐', models: '⋔' };
 function toolSummary(name, a) {
   a = a || {};
   switch (name) {
@@ -257,6 +257,8 @@ function toolSummary(name, a) {
     case 'image_search': return a.query || '';
     case 'fetch_image': return a.url || '';
     case 'models': return 'list models';
+    case 'browser_read': return [a.action, a.url].filter(Boolean).join(' ');
+    case 'browser_act': return [a.action, a.ref != null ? '#' + a.ref : '', a.text || a.key || (a.js || '').slice(0, 40)].filter(Boolean).join(' ');
     case 'grep': return '/' + (a.pattern || '') + '/' + (a.path ? ' ' + a.path : '');
     case 'glob': return a.pattern || '';
     case 'web_fetch': return a.url || '';
@@ -317,6 +319,7 @@ function fillCard(card, call, result, approval) {
     else if (name !== 'todo_write') body.append(h('div.lbl', { text: 'input' }), h('pre', { text: JSON.stringify(a, null, 2) }));
   }
   if (result && name !== 'exit_plan_mode' && !(result._diff && !result._error)) body.append(h('div.lbl', { text: 'output' }), h('pre', { text: result.content || '' }));
+  if (result && result._browser) body.append(h('div', { style: 'padding:10px 12px' }, h('button.primary.small', { text: '◫ Open browser', onclick: openBrowser })));
   if (result && result._image) body.append(imgNode(result._image, call.id));
   if (result && result._preview) body.append(h('div', { style: 'padding:10px 12px' }, h('button.primary.small', { text: '▶ Open preview', onclick: () => openPreview(result._preview) })));
   if (result && result._model) body.append(h('div', { style: 'padding:10px 12px' }, h('button.primary.small', { text: '◈ Open 3D viewer', onclick: () => openModel(result._model) })));
@@ -360,7 +363,7 @@ function assistantNode(m, idx) {
   if (m._reasoning && !thought) n.append(h('details.reasoning', {}, h('summary', { text: 'Thinking' }), h('div.rtext', { text: m._reasoning })));
   if (m.content) n.append(h('div.prose', { html: md(m.content) }));
   if (calls.length) {
-    const tg = h('div.tg', {}, h('button.tg-head', { onclick: () => openTG(tg) }), h('div.tg-live'), h('div.tg-pin'));
+    const tg = h('div.tgrp', {}, h('button.tg-head', { onclick: () => openTG(tg) }), h('div.tg-live'), h('div.tg-pin'));
     tg._cards = [];
     for (const [i, call] of calls.entries()) {
       const card = makeCard(call);
@@ -376,7 +379,7 @@ function assistantNode(m, idx) {
 const KIND = { bash: ['Ran', 'command', 'commands'], bash_output: ['Ran', 'command', 'commands'], kill_bash: ['Ran', 'command', 'commands'],
   read: ['Read', 'file', 'files'], glob: ['Searched', 'folder', 'folders'], grep: ['Searched', 'code search', 'code searches'],
   write: ['Edited', 'file', 'files'], edit: ['Edited', 'file', 'files'], multiedit: ['Edited', 'file', 'files'], annotate_image: ['Edited', 'image', 'images'],
-  web_fetch: ['Opened', 'page', 'pages'], web_search: ['Searched the web', 'time', 'times'], image_search: ['Searched images', 'time', 'times'],
+  web_fetch: ['Opened', 'page', 'pages'], web_search: ['Searched the web', 'time', 'times'], browser_read: ['Browsed', 'page', 'pages'], browser_act: ['Used the browser', 'time', 'times'], image_search: ['Searched images', 'time', 'times'],
   fetch_image: ['Downloaded', 'image', 'images'], view_image: ['Looked at', 'image', 'images'], task: ['Delegated', 'task', 'tasks'], git_sync: ['Synced', 'time', 'times'], todo_write: ['Updated', 'task list', 'task lists'], skill: ['Loaded', 'skill', 'skills'], models: ['Checked', 'model list', 'model lists'], create_pr: ['Opened', 'pull request', 'pull requests'] };
 const isPinned = (c) => { const r = S.results[c._call.id]; return !!(r && (r._file || r._preview || r._model || r._image)) || c._call.function.name === 'exit_plan_mode'; };
 const isDone = (c) => !!S.results[c._call.id] && !S.pending[c._call.id];
@@ -388,7 +391,7 @@ function tgLabel(cards) {
     if (!by.has(key)) by.set(key, { k, n: 0 });
     by.get(key).n++;
   }
-  const one = ({ k, n }) => (/^(Searched the web|Searched images|Synced)$/.test(k[0]) ? (n === 1 ? k[0] : `${k[0]} ${n} times`) : `${k[0]} ${n === 1 ? 'a' : n} ${n === 1 ? k[1] : k[2]}`);
+  const one = ({ k, n }) => (/^(Searched the web|Searched images|Synced|Used the browser)$/.test(k[0]) ? (n === 1 ? k[0] : `${k[0]} ${n} times`) : `${k[0]} ${n === 1 ? 'a' : n} ${n === 1 ? k[1] : k[2]}`);
   const parts = [...by.values()].sort((x, y) => y.n - x.n);
   if (parts.length === 1) return one(parts[0]);
   if (parts.length === 2) return one(parts[0]) + ', ' + one(parts[1]).replace(/^./, (ch) => ch.toLowerCase());
@@ -1007,6 +1010,7 @@ function openMenu() {
     const tg = h('span.tg' + (c.autopilot ? '.on' : ''));
     rows.push(
       item('✎', 'Rename chat', () => renameSheet(c)),
+      item('◫', 'Browser', openBrowser),
       item('⇣', 'Compact context', () => { $('#input').value = '/compact'; send(); }),
       h('button.mi', { onclick: async () => {
         const v = !c.autopilot;
@@ -1102,6 +1106,51 @@ function sendPresence() {
   const v = !document.hidden;
   lastPresence = v;
   fetch(S.api + '/api/presence', { method: 'POST', headers: { Authorization: 'Bearer ' + S.token, 'Content-Type': 'application/json' }, body: JSON.stringify({ visible: v }), keepalive: true }).catch(() => {});
+}
+
+/* ============================================================ browser screen */
+const BR = { timer: 0, busy: false, info: null, url: '' };
+async function brFetchShot() {
+  if (BR.busy || !S.cur || $('#browserpage').hidden) return;
+  BR.busy = true;
+  try {
+    const r = await fetch(`${S.api}/api/sessions/${S.cur.id}/browser/shot?t=${Date.now()}`, { headers: { Authorization: 'Bearer ' + S.token } });
+    if (r.status === 200) { const u = URL.createObjectURL(await r.blob()); const old = BR.url; $('#br-img').src = u; BR.url = u; if (old) setTimeout(() => URL.revokeObjectURL(old), 3000); $('#br-empty').hidden = true; $('#br-img').hidden = false; }
+    else { $('#br-img').hidden = true; $('#br-empty').hidden = false; }
+  } catch { /* offline */ }
+  BR.busy = false;
+}
+async function brInfo() {
+  try { BR.info = (await api(`/api/sessions/${S.cur.id}/browser`)).info; } catch { BR.info = null; }
+  if (document.activeElement !== $('#br-url')) $('#br-url').value = BR.info ? BR.info.url : '';
+}
+async function brAct(body) {
+  try { const r = await api(`/api/sessions/${S.cur.id}/browser/act`, { body }); BR.info = r.info; if (document.activeElement !== $('#br-url')) $('#br-url').value = r.info ? r.info.url : ''; }
+  catch (e) { toast(e.message, true); }
+  brFetchShot();
+}
+async function openBrowser() {
+  if (!S.cur) { toast('Open a chat first', true); return; }
+  $('#browserpage').hidden = false;
+  $('#br-img').hidden = true; $('#br-empty').hidden = false;
+  await brInfo(); await brFetchShot();
+  clearInterval(BR.timer);
+  BR.timer = setInterval(() => { if (!document.hidden) { brFetchShot(); if (Math.random() < 0.3) brInfo(); } }, 1200);
+}
+function closeBrowser() { $('#browserpage').hidden = true; clearInterval(BR.timer); }
+function initBrowser() {
+  $('#br-back').onclick = closeBrowser;
+  $('#br-form').onsubmit = (e) => { e.preventDefault(); const v = $('#br-url').value.trim(); if (!v) return; $('#br-url').blur(); brAct({ type: 'goto', url: /^[\w-]+(\.[\w-]+)+(\/|$)|:\/\//.test(v) ? v : 'https://duckduckgo.com/?q=' + encodeURIComponent(v) }); };
+  $('#br-reload').onclick = () => brAct({ type: 'reload' });
+  $('#br-prev').onclick = () => brAct({ type: 'back' });
+  $('#br-up').onclick = () => brAct({ type: 'scroll', direction: 'up' });
+  $('#br-down').onclick = () => brAct({ type: 'scroll', direction: 'down' });
+  $('#br-close').onclick = async () => { await brAct({ type: 'close' }); $('#br-img').hidden = true; $('#br-empty').hidden = false; };
+  $('#br-type').onsubmit = (e) => { e.preventDefault(); const t = $('#br-text').value; $('#br-text').value = ''; if (t) brAct({ type: 'type', text: t, submit: true }); else brAct({ type: 'key', key: 'Enter' }); };
+  $('#br-img').addEventListener('click', (e) => {
+    const r = e.currentTarget.getBoundingClientRect(), w = (BR.info && BR.info.w) || 1000, hh = (BR.info && BR.info.h) || 760;
+    brAct({ type: 'click', x: Math.round((e.clientX - r.left) / r.width * w), y: Math.round((e.clientY - r.top) / r.height * hh) });
+  });
 }
 
 /* ============================================================ routines */
@@ -1462,6 +1511,7 @@ function wire() {
   $('#menu-scrim').onclick = closeMenu;
   $('#ev-back').onclick = closeEval;
   $('#set-back').onclick = closeSettings;
+  initBrowser();
   $('#rt-back').onclick = closeRoutines;
   $('#rt-new').onclick = () => rtEdit(null);
   $('#cn-back').onclick = closeConnectors;

@@ -18,9 +18,10 @@ from typing import Optional
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response, StreamingResponse
 from starlette.background import BackgroundTask
 
+from .browser import browser, BrowserError
 from . import agent, config, evals, kv, llm, mcp, oauth, perms, push, routines, store, tools, workspace
 
 mcp_client = mcp.MCP()
@@ -36,6 +37,7 @@ async def lifespan(app: FastAPI):
     asyncio.create_task(mcp_client.refresh())
     asyncio.create_task(_warm())
     yield
+    await browser.shutdown()
     await store.flush_all()
 
 
@@ -354,6 +356,56 @@ async def files(sid: str, path: str = ""):
             continue
         items.append({"name": c.name, "dir": c.is_dir(), "size": c.stat().st_size if c.is_file() else 0})
     return {"path": path, "items": items}
+
+
+# ------------------------------------------------------------------ live browser view (you can watch and take over)
+@app.get("/api/sessions/{sid}/browser", dependencies=[Depends(auth)])
+async def browser_info(sid: str):
+    get_session(sid)
+    return {"info": await browser.info(sid)}
+
+
+@app.get("/api/sessions/{sid}/browser/shot", dependencies=[Depends(auth)])
+async def browser_shot(sid: str):
+    get_session(sid)
+    try:
+        async with browser.lock(sid):
+            data = await browser.shot(sid)
+    except BrowserError:
+        return Response(status_code=204)      # nothing open yet: not an error
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(409, f"page is busy: {type(e).__name__}")
+    return Response(data, media_type="image/jpeg", headers={"Cache-Control": "no-store"})
+
+
+@app.post("/api/sessions/{sid}/browser/act", dependencies=[Depends(auth)])
+async def browser_act(sid: str, body: dict):
+    get_session(sid)
+    kind = body.get("type")
+    try:
+        async with browser.lock(sid):
+            if kind == "goto":
+                await browser.open(sid, str(body.get("url", "")))
+            elif kind == "click":
+                await browser.click(sid, None, body.get("x"), body.get("y"))
+            elif kind == "type":
+                await browser.type(sid, str(body.get("text", "")), None, bool(body.get("submit")))
+            elif kind == "key":
+                await browser.press(sid, str(body.get("key", "Enter")))
+            elif kind == "scroll":
+                await browser.scroll(sid, body.get("direction", "down"), int(body.get("amount") or 0))
+            elif kind == "back":
+                await browser.back(sid)
+            elif kind == "reload":
+                await browser.reload(sid)
+            elif kind == "close":
+                await browser.close(sid)
+                return {"info": None}
+            else:
+                raise HTTPException(400, "unknown action")
+    except BrowserError as e:
+        raise HTTPException(400, str(e))
+    return {"info": await browser.info(sid)}
 
 
 @app.get("/api/sessions/{sid}/file", dependencies=[Depends(auth)])

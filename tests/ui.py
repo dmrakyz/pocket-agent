@@ -14,7 +14,7 @@ DATA = "/tmp/agent-ui"
 OUT = os.environ.get("SHOTS", "/tmp/claude-0/-home-claude/500e6e7d-e4b6-5940-87a0-6ed599f1d1ec/scratchpad/shots")
 os.makedirs(OUT, exist_ok=True)
 shutil.rmtree(DATA, ignore_errors=True)
-env = os.environ | {"APP_PASSWORD": "pw123", "DATA_DIR": DATA, "ALLOWED_ORIGINS": "*",
+env = os.environ | {"APP_PASSWORD": "pw123", "DATA_DIR": DATA, "ALLOWED_ORIGINS": "*", "BROWSER_ALLOW_LOCAL": "1",
                     "PROVIDERS_JSON": json.dumps({"mock": {"base_url": "http://127.0.0.1:9201/v1", "api_key": "k"}})}
 procs = [
     subprocess.Popen([sys.executable, "-m", "uvicorn", "mock_llm:app", "--port", "9201", "--log-level", "warning"], cwd=f"{ROOT}/tests", env=env),
@@ -329,6 +329,28 @@ try:
         p.wait_for_function("!document.querySelector('#sheet').classList.contains('open')")
         p.click("#cn-back")
         p.click("#set-back")
+        # browser screen: open a local page, tap it, see the address change
+        import http.server, threading
+        class BH(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):
+                body = b"<html><title>B1</title><body style='margin:0'><a href='/next' style='display:block;height:760px;background:#36c;color:#fff;font-size:40px'>tap me</a></body></html>" if self.path == "/" else b"<html><title>B2</title><body>arrived</body></html>"
+                self.send_response(200); self.send_header("Content-Type", "text/html"); self.end_headers(); self.wfile.write(body)
+            def log_message(self, *a): pass
+        bsrv = http.server.ThreadingHTTPServer(("127.0.0.1", 9335), BH); threading.Thread(target=bsrv.serve_forever, daemon=True).start()
+        p.click("#btn-more"); p.click("#menu >> text=Browser")
+        p.wait_for_selector("#browserpage:not([hidden]) >> text=Nothing open yet")
+        p.fill("#br-url", "http://127.0.0.1:9335/"); p.press("#br-url", "Enter")
+        p.wait_for_function("document.querySelector('#br-img') && !document.querySelector('#br-img').hidden && document.querySelector('#br-img').naturalWidth > 100", timeout=30000)
+        check("browser screen shows the live page", True)
+        p.screenshot(path=f"{OUT}/20-browser.png")
+        p.click("#br-img")
+        p.wait_for_function("document.querySelector('#br-url').value.endsWith('/next')", timeout=15000)
+        check("tapping the page clicks it (address changed)", True)
+        p.click("#br-prev")
+        p.wait_for_function("!document.querySelector('#br-url').value.endsWith('/next')", timeout=15000)
+        check("browser back works", True)
+        p.click("#br-close"); p.wait_for_selector("#br-empty:not([hidden])")
+        p.click("#br-back"); bsrv.shutdown()
         # reload page: state restores from server
         p.reload()
         p.wait_for_selector(".tool")

@@ -492,6 +492,8 @@ async def run_turn(s: dict, run: Run):
                     tm["_model"] = res["model"]
                 if res.get("image"):
                     tm["_image"] = res["image"]
+                if res.get("browser"):
+                    tm["_browser"] = True
                 await commit_message(run, s, tm)
             hint = stuck_hint(run, calls, s)
             if hint:

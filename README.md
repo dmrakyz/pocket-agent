@@ -120,3 +120,9 @@ In Settings -> Connectors choose "Sign in (OAuth)". The app discovers the server
 - Consecutive tool calls collapse into one row ("Ran 6 commands"). Tap it for the step list, tap a step for its full input and output. Running calls, approvals, previews and images stay visible in the chat.
 - Image tools: `image_search`, `fetch_image` (verified, 15 MB cap, public hosts only), `view_image` (asks a vision-capable model, auto-picked or `VISION_MODEL`), `annotate_image` (rect, ellipse, line, arrow, highlight, text, blur, pixelate, crop, resize, rotate; originals are never overwritten).
 - `models` lists the models the agent can delegate to. If it repeats itself or fails several times in a row it is told once to call `models` and hand the work to a different model with `task`.
+
+## Browser
+
+A real headless Chromium (Playwright) runs on the server. The agent uses `browser_read` (open, snapshot, screenshot, scroll, back, reload, tab) and `browser_act` (click, type, press, eval; asks first in Ask mode). Pages come back as a text snapshot with numbered clickable elements. Each chat gets its own isolated profile (cookies, logins) that is dropped after 5 idle minutes. Every request the page makes goes through the public-internet guard, so it cannot reach private networks. Open the Browser screen from the chat menu (or a browser step) to watch the live page, tap to click, type, scroll and enter addresses yourself, for example to log in. Page content is treated as untrusted.
+
+Memory: Chromium is heavy for Render's free 512 MB. Only one chat's browser runs at a time (`BROWSER_MAX_CONTEXTS`, `BROWSER_IDLE_SECONDS`). If Render restarts mid-browse, use a larger instance.

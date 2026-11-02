@@ -340,7 +340,7 @@ header, .sheet, .menu, .ctx { -webkit-backdrop-filter: saturate(1.4) blur(18px);
 .btn-link { display: block; text-align: center; padding: 14px; border-radius: 14px; background: var(--accent); color: var(--accent-ink); font-weight: 700; text-decoration: none; font-size: 16px; }
 
 /* grouped tool timeline */
-.tg { display: flex; flex-direction: column; gap: 6px; }
+.tgrp { display: flex; flex-direction: column; gap: 6px; }
 .tg-head { display: flex; align-items: center; gap: 10px; align-self: flex-start; max-width: 100%; padding: 6px 4px; color: var(--dim); font-size: 15px; min-height: 36px; }
 .tg-head[hidden] { display: none; }
 .tg-ic { font: 600 13px var(--mono); width: 22px; }
@@ -362,3 +362,13 @@ header, .sheet, .menu, .ctx { -webkit-backdrop-filter: saturate(1.4) blur(18px);
 .back { align-self: flex-start; font-size: 16px; color: var(--accent); padding: 6px 4px; min-height: 36px; }
 .tool-img { max-width: 100%; max-height: 260px; border-radius: 10px; display: block; margin: 8px 0; object-fit: contain; background: var(--bg); }
 .tool-img.big { max-height: none; }
+
+/* browser screen */
+.br-url { flex: 1; min-width: 0; } .br-url input { width: 100%; background: var(--panel2); border: 1px solid var(--line); border-radius: 12px; padding: 9px 12px; font-size: 16px; }
+.br-main { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.br-view { flex: 1; min-height: 0; overflow: auto; background: var(--bg); display: flex; align-items: flex-start; justify-content: center; padding: 6px; }
+#br-img { width: 100%; height: auto; border-radius: 8px; border: 1px solid var(--line); touch-action: manipulation; background: #fff; }
+#br-img[hidden], #br-empty[hidden] { display: none; }
+#br-empty { padding: 40px 20px; text-align: center; }
+.br-bar { display: flex; gap: 6px; align-items: center; padding: 8px 10px calc(var(--safe-b) + 8px); border-top: 1px solid var(--line); background: var(--bg); }
+.br-type { flex: 1; min-width: 0; display: flex; gap: 6px; } .br-type input { flex: 1; min-width: 0; background: var(--panel2); border: 1px solid var(--line); border-radius: 12px; padding: 9px 12px; font-size: 16px; }

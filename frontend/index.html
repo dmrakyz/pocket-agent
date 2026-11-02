@@ -141,6 +141,23 @@
   </section>
 
   <!-- routines + connectors pages -->
+  <section id="browserpage" class="screen overlay" hidden>
+    <header>
+      <button id="br-back" class="icon" aria-label="Back">←</button>
+      <form id="br-form" class="br-url"><input id="br-url" type="text" inputmode="url" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="Search or enter address"></form>
+      <button id="br-reload" class="icon" aria-label="Reload">⟳</button>
+    </header>
+    <main class="br-main">
+      <div id="br-view" class="br-view"><img id="br-img" alt="" draggable="false"><div id="br-empty" class="dim">Nothing open yet. Enter an address above, or ask the agent to browse.</div></div>
+      <div class="br-bar">
+        <button id="br-prev" class="icon" aria-label="Back">‹</button>
+        <button id="br-up" class="icon" aria-label="Scroll up">↑</button>
+        <button id="br-down" class="icon" aria-label="Scroll down">↓</button>
+        <form id="br-type" class="br-type"><input id="br-text" type="text" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="Type into the focused field"><button class="icon" aria-label="Send text">↵</button></form>
+        <button id="br-close" class="icon" aria-label="Close browser">✕</button>
+      </div>
+    </main>
+  </section>
   <section id="routinespage" class="screen overlay" hidden>
     <header>
       <button id="rt-back" class="icon" aria-label="Back">←</button>

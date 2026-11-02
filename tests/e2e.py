@@ -12,7 +12,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DATA = "/tmp/agent-e2e"
 shutil.rmtree(DATA, ignore_errors=True)
 env = os.environ | {
-    "APP_PASSWORD": "pw123", "DATA_DIR": DATA, "ALLOWED_ORIGINS": "*",
+    "APP_PASSWORD": "pw123", "DATA_DIR": DATA, "ALLOWED_ORIGINS": "*", "BROWSER_ALLOW_LOCAL": "1",
     "PROVIDERS_JSON": json.dumps({"mock": {"base_url": "http://127.0.0.1:9101/v1", "api_key": "k"}}),
     "COMPACT_AT_TOKENS": "900",
 }
@@ -287,6 +287,25 @@ try:
     check("disabled routine's webhook is refused", httpx.post(B + rt["hook_path"]).status_code == 409)
     check("routine endpoints need login", httpx.Client(base_url=B).get("/api/routines").status_code == 401)
     check("routine delete works", c2.delete(f"/api/routines/{rt['id']}").json()["ok"] and not c2.get("/api/routines").json()["routines"])
+    # live browser view
+    import http.server, threading
+    class PH(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            self.send_response(200); self.send_header("Content-Type", "text/html"); self.end_headers(); self.wfile.write(b"<html><title>E2E page</title><body style='background:#c33'><h1>hello browser</h1></body></html>")
+        def log_message(self, *a): pass
+    psrv = http.server.ThreadingHTTPServer(("127.0.0.1", 9334), PH); threading.Thread(target=psrv.serve_forever, daemon=True).start()
+    bs = c2.post("/api/sessions", json={}).json()["id"]
+    check("browser info empty before opening", c2.get(f"/api/sessions/{bs}/browser").json()["info"] is None)
+    check("browser shot is empty (204) before opening", c2.get(f"/api/sessions/{bs}/browser/shot").status_code == 204)
+    r = c2.post(f"/api/sessions/{bs}/browser/act", json={"type": "goto", "url": "http://127.0.0.1:9334/"}, timeout=60)
+    check("browser goto works", r.status_code == 200 and r.json()["info"]["title"] == "E2E page", r.text[:200])
+    shot = c2.get(f"/api/sessions/{bs}/browser/shot")
+    check("browser shot is a jpeg", shot.status_code == 200 and shot.content[:2] == b"\xff\xd8" and len(shot.content) > 2000)
+    check("browser rejects unknown action", c2.post(f"/api/sessions/{bs}/browser/act", json={"type": "explode"}).status_code == 400)
+    check("browser view needs auth", httpx.get(B + f"/api/sessions/{bs}/browser/shot").status_code == 401)
+    c2.post(f"/api/sessions/{bs}/browser/act", json={"type": "close"})
+    check("browser closes", c2.get(f"/api/sessions/{bs}/browser").json()["info"] is None)
+    psrv.shutdown()
     # connectors: only public https servers are accepted
     check("connector rejects http", c2.post("/api/connectors", json={"name": "a", "url": "http://example.com/mcp"}).status_code == 400)
     check("connector rejects private addresses", c2.post("/api/connectors", json={"name": "a", "url": "https://127.0.0.1/mcp"}).status_code == 400)
