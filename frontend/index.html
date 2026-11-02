@@ -108,6 +108,27 @@
 
   <div id="toasts" class="toasts"></div>
 </div>
+<script>
+/* recovery: if the app fails to start (e.g. a stale cached file mismatch), offer a clean reset */
+(function () {
+  async function reset() {
+    try { (await navigator.serviceWorker.getRegistrations()).forEach(function (r) { r.unregister(); }); } catch (e) {}
+    try { (await caches.keys()).forEach(function (k) { caches.delete(k); }); } catch (e) {}
+    location.replace(location.pathname + '?r=' + Date.now());
+  }
+  if (/[?&]reset\b/.test(location.search)) reset();
+  function check() {
+    var ok = ['main', 'setup'].some(function (id) { var e = document.getElementById(id); return e && !e.hidden; });
+    if (ok || document.getElementById('recover')) return;
+    var d = document.createElement('div'); d.id = 'recover';
+    d.style.cssText = 'position:fixed;inset:0;z-index:99;background:#101214;color:#e8eaed;display:flex;flex-direction:column;gap:14px;align-items:center;justify-content:center;padding:24px;text-align:center;font:16px -apple-system,sans-serif';
+    d.innerHTML = '<div style="font-size:20px;font-weight:700">The app did not start</div><div style="color:#8d96a0">Probably an old cached file. This clears the cache and reloads. Your chats are safe on the server.</div>';
+    var b = document.createElement('button'); b.textContent = 'Reset app cache'; b.style.cssText = 'background:#a78bfa;color:#130a2b;font-weight:600;border:0;border-radius:10px;padding:12px 18px;font-size:16px'; b.onclick = reset;
+    d.appendChild(b); document.body.appendChild(d);
+  }
+  window.addEventListener('load', function () { setTimeout(check, 2500); });
+})();
+</script>
 <script src="config.js"></script>
 <script src="app.js"></script>
 </body>
