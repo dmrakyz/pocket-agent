@@ -31,6 +31,7 @@ RESEND_API_KEY = env("RESEND_API_KEY")          # enables send_email (HTTPS; Ren
 MAIL_FROM = env("MAIL_FROM", "Pocket Agent <onboarding@resend.dev>")
 MAIL_REPLY_TO = env("MAIL_REPLY_TO")
 MAIL_ALLOWED_TO = env("MAIL_ALLOWED_TO")        # optional comma list of addresses/domains; empty = any (still asks every time)
+EGRESS_PROXY = env("EGRESS_PROXY")              # http(s)/socks5 URL, e.g. http://user:pass@host:port. Browser traffic goes out through it; web_fetch uses it when a site refuses the server directly
 MAIL_API_BASE = env("MAIL_API_BASE", "https://api.resend.com")
 TELEGRAM_ALLOWED_IDS = {int(x) for x in env("TELEGRAM_ALLOWED_IDS").replace(" ", "").split(",") if x.lstrip("-").isdigit()}
 PUBLIC_URL = (env("PUBLIC_URL") or env("RENDER_EXTERNAL_URL")).rstrip("/")
@@ -107,4 +108,5 @@ SECRET_ENV_KEYS = {
     "ANTHROPIC_API_KEY", "GEMINI_API_KEY", "PROVIDERS_JSON", "MCP_SERVERS", "TAVILY_API_KEY", "BRAVE_API_KEY",
     "TELEGRAM_BOT_TOKEN",
     "RESEND_API_KEY",
+    "EGRESS_PROXY",
 }

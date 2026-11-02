@@ -64,6 +64,21 @@ class BrowserError(Exception):
     pass
 
 
+def proxy_conf(url: str) -> dict | None:
+    """Turn http://user:pass@host:port into Playwright's proxy dict (None when unset or unusable)."""
+    if not url:
+        return None
+    u = urlparse(url.strip())
+    if u.scheme not in ("http", "https", "socks5") or not u.hostname:
+        return None
+    d = {"server": f"{u.scheme}://{u.hostname}" + (f":{u.port}" if u.port else "")}
+    if u.username:
+        from urllib.parse import unquote
+        d["username"] = unquote(u.username)
+        d["password"] = unquote(u.password or "")
+    return d
+
+
 class Browser:
     def __init__(self):
         self.pw = None
@@ -75,6 +90,11 @@ class Browser:
         self.ok_hosts: dict[str, float] = {}
 
     # ---- lifecycle
+    @staticmethod
+    def _launch_proxy() -> dict:
+        from . import config
+        return {"proxy": {"server": "per-context"}} if proxy_conf(config.EGRESS_PROXY) else {}
+
     async def _launch(self):
         async with self.boot:
             if self.br and self.br.is_connected():
@@ -86,7 +106,7 @@ class Browser:
             if not self.pw:
                 self.pw = await async_playwright().start()
             try:
-                self.br = await self.pw.chromium.launch(ignore_default_args=["--enable-automation"], args=[
+                self.br = await self.pw.chromium.launch(ignore_default_args=["--enable-automation"], **self._launch_proxy(), args=[
                     "--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu", "--disable-extensions", "--mute-audio",
                     "--disable-blink-features=AutomationControlled",
                     "--disable-background-networking", "--js-flags=--max-old-space-size=192"])
@@ -172,8 +192,13 @@ class Browser:
             await self.close(min(self.ctxs, key=lambda k: self.ctxs[k]["last"]))
         # look like an ordinary desktop Chrome: headless builds announce themselves in the UA and navigator.webdriver
         ua = f"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{self.br.version.split('.')[0]}.0.0.0 Safari/537.36"
+        from . import config
+        kw = {}
+        px = proxy_conf(config.EGRESS_PROXY)
+        if px:
+            kw["proxy"] = px
         ctx = await self.br.new_context(viewport={"width": VIEW_W, "height": VIEW_H}, accept_downloads=False, locale="en-US",
-                                        user_agent=ua, extra_http_headers={"Accept-Language": "en-US,en;q=0.9"})
+                                        user_agent=ua, extra_http_headers={"Accept-Language": "en-US,en;q=0.9"}, **kw)
         await ctx.add_init_script(STEALTH_JS)
         await ctx.route("**/*", self._route)
         page = await ctx.new_page()

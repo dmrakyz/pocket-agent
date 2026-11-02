@@ -456,19 +456,31 @@ def _check_public(url: str):
             raise ToolError("refusing to fetch a private/internal address")
 
 
-async def t_web_fetch(ctx: Ctx, a: dict):
-    url = a["url"]
-    async with httpx.AsyncClient(timeout=30, follow_redirects=False,
-                                 headers={"User-Agent": "Mozilla/5.0 (compatible; MobileAgent/1.0)"}) as c:
+def _fetch_client(proxy: str = "") -> httpx.AsyncClient:
+    kw = {"proxy": proxy} if proxy else {}
+    return httpx.AsyncClient(timeout=30, follow_redirects=False, headers={"User-Agent": "Mozilla/5.0 (compatible; MobileAgent/1.0)"}, **kw)
+
+
+async def _get_following(url: str, proxy: str = ""):
+    async with _fetch_client(proxy) as c:
         for _ in range(6):
             _check_public(url)
             r = await c.get(url)
             if r.is_redirect and r.headers.get("location"):
                 url = str(httpx.URL(url).join(r.headers["location"]))
                 continue
-            break
-        else:
-            raise ToolError("too many redirects")
+            return r, url
+    raise ToolError("too many redirects")
+
+
+async def t_web_fetch(ctx: Ctx, a: dict):
+    url = a["url"]
+    r, url = await _get_following(url)
+    if r.status_code in (403, 429, 503) and config.EGRESS_PROXY:   # datacenter IP refused: retry once from the proxy's IP
+        try:
+            r, url = await _get_following(url, config.EGRESS_PROXY)
+        except httpx.HTTPError:
+            pass
     if r.status_code >= 400:
         raise ToolError(f"HTTP {r.status_code}")
     ctype = r.headers.get("content-type", "")

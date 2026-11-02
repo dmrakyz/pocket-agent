@@ -523,3 +523,26 @@ async def mail_test():
         C.RESEND_API_KEY, C.MAIL_ALLOWED_TO = old; T._mail_transport = None
     print("PASS send_email: shape, validation, allowlist, errors, always asks (even YOLO), hidden when unset")
 asyncio.run(mail_test())
+
+# egress proxy: config parsing + web_fetch retries through it only when refused
+async def egress_test():
+    from app import browser as B, config as C
+    assert B.proxy_conf("") is None and B.proxy_conf("ftp://x") is None
+    assert B.proxy_conf("http://u%40x:p%3A1@h.example:8080") == {"server": "http://h.example:8080", "username": "u@x", "password": "p:1"}
+    assert B.proxy_conf("socks5://h.example:1080") == {"server": "socks5://h.example:1080"}
+    seen = []
+    def fake_client(proxy=""):
+        seen.append(proxy)
+        return httpx.AsyncClient(transport=httpx.MockTransport(lambda req: httpx.Response(403 if not proxy else 200, text="blocked" if not proxy else "<html><title>ok</title><body>via proxy</body></html>", headers={"content-type": "text/html"})))
+    old = (T._fetch_client, T._check_public, C.EGRESS_PROXY)
+    T._fetch_client = fake_client; T._check_public = lambda u: None
+    try:
+        root = Path(tempfile.mkdtemp()); ctx = T.Ctx({"id": "eg1"}, root, lambda e: asyncio.sleep(0), None, None)
+        C.EGRESS_PROXY = ""; seen.clear()
+        r = await T.execute(ctx, "web_fetch", {"url": "https://x.example/"}); assert r["error"] and "403" in r["text"] and seen == [""], (r, seen)
+        C.EGRESS_PROXY = "http://p.example:3128"; seen.clear()
+        r = await T.execute(ctx, "web_fetch", {"url": "https://x.example/"}); assert not r["error"] and "via proxy" in r["text"] and seen == ["", "http://p.example:3128"], (r, seen)
+    finally:
+        T._fetch_client, T._check_public, C.EGRESS_PROXY = old
+    print("PASS egress proxy: parsing, web_fetch retries through it only after a refusal")
+asyncio.run(egress_test())
