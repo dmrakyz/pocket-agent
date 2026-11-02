@@ -261,6 +261,9 @@ try:
         p.wait_for_function("window.__agent.run.running === false", timeout=30000)
         p.wait_for_selector(".tool-head:has-text('Tip Calc')", timeout=30000)
         check("a built app's card stays visible outside the collapsed group", p.locator("text=Built 2 apps").count() == 1 or p.locator(".tool-head:has-text('Tip Calc')").count() >= 1)
+        p.wait_for_selector(".prose .app-card .ws-btns button:has-text('Open app')", timeout=30000)
+        check("an inline [Name](app:id) renders as an app card with the real name", "Tip Calc" in p.inner_text(".prose .app-card"), p.inner_text(".prose")[:200])
+        check("inline chip renders and an unknown app shows 'not found'", p.locator(".prose a.app-chip").count() >= 1 and p.locator(".prose .app-card.missing").count() + p.locator(".prose a.app-chip").count() >= 2)
         p.wait_for_selector("text=Open app", timeout=30000)      # open by default: no tapping to find the button
         check("a built app shows an Open app card without the HTML dump", "<!doctype" not in p.inner_text("#chat").lower())
         p.click("text=Open app")

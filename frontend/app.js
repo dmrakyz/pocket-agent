@@ -51,6 +51,7 @@ function inline(s) {
   s = s.replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>').replace(/(^|[^*\w])\*([^*\n]+)\*(?!\w)/g, '$1<em>$2</em>');
   s = s.replace(/!\[([^\]]*)\]\(ws:([^)\s]+)\)/g, (_, alt, p) => { const c = capSize(alt); return `<span class="ws-inl" data-ws="${p}" data-label="${c.cap}" title="${c.cap}"></span>`; });
   s = s.replace(/\[([^\]]+)\]\(ws:([^)\s]+)\)/g, (_, label, p) => `<a class="ws-chip" data-ws="${p}" data-label="${label}">\uD83D\uDCCE ${label}</a>`);
+  s = s.replace(/\[([^\]]+)\]\(app:([^)\s]+)\)/g, (_, label, id) => `<a class="app-chip" data-app="${id}" data-label="${label}">\u25A6 ${label}</a>`);
   s = s.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
   return s.replace(/\u0000(\d+)\u0000/g, (_, i) => '<code>' + codes[i] + '</code>');
 }
@@ -61,7 +62,7 @@ function md(src) {
   const lines = String(src).replace(/\r\n/g, '\n').split('\n');
   const out = [];
   let i = 0;
-  const isBlockStart = (l) => /^\s*!?\[[^\]]*\]\(ws:[^)\s]+\)\s*$/.test(l) || /^\s*```/.test(l) || /^#{1,4}\s/.test(l) || /^\s*>/.test(l) || /^\s*([-*+]|\d+\.)\s+/.test(l) || /^\s*([-*_])\1\1+\s*$/.test(l);
+  const isBlockStart = (l) => /^\s*!?\[[^\]]*\]\((?:ws|app):[^)\s]+\)\s*$/.test(l) || /^\s*```/.test(l) || /^#{1,4}\s/.test(l) || /^\s*>/.test(l) || /^\s*([-*+]|\d+\.)\s+/.test(l) || /^\s*([-*_])\1\1+\s*$/.test(l);
   while (i < lines.length) {
     const l = lines[i];
     let m;
@@ -78,6 +79,10 @@ function md(src) {
     } else if (/^\s*\[[^\]]+\]\(ws:[^)\s]+\)\s*$/.test(l)) {
       const cards = [];
       while (i < lines.length && (m = lines[i].match(/^\s*\[([^\]]+)\]\(ws:([^)\s]+)\)\s*$/))) { cards.push(`<div class="ws-card" data-ws="${esc(m[2])}" data-label="${esc(m[1])}"></div>`); i++; }
+      out.push(cards.join(''));
+    } else if (/^\s*\[[^\]]+\]\(app:[^)\s]+\)\s*$/.test(l)) {
+      const cards = [];
+      while (i < lines.length && (m = lines[i].match(/^\s*\[([^\]]+)\]\(app:([^)\s]+)\)\s*$/))) { cards.push(`<div class="app-card" data-app="${esc(m[2])}" data-label="${esc(m[1])}"></div>`); i++; }
       out.push(cards.join(''));
     } else if ((m = l.match(/^(#{1,4})\s+(.*)$/))) {
       out.push(`<h${m[1].length}>${inline(m[2])}</h${m[1].length}>`); i++;
@@ -193,9 +198,28 @@ function hydrateWs(root) {
     };
   }
 }
+/* ---- apps embedded in answers: [Name](app:ID) (the id or the app's name) */
+const APPS = { list: null, at: 0 };
+async function appList(force) {
+  if (force || !APPS.list || Date.now() - APPS.at > 30000) { try { APPS.list = (await api('/api/apps')).apps; APPS.at = Date.now(); } catch { APPS.list = APPS.list || []; } }
+  return APPS.list;
+}
+const findApp = (list, key) => { const k = String(key).toLowerCase().replace(/[^a-z0-9]+/g, ''); return list.find((a) => a.id === key) || list.find((a) => a.name.toLowerCase().replace(/[^a-z0-9]+/g, '') === k); };
+function hydrateApps(root) {
+  const cards = [...root.querySelectorAll('div.app-card[data-app]')], chips = [...root.querySelectorAll('a.app-chip')];
+  if (!cards.length && !chips.length) return;
+  const resolve = async (key) => { let a = findApp(await appList(), key); if (!a) a = findApp(await appList(true), key); return a; };
+  for (const c of cards) resolve(c.dataset.app).then((a) => {
+    if (!a) { c.replaceChildren(h('div.ws-ico', { text: '?' }), h('div.ws-meta', {}, h('div.ws-name', { text: c.dataset.label }), h('div.ws-sub', { text: 'app not found' }))); c.classList.add('missing'); return; }
+    c.replaceChildren(h('div.ws-ico', { text: a.icon || '▦' }), h('div.ws-meta', {}, h('div.ws-name', { text: a.name }), h('div.ws-sub', { text: a.description || 'App' })),
+      h('div.ws-btns', {}, h('button', { text: 'Open app', onclick: () => openApp(a.id, a.name) })));
+  });
+  for (const ch of chips) ch.onclick = async () => { const a = await resolve(ch.dataset.app); if (a) openApp(a.id, a.name); else toast('App not found: ' + ch.dataset.label, true); };
+}
 function prose(text, extra = '') {
   const n = h('div.prose' + extra, { html: md(text) });
   hydrateWs(n);
+  hydrateApps(n);
   return n;
 }
 /* lightbox: full-screen image viewer, swipe between images, tap to zoom */

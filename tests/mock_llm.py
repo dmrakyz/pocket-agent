@@ -144,7 +144,7 @@ def scenario(msgs, model):
             return "tools", [tool_call("create_app", {"name": "Tip Calc", "icon": "🧮", "description": "splits a bill", "html": html})]
         if k == 1:
             return "tools", [tool_call("create_app", {"id": "tip-calc", "name": "Tip Calc", "html": html.replace("Tip calc", "Tip calc v2")})]
-        return "text", "app ready"
+        return "text", "App ready:\n\n[Tip Calc](app:tip-calc)\n\nor tap [it](app:tip-calc) inline, or a ghost: [Nope](app:ghost-app)"
     if "SHOWMODEL" in prompt:
         if k == 0:
             return "tools", [tool_call("bash", {"command": "python3 -c \"import trimesh; trimesh.creation.box((10,10,10)).export('cube.stl')\""})]

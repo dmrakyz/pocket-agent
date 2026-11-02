@@ -218,6 +218,7 @@ Ask the agent to build you a little tool ("make me a tip calculator", "a habit t
 
 - Apps run in a sandboxed iframe with a strict CSP: no network, opaque origin, no access to your token or the rest of the app.
 - They talk to the host through a tiny SDK (`agent.ask(prompt)`, `agent.get/set/del/keys`) over postMessage. Data is stored per app; AI calls are rate-limited.
+- The agent can show an app anywhere in its answer with `[Name](app:ID)`: on its own line it becomes a card with an Open button, inside a sentence it becomes a chip (the app's name works as well as the id). A link to an app that does not exist is sent back to the model to fix, like a missing file.
 - Long-press an app in the drawer for rename / delete. Ask the agent to edit one and it rewrites the file.
 
 ## Agent as an MCP server

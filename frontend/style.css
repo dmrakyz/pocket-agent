@@ -397,14 +397,14 @@ header, .sheet, .menu, .ctx { -webkit-backdrop-filter: saturate(1.4) blur(18px);
 .ws-ph { aspect-ratio: 4/3; background: linear-gradient(100deg, var(--panel) 30%, var(--panel2) 50%, var(--panel) 70%); background-size: 300% 100%; animation: shimmer 1.3s linear infinite; }
 .ws-img figcaption { font-size: 13px; color: var(--dim); }
 .ws-miss { padding: 14px; border: 1px dashed var(--line); border-radius: 12px; color: var(--dim); font-size: 13px; }
-.ws-card { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 12px; margin: 8px 0; padding: 10px 12px; background: var(--panel); border: 1px solid var(--line); border-radius: 14px; animation: rise .3s var(--ease-out); }
-.ws-card.missing { opacity: .6; border-style: dashed; }
+.ws-card, .app-card { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 12px; margin: 8px 0; padding: 10px 12px; background: var(--panel); border: 1px solid var(--line); border-radius: 14px; animation: rise .3s var(--ease-out); }
+.ws-card.missing, .app-card.missing { opacity: .6; border-style: dashed; }
 .ws-ico { width: 40px; height: 40px; border-radius: 11px; background: var(--panel2); display: grid; place-items: center; font-size: 18px; color: var(--accent); flex: none; }
 .ws-meta { flex: 1; min-width: 0; } .ws-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } .ws-sub { font-size: 12.5px; color: var(--dim); }
 .ws-btns { display: flex; gap: 8px; width: 100%; } .ws-btns button { flex: 1; min-height: 40px; border-radius: 11px; border: 1px solid var(--line); background: var(--panel2); font-size: 14px; font-weight: 600; }
 .ws-btns button.dl { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
 .ws-card audio, .ws-card video { width: 100%; border-radius: 10px; }
-a.ws-chip { display: inline-block; padding: 1px 9px; border-radius: 10px; background: var(--panel2); border: 1px solid var(--line); color: var(--accent); font-size: .92em; cursor: pointer; text-decoration: none; }
+a.ws-chip, a.app-chip { display: inline-block; padding: 1px 9px; border-radius: 10px; background: var(--panel2); border: 1px solid var(--line); color: var(--accent); font-size: .92em; cursor: pointer; text-decoration: none; }
 #lightbox { position: fixed; inset: 0; z-index: 80; background: rgba(0,0,0,.94); display: flex; flex-direction: column; animation: fadein .2s ease; }
 #lightbox[hidden] { display: none; }
 .lb-top { display: flex; align-items: center; justify-content: space-between; padding: calc(var(--safe-t) + 10px) 12px 10px; color: #fff; }
