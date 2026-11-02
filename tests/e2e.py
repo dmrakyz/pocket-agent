@@ -246,6 +246,29 @@ try:
     m10 = c2.get(f"/api/sessions/{s10['id']}").json()["session"]["messages"]
     check("share_file marks the result as downloadable", any(m.get("_file") == "report.txt" for m in m10 if m["role"] == "tool"), str([m.get("_file") for m in m10]))
 
+    # --- preview tool end to end
+    s11 = c2.post("/api/sessions", json={"mode": "yolo"}).json()
+    run_turn(c2, s11["id"], "SHOWPAGE now", timeout=60)
+    m11 = c2.get(f"/api/sessions/{s11['id']}").json()["session"]["messages"]
+    check("preview tool marks the result", any(m.get("_preview") == "index.html" for m in m11 if m["role"] == "tool"), str([m.get("_preview") for m in m11]))
+    pb11 = c2.post(f"/api/sessions/{s11['id']}/preview-token").json()["base"]
+    check("agent-built page is served", "mock page" in httpx.get(B + pb11 + "index.html").text)
+
+    # --- live preview: scoped token, sandbox CSP, confinement, expiry
+    up = c2.put(f"/api/sessions/{s10['id']}/upload", params={"name": "page.html", "extract": "false"}, content=b"<h1>hi preview</h1>").json()
+    pb = c2.post(f"/api/sessions/{s10['id']}/preview-token").json()["base"]
+    nc = httpx.Client(base_url=B, timeout=30)          # NO bearer token: the token lives in the URL
+    r = nc.get(pb + "uploads/page.html")
+    check("preview serves a workspace file", r.status_code == 200 and "hi preview" in r.text, str(r.status_code))
+    check("preview is sandboxed", "sandbox" in r.headers.get("content-security-policy", "") and "allow-same-origin" not in r.headers.get("content-security-policy", ""))
+    trav = [nc.get(pb + "%2e%2e/%2e%2e/%2e%2e/etc/passwd").status_code, nc.get(pb + "..%2f..%2f..%2fetc%2fpasswd").status_code]
+    check("preview blocks traversal", all(c in (403, 404) for c in trav), str(trav))
+    check("preview blocks .git", nc.get(pb + ".git/config").status_code in (403, 404))
+    check("preview token is per-chat", nc.get(pb.replace(s10["id"], s9["id"]) + "uploads/page.html").status_code == 403)
+    bad = pb[:-5] + "xxxx/"
+    check("preview rejects a forged token", nc.get(bad + "uploads/page.html").status_code == 403)
+    check("preview needs a real login to mint", nc.post(f"/api/sessions/{s10['id']}/preview-token").status_code == 401)
+
     # --- eval pipeline (mock only knows task 1)
     eid = c2.post("/api/eval", json={"model": "mock:mock/ultra-550b"}).json()["id"]
     for _ in range(80):

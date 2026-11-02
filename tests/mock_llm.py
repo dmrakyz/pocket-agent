@@ -115,6 +115,12 @@ def scenario(msgs, model):
         if k == 0:
             return "tools", [tool_call("write", {"path": "auto.txt", "content": "step1\n"})]
         return "text", "partial progress, more to do"
+    if "SHOWPAGE" in prompt:
+        if k == 0:
+            return "tools", [tool_call("write", {"path": "index.html", "content": "<h1>mock page</h1><script>document.title='ran'</script>"})]
+        if k == 1:
+            return "tools", [tool_call("preview", {"path": "index.html"})]
+        return "text", "page ready"
     if "SHARE" in prompt:
         if k == 0:
             return "tools", [tool_call("write", {"path": "report.txt", "content": "the report\n"})]

@@ -113,6 +113,9 @@ BASE_TOOLS = [
          "can_edit": {"type": "boolean"}}, ["description", "prompt"]),
     _fn("share_file", "Offer a workspace file or folder to the user as a download (folders are zipped).",
         {"path": S, "description": S}, ["path"]),
+    _fn("preview", "Show the user a web page you built (an HTML file, or a folder with index.html) in a live preview "
+        "inside the app. Use it after building any web page, game or visual. Static files only: no server needed.",
+        {"path": {"type": "string", "description": "e.g. index.html or site/"}}, ["path"]),
     _fn("skill", "Load the full instructions of a named skill listed in your system prompt.", {"name": S}, ["name"]),
     _fn("git_sync", "Commit all workspace changes and push them to the session's GitHub branch. "
         "Do this after finishing meaningful work.", {"message": S}, []),
@@ -122,7 +125,7 @@ BASE_TOOLS = [
     _fn("exit_plan_mode", "Plan mode only: present your finished plan to the user for approval.",
         {"plan": S}, ["plan"]),
 ]
-READONLY = {"read", "glob", "grep", "web_fetch", "web_search", "todo_write", "bash_output", "skill", "task", "share_file"}
+READONLY = {"read", "glob", "grep", "web_fetch", "web_search", "todo_write", "bash_output", "skill", "task", "share_file", "preview"}
 EDITS = {"write", "edit", "multiedit"}
 SUBAGENT_TOOLS = {"read", "glob", "grep", "bash", "bash_output", "kill_bash", "web_fetch", "web_search"}
 SUBAGENT_EDIT_TOOLS = SUBAGENT_TOOLS | EDITS
@@ -519,6 +522,13 @@ async def t_share_file(ctx: Ctx, a: dict):
     return {"text": f"Shared {ctx.rel(p)} ({kind}). The user can download it from this chat.", "file": ctx.rel(p)}
 
 
+async def t_preview(ctx: Ctx, a: dict):
+    p = ctx.resolve(a["path"], must_exist=True)
+    if p.is_dir() and not (p / "index.html").exists():
+        raise ToolError("that folder has no index.html")
+    return {"text": f"Preview ready for {ctx.rel(p)}. The user can open it from a card in this chat.", "preview": ctx.rel(p)}
+
+
 async def t_exit_plan_mode(ctx: Ctx, a: dict):
     return "Plan approved. You may now edit files and run commands."
 
@@ -527,7 +537,7 @@ HANDLERS: dict[str, Callable[[Ctx, dict], Awaitable[Any]]] = {
     "read": t_read, "write": t_write, "edit": t_edit, "multiedit": t_multiedit, "glob": t_glob, "grep": t_grep,
     "bash": t_bash, "bash_output": t_bash_output, "kill_bash": t_kill_bash, "web_fetch": t_web_fetch,
     "web_search": t_web_search, "todo_write": t_todo_write, "task": t_task, "skill": t_skill,
-    "git_sync": t_git_sync, "create_pr": t_create_pr, "exit_plan_mode": t_exit_plan_mode, "share_file": t_share_file,
+    "git_sync": t_git_sync, "create_pr": t_create_pr, "exit_plan_mode": t_exit_plan_mode, "share_file": t_share_file, "preview": t_preview,
 }
 
 

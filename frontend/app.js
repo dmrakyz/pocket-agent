@@ -103,7 +103,7 @@ function md(src) {
 const S = {
   api: '', token: '', sessions: [], cur: null, run: { running: false }, partial: { text: '', reasoning: '' },
   pending: {}, results: {}, cards: {}, lastSeq: 0, streaming: false, finished: true, abort: null,
-  images: [], files: [], live: null, statusEl: null, stick: true, info: null, commands: [],
+  images: [], files: [], live: null, statusEl: null, stick: true, info: null, commands: [], queues: {}, subs: [],
 };
 const EFFORTS = {
   off: ['Off', 'No reasoning. Fastest and cheapest, weakest on hard problems.'],
@@ -208,6 +208,7 @@ async function openSession(id) {
   S.partial = d.run.partial || { text: '', reasoning: '' };
   S.lastSeq = d.run.seq || 0;
   S.finished = !d.run.running;
+  S.subs = d.run.subs || [];
   store.set('cur', id); history.replaceState(null, '', '#chat=' + id);
   renderChat(true);
   renderList();
@@ -242,13 +243,13 @@ function scrollDown(force) {
   if (force || S.stick) c.scrollTop = c.scrollHeight;
 }
 const ICONS = { read: '▤', write: '✎', edit: '✎', multiedit: '✎', bash: '$', bash_output: '$', kill_bash: '■', grep: '⌕', glob: '✱',
-  web_fetch: '◎', web_search: '◎', todo_write: '☑', task: '⋔', skill: '★', git_sync: '⎇', create_pr: '⎇', exit_plan_mode: '☰', share_file: '⬇' };
+  web_fetch: '◎', web_search: '◎', todo_write: '☑', task: '⋔', skill: '★', git_sync: '⎇', create_pr: '⎇', exit_plan_mode: '☰', share_file: '⬇', preview: '▶' };
 function toolSummary(name, a) {
   a = a || {};
   switch (name) {
     case 'read': case 'write': case 'edit': case 'multiedit': return a.path || '';
     case 'bash': return (a.command || '').split('\n')[0];
-    case 'share_file': return a.path || '';
+    case 'share_file': case 'preview': return a.path || '';
     case 'grep': return '/' + (a.pattern || '') + '/' + (a.path ? ' ' + a.path : '');
     case 'glob': return a.pattern || '';
     case 'web_fetch': return a.url || '';
@@ -289,7 +290,7 @@ async function answer(id, body, card) {
 function fillCard(card, call, result, approval) {
   const name = call.function.name;
   const a = parseArgs(call);
-  const open = approval ? true : (card.dataset.open === '1' || !!(result && result._file));
+  const open = approval ? true : (card.dataset.open === '1' || !!(result && (result._file || result._preview)));
   card.className = 'tool' + (result && result._error ? ' err' : '') + (approval ? ' ask' : '');
   card.replaceChildren();
   const state = result ? h('span.tool-state ' + (result._error ? 'bad' : 'ok'), { text: result._error ? '✕' : '✓' })
@@ -309,6 +310,7 @@ function fillCard(card, call, result, approval) {
     else if (name !== 'todo_write') body.append(h('div.lbl', { text: 'input' }), h('pre', { text: JSON.stringify(a, null, 2) }));
   }
   if (result && name !== 'exit_plan_mode' && !(result._diff && !result._error)) body.append(h('div.lbl', { text: 'output' }), h('pre', { text: result.content || '' }));
+  if (result && result._preview) body.append(h('div', { style: 'padding:10px 12px' }, h('button.primary.small', { text: '▶ Open preview', onclick: () => openPreview(result._preview) })));
   if (result && result._file) body.append(h('div', { style: 'padding:10px 12px' }, h('button.primary.small', { text: '⬇ Download ' + result._file.split('/').pop(), onclick: () => downloadPath(result._file) })));
   card.append(body);
   if (approval) {
@@ -365,11 +367,12 @@ function renderChat(forceScroll) {
       box.append(userNode(m, i));
     } else if (m.role === 'assistant') box.append(assistantNode(m));
   });
-  renderTodos();
+  renderTodos(); renderSubs(); renderQueue();
   renderLive();
   for (const ev of Object.values(S.pending)) ensureApprovalCard(ev);
   S.stick = true;
   if (forceScroll !== false) requestAnimationFrame(() => scrollDown(true));
+  renderActions();
   updateSend();
 }
 let liveRaf = 0;
@@ -409,6 +412,18 @@ function renderTodos() {
   bar.replaceChildren(h('button.th', { onclick: () => { bar.dataset.open = open ? '0' : '1'; renderTodos(); } },
     h('b', { text: `${done}/${todos.length}` }), h('span', { text: act ? act.content : 'done' }), h('span', { text: open ? '▾' : '▸', class: 'dim' })));
   if (open) bar.append(h('ul', {}, todos.map((t) => h('li.' + t.status, { text: (t.status === 'completed' ? '✓ ' : t.status === 'in_progress' ? '→ ' : '○ ') + t.content }))));
+}
+function renderSubs() {
+  const bar = $('#subbar');
+  const subs = S.subs || [];
+  if (!subs.length) { bar.hidden = true; return; }
+  const running = subs.filter((x) => x.status === 'running').length;
+  const open = bar.dataset.open === '1';
+  bar.hidden = false;
+  bar.replaceChildren(h('button.th', { onclick: () => { bar.dataset.open = open ? '0' : '1'; renderSubs(); } },
+    h('b', { text: '⋔' }), h('span', { text: running ? `${running} sub-agent${running > 1 ? 's' : ''} working · ${subs.length} total` : `${subs.length} sub-agent${subs.length > 1 ? 's' : ''} finished` }), h('span', { text: open ? '▾' : '▸', class: 'dim' })));
+  if (open) bar.append(h('ul', {}, subs.map((x) => h('li.sub-' + x.status, { style: `padding-left:${(x.depth - 1) * 16}px` },
+    x.status === 'running' ? h('span.spin') : h('span', { text: x.status === 'done' ? '✓' : '✕' }), h('span.sl', { text: x.label }), h('small', { text: x.model })))));
 }
 function renderList() {
   const q = $('#chat-search').value.trim().toLowerCase();
@@ -490,6 +505,8 @@ function handle(ev) {
       break;
     }
     case 'todos': c.todos = ev.todos; renderTodos(); break;
+    case 'sub_start': S.subs.push({ id: ev.id, label: ev.label, model: ev.model, depth: ev.depth, status: 'running' }); renderSubs(); break;
+    case 'sub_end': { const sb = S.subs.find((x) => x.id === ev.id); if (sb) sb.status = ev.status; renderSubs(); break; }
     case 'mode': c.mode = ev.mode; applyChips(); break;
     case 'notice': setStatus(ev.text); break;
     case 'error': toast(ev.text, true, 8000); msgsEl().append(h('div.notice.err', { text: ev.text })); scrollDown(); break;
@@ -517,7 +534,8 @@ async function finishRun() {
     renderChat(false);
     await loadSessions();
   } catch { /* offline */ }
-  updateSend(); applyChips();
+  updateSend(); applyChips(); renderSubs();
+  drainQueue();
 }
 async function reloadCurrent() {
   const d = await api('/api/sessions/' + S.cur.id);
@@ -526,35 +544,51 @@ async function reloadCurrent() {
 }
 
 /* ============================================================ composer */
+const hasDraft = () => !!$('#input').value.trim() || S.images.length > 0 || S.files.length > 0;
 function updateSend() {
   const b = $('#btn-send');
-  const running = S.run.running;
-  b.textContent = running ? '■' : '↑';
-  b.classList.toggle('stop', running);
-  b.setAttribute('aria-label', running ? 'Stop' : 'Send');
+  const stop = S.run.running && !hasDraft();
+  b.textContent = stop ? '■' : '↑';
+  b.classList.toggle('stop', stop);
+  b.setAttribute('aria-label', stop ? 'Stop' : S.run.running ? 'Queue message' : 'Send');
 }
 function autoGrow() { const t = $('#input'); t.style.height = 'auto'; t.style.height = Math.min(t.scrollHeight, window.innerHeight * 0.38) + 'px'; }
-async function send() {
-  if (S.run.running) { try { await api(`/api/sessions/${S.cur.id}/stop`, { method: 'POST' }); } catch (e) { toast(e.message, true); } return; }
+const queueFor = () => (S.queues[S.cur.id] ||= []);
+function renderQueue() {
+  const bar = $('#queuebar');
+  const q = S.cur ? queueFor() : [];
+  bar.hidden = !q.length;
+  bar.replaceChildren(...q.map((m, i) => h('div.qitem', {}, h('span.qn', { text: 'Queued' }), h('span.qt', { text: m.text.replace(/\s+/g, ' ').slice(0, 80) || '(attachment)' }), h('button', { 'aria-label': 'Remove from queue', text: '✕', onclick: () => { queueFor().splice(i, 1); renderQueue(); } }))));
+}
+function takeDraft() {
   const input = $('#input');
-  const text0 = input.value.trim();
-  if (!text0 && !S.images.length && !S.files.length) return;
-  if (S.files.some((f) => f.state === 'uploading')) { toast('Still uploading…'); return; }
-  if (!S.cur) { try { await newChat({}); } catch (e) { toast(e.message, true); return; } }
   const images = S.images.slice();
   const notes = S.files.filter((f) => f.state === 'ready').map((f) => f.extracted ? `${f.path} (extracted to ${f.extracted}/, ${f.files} files)` : f.path);
-  let text = text0;
+  let text = input.value.trim();
   if (notes.length) text = (text ? text + '\n\n' : 'See the uploaded files.\n\n') + `[Files uploaded to the workspace: ${notes.join('; ')}]`;
   input.value = ''; autoGrow(); S.images = []; S.files = []; renderAttach(); hideSlash();
+  return { text, images };
+}
+async function send() {
+  if (S.run.running && !hasDraft()) { try { await api(`/api/sessions/${S.cur.id}/stop`, { method: 'POST' }); } catch (e) { toast(e.message, true); } return; }
+  if (!hasDraft()) return;
+  if (S.files.some((f) => f.state === 'uploading')) { toast('Still uploading…'); return; }
+  if (!S.cur) { try { await newChat({}); } catch (e) { toast(e.message, true); return; } }
+  const draft = takeDraft();
+  if (S.run.running) { queueFor().push(draft); renderQueue(); updateSend(); return; }
+  await dispatch(draft);
+}
+async function dispatch({ text, images }) {
   const msg = { role: 'user', content: images.length ? [{ type: 'text', text }, ...images.map((u) => ({ type: 'image_url', image_url: { url: u } }))] : text };
   S.cur.messages.push(msg);
+  clearActions(); S.subs = []; renderSubs();
   msgsEl().append(userNode(msg, S.cur.messages.length - 1));
   $('#empty').hidden = true;
   S.run = { running: true }; S.partial = { text: '', reasoning: '' }; S.finished = false; S.stick = true;
   renderLive(); applyChips(); updateSend(); scrollDown(true);
   try {
     const r = await api(`/api/sessions/${S.cur.id}/messages`, { body: { text, images } });
-    if (r.compacted) { S.run.running = false; renderLive(); await reloadCurrent(); updateSend(); toast('Context compacted'); return; }
+    if (r.compacted) { S.run.running = false; renderLive(); await reloadCurrent(); updateSend(); toast('Context compacted'); drainQueue(); return; }
     S.lastSeq = r.seq;
     attach();
   } catch (e) {
@@ -563,7 +597,38 @@ async function send() {
     if (/still working/.test(e.message)) openSession(S.cur.id);
   }
 }
+function drainQueue() {
+  if (!S.cur || S.run.running) return;
+  const q = queueFor();
+  if (!q.length) return;
+  const next = q.shift(); renderQueue();
+  dispatch(next);
+}
+
+/* ---- regenerate / copy under the last answer */
+function clearActions() { document.querySelectorAll('.msg-actions').forEach((n) => n.remove()); }
+function renderActions() {
+  clearActions();
+  if (!S.cur || S.run.running) return;
+  const ms = S.cur.messages;
+  const last = ms[ms.length - 1];
+  if (!last || last.role !== 'assistant' || last.tool_calls || !(last.content || '').trim()) return;
+  let ui = -1;
+  for (let i = ms.length - 1; i >= 0; i--) if (ms[i].role === 'user' && !ms[i]._synthetic && !ms[i]._summary) { ui = i; break; }
+  const row = h('div.msg-actions', {},
+    h('button', { 'aria-label': 'Copy answer', text: '⧉ Copy', onclick: () => navigator.clipboard.writeText(last.content).then(() => toast('Copied')).catch(() => toast('Copy failed')) }));
+  if (ui >= 0 && ms[ui]._checkpoint) row.append(h('button', { 'aria-label': 'Regenerate answer', title: 'Redo this answer (files go back to how they were before it)', text: '⟳ Regenerate', onclick: () => regenerate(ui) }));
+  msgsEl().append(row);
+}
+async function regenerate(idx) {
+  const m = S.cur.messages[idx];
+  const parts = Array.isArray(m.content) ? m.content : [{ type: 'text', text: m.content || '' }];
+  const draft = { text: parts.filter((p) => p.type === 'text').map((p) => p.text).join('\n'), images: parts.filter((p) => p.type === 'image_url').map((p) => p.image_url.url) };
+  try { await api(`/api/sessions/${S.cur.id}/rewind`, { body: { index: idx } }); await reloadCurrent(); } catch (e) { toast(e.message, true); return; }
+  await dispatch(draft);
+}
 function renderAttach() {
+  updateSend();
   const p = $('#attach-preview');
   p.hidden = !S.images.length && !S.files.length;
   p.replaceChildren(...S.files.map((f, i) => h('div.thumb.filechip', {}, h('span', { text: (f.state === 'uploading' ? '⏳ ' : '📎 ') + f.name }), h('button', { text: '✕', 'aria-label': 'Remove', onclick: () => { S.files.splice(i, 1); renderAttach(); } }))), ...S.images.map((u, i) => h('div.thumb', {}, h('img', { src: u, alt: 'attached' }), h('button', { text: '✕', 'aria-label': 'Remove', onclick: () => { S.images.splice(i, 1); renderAttach(); } }))));
@@ -732,6 +797,7 @@ async function filesSheet(path = '') {
       const full = (path ? path + '/' : '') + it.name;
       body.append(h('div.filerow', {},
         h('button.fileitem', { onclick: () => it.dir ? filesSheet(full) : fileView(full) }, (it.dir ? '▸ ' : '  ') + it.name, it.dir ? '' : h('small', { text: it.size > 1024 ? Math.round(it.size / 1024) + ' KB' : it.size + ' B' })),
+        /\.html?$/i.test(it.name) ? h('button.dl', { 'aria-label': 'Preview ' + it.name, text: '▶', onclick: () => openPreview(full) }) : null,
         h('button.dl', { 'aria-label': 'Download ' + it.name, text: '⬇', onclick: () => downloadPath(full) })));
     }
     if (!d.items.length) body.append(h('div.dim', { text: 'Empty' }));
@@ -739,7 +805,7 @@ async function filesSheet(path = '') {
 }
 async function fileView(path) {
   const pre = h('div.codeview', { text: 'Loading…' });
-  sheet(path, pre, h('button.secondary', { text: '⬇ Download', onclick: () => downloadPath(path) }), h('button.secondary', { text: '← Back', onclick: () => filesSheet(path.split('/').slice(0, -1).join('/')) }));
+  sheet(path, pre, /\.html?$/i.test(path) ? h('button.primary', { text: '▶ Preview', onclick: () => openPreview(path) }) : null, h('button.secondary', { text: '⬇ Download', onclick: () => downloadPath(path) }), h('button.secondary', { text: '← Back', onclick: () => filesSheet(path.split('/').slice(0, -1).join('/')) }));
   try {
     const d = await api(`/api/sessions/${S.cur.id}/file?path=${encodeURIComponent(path)}`);
     pre.textContent = d.binary ? `(binary file, ${d.size} bytes)` : d.text + (d.truncated ? '\n… truncated' : '');
@@ -937,6 +1003,27 @@ function evDraw() {
   box.replaceChildren(...parts);
 }
 
+/* ============================================================ live preview */
+const PV = { path: '', url: '' };
+async function openPreview(path) {
+  if (!S.cur) return;
+  closeSheet();
+  PV.path = path;
+  $('#previewpage').hidden = false;
+  $('#pv-title').textContent = path;
+  await loadPreview();
+}
+async function loadPreview() {
+  const frame = $('#pv-frame');
+  try {
+    const { base } = await api(`/api/sessions/${S.cur.id}/preview-token`, { method: 'POST' });
+    const rel = PV.path.replace(/^\/+/, '').split('/').map(encodeURIComponent).join('/');
+    PV.url = S.api + base + rel;
+    frame.src = PV.url;
+  } catch (e) { toast(e.message, true); }
+}
+function closePreview() { $('#previewpage').hidden = true; $('#pv-frame').src = 'about:blank'; }
+
 /* ============================================================ wiring */
 function wire() {
   $('#in-url').value = S.api || window.AGENT_API || '';
@@ -955,6 +1042,9 @@ function wire() {
   $('#menu-scrim').onclick = closeMenu;
   $('#ev-back').onclick = closeEval;
   $('#set-back').onclick = closeSettings;
+  $('#pv-back').onclick = closePreview;
+  $('#pv-reload').onclick = loadPreview;
+  $('#pv-open').onclick = () => { if (PV.url) window.open(PV.url, '_blank', 'noopener'); };
   $('#dr-settings').onclick = openSettings;
   $('#dr-eval').onclick = () => { closeDrawer(); openEval(); };
   $('#ver').onclick = () => { if (UPD.available) applyUpdate(); else openSettings(); };
@@ -964,7 +1054,7 @@ function wire() {
   $('#btn-attach').onclick = () => $('#file-img').click();
   $('#file-img').onchange = (e) => { [...e.target.files].forEach((f) => attachAny(f).catch((er) => toast(er.message, true))); e.target.value = ''; };
   const input = $('#input');
-  input.addEventListener('input', () => { autoGrow(); slashUpdate(); });
+  input.addEventListener('input', () => { autoGrow(); slashUpdate(); updateSend(); });
   input.addEventListener('keydown', (e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); send(); } });
   input.addEventListener('paste', (e) => { const f = [...(e.clipboardData?.files || [])][0]; if (f) { e.preventDefault(); attachAny(f); } });
   chat().addEventListener('scroll', () => { S.stick = nearBottom(); $('#btn-jump').hidden = S.stick; });

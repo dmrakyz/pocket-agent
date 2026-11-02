@@ -1,5 +1,6 @@
 """The agent loop: model -> tool calls -> permissions -> tools -> repeat. Runs in the background, streams events."""
 import asyncio
+import uuid
 import json
 import re
 import time
@@ -25,6 +26,7 @@ class Run:
         self.approvals: dict[str, asyncio.Future] = {}
         self.pending: dict[str, dict] = {}   # approval id -> event (for reattach)
         self.partial = {"text": "", "reasoning": ""}
+        self.subs: dict[str, dict] = {}                      # live view of sub-agents for the UI panel
         self.sub_count = 0                                   # sub-agents started this turn (all depths)
         self.sub_sem = asyncio.Semaphore(config.SUBAGENT_PARALLEL)   # guards sub-agent model calls
 
@@ -308,6 +310,10 @@ async def run_subagent(run: Run, s: dict, root: Path, description: str, prompt: 
     ref = await resolve_model(model, s["model"])
     label = description[:28]
     await run.emit({"type": "notice", "text": f"sub-agent [{label}] started on {ref.split(':')[-1].split('/')[-1]}"})
+    subid = uuid.uuid4().hex[:6]
+    mshort = ref.split(':')[-1].split('/')[-1]
+    run.subs[subid] = {"id": subid, "label": label, "model": mshort, "depth": depth, "status": "running"}
+    await run.emit({"type": "sub_start", **run.subs[subid]})
 
     allowed = set(tools.SUBAGENT_EDIT_TOOLS if can_edit else tools.SUBAGENT_TOOLS)
     can_nest = depth < config.MAX_SUBAGENT_DEPTH
@@ -328,32 +334,38 @@ async def run_subagent(run: Run, s: dict, root: Path, description: str, prompt: 
     async def notify(t):
         await run.emit({"type": "notice", "text": f"[{label}] {t}"})
 
-    for _ in range(25):
-        async with run.sub_sem:        # only the model call is rate-shared; waiting on children never holds a slot
-            resp = await llm.chat(ref, [{"role": "system", "content": build_system(s, root, True, can_edit)}] + msgs,
-                                  sch, nop, nop, notify, thinking=False)
-        m = resp["message"]
-        msgs.append({k: v for k, v in m.items() if not k.startswith("_")})
-        calls = m.get("tool_calls")
-        if not calls:
-            final = m.get("content") or ""
-            break
+    ok = False
+    try:
+        for _ in range(25):
+            async with run.sub_sem:        # only the model call is rate-shared; waiting on children never holds a slot
+                resp = await llm.chat(ref, [{"role": "system", "content": build_system(s, root, True, can_edit)}] + msgs,
+                                      sch, nop, nop, notify, thinking=False)
+            m = resp["message"]
+            msgs.append({k: v for k, v in m.items() if not k.startswith("_")})
+            calls = m.get("tool_calls")
+            if not calls:
+                final = m.get("content") or ""
+                break
 
-        async def one(c):
-            try:
-                a = json.loads(c["function"]["arguments"] or "{}")
-            except json.JSONDecodeError:
-                a = {}
-            await run.emit({"type": "notice", "text": f"[{label}] ↳ {c['function']['name']} {json.dumps(a)[:90]}"})
-            r = await gated_execute(run, s, ctx, c, allowed=allowed, label=f"sub-agent: {label}")
-            return {"role": "tool", "tool_call_id": c["id"], "content": r["text"]}
+            async def one(c):
+                try:
+                    a = json.loads(c["function"]["arguments"] or "{}")
+                except json.JSONDecodeError:
+                    a = {}
+                await run.emit({"type": "notice", "text": f"[{label}] ↳ {c['function']['name']} {json.dumps(a)[:90]}"})
+                r = await gated_execute(run, s, ctx, c, allowed=allowed, label=f"sub-agent: {label}")
+                return {"role": "tool", "tool_call_id": c["id"], "content": r["text"]}
 
-        if len(calls) > 1 and all(c["function"]["name"] in PARALLEL_OK for c in calls):
-            msgs.extend(await asyncio.gather(*[one(c) for c in calls]))
-        else:
-            for c in calls:
-                msgs.append(await one(c))
-    return final or "(sub-agent produced no report)"
+            if len(calls) > 1 and all(c["function"]["name"] in PARALLEL_OK for c in calls):
+                msgs.extend(await asyncio.gather(*[one(c) for c in calls]))
+            else:
+                for c in calls:
+                    msgs.append(await one(c))
+        ok = bool(final)
+        return final or "(sub-agent produced no report)"
+    finally:
+        run.subs[subid]["status"] = "done" if ok else "failed"
+        await run.emit({"type": "sub_end", "id": subid, "status": run.subs[subid]["status"]})
 
 
 PARALLEL_OK = {"task", "read", "glob", "grep", "web_fetch", "web_search"}
@@ -447,6 +459,8 @@ async def run_turn(s: dict, run: Run):
                     tm["_diff"] = res["diff"]
                 if res.get("file"):
                     tm["_file"] = res["file"]
+                if res.get("preview"):
+                    tm["_preview"] = res["preview"]
                 await commit_message(run, s, tm)
             if any(c["function"]["name"] == "exit_plan_mode" and s.get("mode") == "plan" for c in calls):
                 # plan was denied (mode still plan): stop and let the user respond

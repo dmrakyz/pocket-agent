@@ -51,12 +51,15 @@ Render's free tier sleeps after 15 min without inbound requests. Your agent call
 - **Mode chip**: *Ask* (asks before edits and commands), *Auto-edit*, *Plan* (read-only research, then you approve a plan), *YOLO* (no asking).
 - **Files button** (top right): browse, download and upload workspace files.
 - **Menu (⋯)**: chat actions only: rename, compact context, **Autopilot** (keeps going until it says `DONE:`, within a 300-step budget), save to GitHub.
+- **Typing while it works:** your message queues (shown above the input, ✕ to remove) and sends when the agent finishes. **⟳ Regenerate** under the last answer redoes it, and ↺ on your own message edits and resends it.
+- **Live preview:** ask it to build a web page; it shows a *Preview* card that opens the page inside the app (sandboxed). Also ▶ next to any `.html` in the file browser.
+- **Sub-agent bar:** above the input, shows each sub-agent, its model and whether it's running.
 - **＋**: attach images (the model sees them) or **any file / zip** (uploaded into the workspace, archives are unpacked).
 - **↺** next to your messages rewinds the chat *and* restores the files to that point.
 - `/compact` summarizes old context. Context also auto-compacts.
 
 ## What it can do
-Read, write, edit, multi-edit, glob, grep, bash (incl. background jobs), web search (DuckDuckGo, no key) and fetch, todo list, git commit/push, pull requests, **sub-agents** (parallel, own model each, nestable 2 levels, optional edit rights), skills, slash commands, hooks, remote MCP servers, plan mode, rewind, auto-compaction, file upload/download, share-a-file-with-me.
+Read, write, edit, multi-edit, glob, grep, bash (incl. background jobs), live page preview, web search (DuckDuckGo, no key) and fetch, todo list, git commit/push, pull requests, **sub-agents** (parallel, own model each, nestable 2 levels, optional edit rights), skills, slash commands, hooks, remote MCP servers, plan mode, rewind, auto-compaction, file upload/download, share-a-file-with-me.
 
 ### Per-project customization (files in the repo)
 - `AGENT.md` (or `CLAUDE.md`): instructions loaded every session.

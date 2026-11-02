@@ -56,9 +56,11 @@
     </main>
     <button id="btn-jump" class="jump" hidden aria-label="Jump to latest">↓</button>
 
+    <div id="subbar" class="todobar" hidden></div>
     <div id="todobar" class="todobar" hidden></div>
     <div id="slashbox" class="slashbox" hidden></div>
     <footer>
+      <div id="queuebar" class="queuebar" hidden></div>
       <div id="attach-preview" class="attach-preview" hidden></div>
       <div class="composer">
         <textarea id="input" rows="1" placeholder="Message the agent…" enterkeyhint="send"></textarea>
@@ -104,6 +106,17 @@
 
   <!-- update banner -->
   <div id="update-banner" class="update-banner" hidden><span id="update-text">Update available</span><button id="btn-update">Update</button></div>
+
+  <!-- live preview of a built page -->
+  <section id="previewpage" class="screen overlay" hidden>
+    <header>
+      <button id="pv-back" class="icon" aria-label="Close preview">←</button>
+      <div class="title-wrap"><div id="pv-title" class="title"></div><div class="subtitle">Live preview · sandboxed</div></div>
+      <button id="pv-reload" class="icon" aria-label="Reload preview">↻</button>
+      <button id="pv-open" class="icon" aria-label="Open in browser">⧉</button>
+    </header>
+    <iframe id="pv-frame" class="pv-frame" title="Preview" sandbox="allow-scripts allow-forms allow-modals allow-popups allow-pointer-lock" referrerpolicy="no-referrer"></iframe>
+  </section>
 
   <!-- settings page -->
   <section id="settings" class="screen overlay" hidden>

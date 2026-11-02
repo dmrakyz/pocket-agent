@@ -188,8 +188,8 @@ async def create_session(body: dict):
 def run_state(sid: str) -> dict:
     r = agent.runs.get(sid)
     if r and not r.done:
-        return {"running": True, "seq": r.seq, "partial": r.partial, "pending": list(r.pending.values())}
-    return {"running": False, "seq": r.seq if r else 0, "partial": None, "pending": []}
+        return {"running": True, "seq": r.seq, "partial": r.partial, "pending": list(r.pending.values()), "subs": list(r.subs.values())}
+    return {"running": False, "seq": r.seq if r else 0, "partial": None, "pending": [], "subs": list(r.subs.values()) if r else []}
 
 
 def commands_for(sid: str) -> list[str]:
@@ -462,3 +462,42 @@ async def download(sid: str, path: str = ""):
 async def boom(request: Request, exc: Exception):
     return JSONResponse({"detail": f"{type(exc).__name__}: {exc}"}, status_code=500,
                         headers={"Access-Control-Allow-Origin": "*"})
+
+
+# ------------------------------------------------------------------ live preview of built pages
+# The page is served from the workspace under a URL carrying a short-lived token scoped to ONE chat, with a CSP
+# sandbox (opaque origin): model-written page JS can't reach the app, its token, or other chats.
+def _preview_sig(sid: str, exp: str) -> str:
+    return hmac.new(config.APP_SECRET.encode(), f"preview:{sid}:{exp}".encode(), hashlib.sha256).hexdigest()
+
+
+@app.post("/api/sessions/{sid}/preview-token", dependencies=[Depends(auth)])
+async def preview_token(sid: str):
+    s = get_session(sid)
+    await workspace.ensure_workspace(s)
+    exp = str(int(time.time()) + 3600)
+    return {"base": f"/preview/{sid}/{exp}.{_preview_sig(sid, exp)}/"}
+
+
+@app.get("/preview/{sid}/{ptoken}/{path:path}")
+async def preview_serve(sid: str, ptoken: str, path: str = ""):
+    try:
+        exp, sig = ptoken.split(".", 1)
+        ok = hmac.compare_digest(sig, _preview_sig(sid, exp)) and int(exp) > time.time()
+    except Exception:  # noqa: BLE001
+        ok = False
+    if not ok:
+        raise HTTPException(403, "preview link expired; reopen it from the app")
+    root = workspace.ws_path(sid).resolve()
+    target = (root / path).resolve()
+    if target != root and root not in target.parents:
+        raise HTTPException(403, "outside the workspace")
+    if ".git" in target.relative_to(root).parts:
+        raise HTTPException(403, "not available")
+    if target.is_dir():
+        target = target / "index.html"
+    if not target.is_file():
+        raise HTTPException(404, "no such file in the workspace")
+    return FileResponse(target, headers={
+        "Content-Security-Policy": "sandbox allow-scripts allow-forms allow-modals allow-popups allow-pointer-lock",
+        "Access-Control-Allow-Origin": "*", "X-Content-Type-Options": "nosniff", "Cache-Control": "no-store"})
