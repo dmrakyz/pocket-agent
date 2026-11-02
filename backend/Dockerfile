@@ -12,6 +12,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 RUN playwright install --with-deps chromium && chmod -R a+rX /ms-playwright && rm -rf /var/lib/apt/lists/*
 COPY app ./app
+COPY skills ./skills
 
 # Run as a normal user: the agent's shell can't touch the system.
 RUN useradd -m -u 1000 agent && mkdir -p /tmp/agent && chown -R agent /app /tmp/agent

@@ -153,3 +153,6 @@ Each connector has a policy (Connectors screen): **Ask before writes** (default:
 
 ### Usage
 Settings → Usage shows tokens (in/out), runs and model calls per day for the last two weeks, split by model. Counts are kept on the server (kv `usage`, flushed at most every two minutes and on shutdown). Free tiers have no bill; this is for seeing what a routine or a long run actually burns.
+
+### Office files, PDFs and charts
+`backend/skills/` ships built-in skills the agent can load with the `skill` tool: **office-docs** (Word, Excel, PowerPoint via python-docx, openpyxl, python-pptx) and **pdf-and-charts** (reportlab, matplotlib). They are listed in every chat's instructions; a skill with the same name in your workspace (`.agent/skills/`) overrides them. The test suite runs every recipe in them, so the examples are known to work.

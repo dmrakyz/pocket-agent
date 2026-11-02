@@ -276,6 +276,29 @@ async def memory_test():
     print("PASS memory: notes, secrets refused, prompt, tools, import parsing, distill")
 asyncio.run(memory_test())
 
+# built-in skills: listed for every workspace, and every recipe in them actually runs
+def skills_test():
+    import subprocess, re as _re, sys
+    root = Path(tempfile.mkdtemp())
+    sk = T.find_skills(root)
+    assert "office-docs" in sk and "pdf-and-charts" in sk, list(sk)
+    (root / ".agent/skills/office-docs").mkdir(parents=True); (root / ".agent/skills/office-docs/SKILL.md").write_text("---\nname: office-docs\ndescription: mine\n---\n")
+    assert T.skill_description(T.find_skills(root)["office-docs"]) == "mine", "a workspace skill overrides the built-in one"
+    n = 0
+    for name, path in sk.items():
+        if name not in ("office-docs", "pdf-and-charts"): continue
+        path = T.BUILTIN_SKILLS / name / "SKILL.md"
+        work = Path(tempfile.mkdtemp())
+        for code in _re.findall(r"```python\n(.*?)```", path.read_text(), _re.S):
+            r = subprocess.run([sys.executable, "-c", code], cwd=work, capture_output=True, text=True, timeout=120)
+            assert r.returncode == 0, f"{name} recipe failed:\n{r.stderr[-400:]}"
+            n += 1
+        outs = [f.name for f in work.rglob("*") if f.is_file()]
+        assert outs, f"{name} recipes produced no files"
+    assert n >= 5, n
+    print(f"PASS built-in skills: {n} recipes run and produce files")
+skills_test()
+
 # usage: counts per day and model, throttled flush, view merges unflushed numbers
 async def usage_test():
     from app import usage as U

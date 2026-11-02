@@ -512,6 +512,9 @@ async def t_todo_write(ctx: Ctx, a: dict):
     return "Todo list updated."
 
 
+BUILTIN_SKILLS = Path(__file__).resolve().parent.parent / "skills"
+
+
 def find_skills(root: Path) -> dict[str, Path]:
     out = {}
     for d in (".agent/skills", ".claude/skills"):
@@ -520,6 +523,10 @@ def find_skills(root: Path) -> dict[str, Path]:
             for s in sorted(base.iterdir()):
                 if (s / "SKILL.md").is_file():
                     out.setdefault(s.name, s / "SKILL.md")
+    if BUILTIN_SKILLS.is_dir():                      # shipped with the app; a workspace skill of the same name wins
+        for s in sorted(BUILTIN_SKILLS.iterdir()):
+            if (s / "SKILL.md").is_file():
+                out.setdefault(s.name, s / "SKILL.md")
     return out
 
 
