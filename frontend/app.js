@@ -1309,6 +1309,7 @@ function brFrame(m) {
   if (m.url && document.activeElement !== $('#br-url')) $('#br-url').value = m.url;
   BR.info = Object.assign(BR.info || {}, { url: m.url, w: m.w, h: m.h });
   $('#br-need').hidden = !m.captcha;
+  if (m.captcha) $('#br-need-txt').textContent = 'Bot check on this page. Solve it here, then tell the agent.' + (m.fails && m.fails.length ? ' Not loading? Failed: ' + m.fails.join('; ') : '');
   brCursor(m.cur);
 }
 async function brStream() {

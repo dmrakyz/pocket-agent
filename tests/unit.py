@@ -546,3 +546,37 @@ async def egress_test():
         T._fetch_client, T._check_public, C.EGRESS_PROXY = old
     print("PASS egress proxy: parsing, web_fetch retries through it only after a refusal")
 asyncio.run(egress_test())
+
+# text-only model + attached image: a vision model describes it, once; vision-capable models get the real image
+async def vision_proxy_test():
+    import json
+    from app import agent, config as C, llm
+    calls = []
+    async def fake_chat(model, msgs, tools_, a, b, c, **kw):
+        calls.append(model)
+        return {"message": {"role": "assistant", "content": "A login page with a reCAPTCHA box"}}
+    class R:
+        def __init__(self): self.ev = []
+        async def emit(self, e): self.ev.append(e)
+    old = (llm.chat, C.VISION_MODEL); llm.chat = fake_chat; C.VISION_MODEL = "nvidia:google/gemma-4-31b-it"; agent._IMG_DESC.clear()
+    try:
+        msgs = [{"role": "user", "content": [{"type": "text", "text": "what is this"}, {"type": "image_url", "image_url": {"url": "data:image/png;base64,AAAA"}}]}, {"role": "assistant", "content": "x"}]
+        run = R(); s = {"model": "nvidia:nvidia/nemotron-3-ultra-550b-a55b"}
+        out = await agent.vision_proxy(s, run, msgs)
+        flat = json.dumps(out)
+        assert "image_url" not in flat and "reCAPTCHA box" in flat and "cannot see it directly" in flat and calls == ["nvidia:google/gemma-4-31b-it"], (flat, calls)
+        assert any("can't see images" in e.get("text", "") for e in run.ev), run.ev
+        await agent.vision_proxy(s, R(), msgs); assert len(calls) == 1, "second step must reuse the cached description"
+        assert msgs[0]["content"][1]["type"] == "image_url", "stored message must stay untouched"
+        same = await agent.vision_proxy({"model": "nvidia:google/gemma-4-31b-it"}, R(), msgs); assert same is msgs
+        C.VISION_MODEL = ""; agent._IMG_DESC.clear()
+        async def no_models(): return []
+        old_lm = llm.list_models; llm.list_models = no_models
+        try:
+            out = await agent.vision_proxy(s, R(), msgs); assert "no vision model is configured" in json.dumps(out)
+        finally:
+            llm.list_models = old_lm
+    finally:
+        llm.chat, C.VISION_MODEL = old
+    print("PASS vision proxy: text-only model gets a description, cached, vision models untouched, clear message when none")
+asyncio.run(vision_proxy_test())

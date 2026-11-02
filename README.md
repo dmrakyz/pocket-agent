@@ -190,3 +190,6 @@ The Browser screen is a streamed screencast (Chromium's CDP `Page.startScreencas
 
 ### Getting past datacenter-IP blocks
 Render's IPs are datacenter IPs, and many sites refuse them whatever you do on the page. Set `EGRESS_PROXY` (e.g. `http://user:pass@host:port`, or `socks5://…`) in Render and the Chromium browser sends its page traffic through that proxy (the live view is not proxied); `web_fetch` uses it only as a retry after a 403/429/503. The proxy decides how the site sees you: a residential proxy service looks like a home connection, a datacenter proxy changes nothing. Billing for residential proxies is usually per GB, so only the browser's page loads count. It does not solve captchas, and it isn't meant for sites that forbid automated access.
+
+### Images with text-only models
+If the chat's model can't see images (e.g. Nemotron Ultra 550B), a vision model (`VISION_MODEL`, or one auto-picked: Gemma 4, Nemotron VL/omni, Llama vision…) reads each attached image once and the chat model gets that description in place of the picture, with a notice in the chat. Your original image stays in the chat. If no vision model is available it says so instead of returning an empty reply.

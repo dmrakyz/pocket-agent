@@ -3,6 +3,7 @@ Every network request goes through the same public-internet guard as web_fetch."
 import asyncio
 import os
 import time
+from collections import deque
 from urllib.parse import urlparse
 
 VIEW_W, VIEW_H = 1000, 760
@@ -169,9 +170,11 @@ class Browser:
         self.ok_hosts[host] = time.time() + 120
         return True
 
-    async def _route(self, route):
+    async def _route(self, route, st=None):
         req = route.request
         if req.resource_type == "media" or not await self._allowed(req.url):
+            if st is not None:
+                st["fails"].append(f"{urlparse(req.url).hostname} blocked ({'media' if req.resource_type == 'media' else 'not a public address'})")
             await route.abort("blockedbyclient")
         else:
             await route.continue_()
@@ -200,9 +203,13 @@ class Browser:
         ctx = await self.br.new_context(viewport={"width": VIEW_W, "height": VIEW_H}, accept_downloads=False, locale="en-US",
                                         user_agent=ua, extra_http_headers={"Accept-Language": "en-US,en;q=0.9"}, **kw)
         await ctx.add_init_script(STEALTH_JS)
-        await ctx.route("**/*", self._route)
-        page = await ctx.new_page()
-        st = {"ctx": ctx, "page": page, "last": time.time(), "vw": VIEW_W, "vh": VIEW_H, "cur": None, "captcha": False}
+        st = {"ctx": ctx, "page": None, "last": time.time(), "vw": VIEW_W, "vh": VIEW_H, "cur": None, "captcha": False, "fails": deque(maxlen=12)}
+
+        async def _r(route):
+            await self._route(route, st)
+        await ctx.route("**/*", _r)
+        ctx.on("requestfailed", lambda rq: st["fails"].append(f"{urlparse(rq.url).hostname} {str(rq.failure or 'failed')[:60]}"))
+        st["page"] = await ctx.new_page()
 
         def on_page(p):
             st["page"] = p
@@ -407,7 +414,7 @@ class Browser:
     def _meta(self, st):
         p = st["page"]
         c = st["cur"]
-        return {"url": p.url, "w": st["vw"], "h": st["vh"], "captcha": st["captcha"],
+        return {"url": p.url, "w": st["vw"], "h": st["vh"], "captcha": st["captcha"], "fails": list(st["fails"])[-4:] if st["captcha"] else [],
                 "cur": ({"x": c["x"], "y": c["y"], "k": c["k"], "t": int(c["t"] * 1000), "by": c.get("by", "agent")} if c else None)}
 
     async def stream(self, sid: str):

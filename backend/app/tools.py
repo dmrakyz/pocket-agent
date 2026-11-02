@@ -782,7 +782,7 @@ def _vision_ready(img_path: Path, max_side: int = 1280) -> str:
     return "data:image/jpeg;base64," + base64.b64encode(b.getvalue()).decode()
 
 
-VISION_HINTS = ("vl", "vision", "multimodal", "-vlm", "pixtral", "gemma-3", "llama-3.2-90b", "llama-3.2-11b", "llama-4", "phi-4-multimodal")
+VISION_HINTS = ("vl", "vision", "multimodal", "-vlm", "pixtral", "gemma-3", "gemma-4", "omni", "llama-3.2-90b", "llama-3.2-11b", "llama-4", "phi-4-multimodal")
 
 
 async def vision_model() -> str:

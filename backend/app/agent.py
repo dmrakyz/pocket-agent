@@ -1,5 +1,6 @@
 """The agent loop: model -> tool calls -> permissions -> tools -> repeat. Runs in the background, streams events."""
 import asyncio
+import hashlib
 import uuid
 import json
 import re
@@ -514,7 +515,7 @@ async def run_turn(s: dict, run: Run):
             async def notify(t):
                 await run.emit({"type": "notice", "text": t})
 
-            resp = await llm.chat(s["model"], [{"role": "system", "content": build_system(s, ws)}] + s["messages"],
+            resp = await llm.chat(s["model"], [{"role": "system", "content": build_system(s, ws)}] + await vision_proxy(s, run, s["messages"]),
                                   sch, on_text, on_reason, notify, thinking=s.get("thinking"), effort=s.get("effort"))
             m = resp["message"]
             if resp.get("usage"):
@@ -616,6 +617,59 @@ async def _autosync(s: dict, ws: Path, run: Run):
     msg = await workspace.push(s, ws)
     if "failed" in msg:
         await run.emit({"type": "notice", "text": msg})
+
+
+_IMG_DESC: dict[str, str] = {}
+IMG_PROMPT = ("Describe this image for someone who cannot see it. Transcribe all visible text exactly. Mention the layout, UI elements and their state, "
+              "colours, and anything notable or unusual. Be thorough but concise.")
+
+
+def _vision_capable(ref: str) -> bool:
+    return any(k in ref.split(":", 1)[-1].lower() for k in tools.VISION_HINTS)
+
+
+async def vision_proxy(s: dict, run: Run, msgs: list) -> list:
+    """A text-only model gets a vision model's description of each attached image instead of the picture, so it never answers blind or empty."""
+    if _vision_capable(s["model"]) or not any(isinstance(m.get("content"), list) and any(p.get("type") == "image_url" for p in m["content"]) for m in msgs):
+        return msgs
+    out = []
+    for m in msgs:
+        c = m.get("content")
+        if m.get("role") != "user" or not isinstance(c, list) or not any(p.get("type") == "image_url" for p in c):
+            out.append(m)
+            continue
+        parts = []
+        for p in c:
+            if p.get("type") != "image_url":
+                parts.append(p)
+                continue
+            url = (p.get("image_url") or {}).get("url", "")
+            key = hashlib.sha1(url.encode()).hexdigest()
+            if key not in _IMG_DESC:
+                ref = await tools.vision_model()
+                if not ref:
+                    parts.append({"type": "text", "text": "[The user attached an image, but this model can't see images and no vision model is configured (VISION_MODEL). Tell the user.]"})
+                    continue
+
+                async def nop(*_a):
+                    return None
+                d, err = "", "empty reply"
+                try:
+                    r = await llm.chat(ref, [{"role": "user", "content": [{"type": "text", "text": IMG_PROMPT}, {"type": "image_url", "image_url": {"url": url}}]}], [], nop, nop, nop, thinking=False)
+                    d = (r["message"].get("content") or "").strip()
+                except Exception as e:  # noqa: BLE001
+                    err = str(e)[:120]
+                if not d:
+                    parts.append({"type": "text", "text": f"[The user attached an image, but the vision model could not read it ({err}). Say so.]"})
+                    continue
+                _IMG_DESC[key] = f"{ref.split(':', 1)[-1]}\n{d}"
+                if len(_IMG_DESC) > 60:
+                    _IMG_DESC.pop(next(iter(_IMG_DESC)))
+                await run.emit({"type": "notice", "text": f"{s['model'].split(':', 1)[-1]} can't see images, so {ref.split(':', 1)[-1]} read yours for it"})
+            vm, _, d = _IMG_DESC[key].partition("\n")
+            parts.append({"type": "text", "text": f"[Image attached by the user. You cannot see it directly; the vision model {vm} described it:\n{d}]"})
+        out.append({**m, "content": parts})
+    return out
 
 
 def start(s: dict, text: str, images: Optional[list] = None) -> Run:
