@@ -22,7 +22,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from starlette.background import BackgroundTask
 
 from .browser import browser, BrowserError
-from . import agent, config, evals, kv, llm, mcp, memory, oauth, perms, push, routines, store, tools, usage, workspace
+from . import agent, config, evals, kv, llm, mcp, memory, oauth, perms, push, routines, store, telegram, tools, usage, workspace
 
 mcp_client = mcp.MCP()
 agent.MCP = mcp_client
@@ -36,6 +36,7 @@ async def lifespan(app: FastAPI):
     await push.init()
     routines.start_loop()
     asyncio.create_task(mcp_client.refresh())
+    asyncio.create_task(telegram.init())
     asyncio.create_task(_warm())
     yield
     await browser.shutdown()
@@ -858,3 +859,52 @@ async def connectors_perm(name: str, body: dict):
 @app.get("/api/usage", dependencies=[Depends(auth)])
 async def usage_view():
     return usage.view(14)
+
+
+# ------------------------------------------------------------------ telegram
+@app.post("/telegram/{secret}")
+async def telegram_webhook(secret: str, request: Request):
+    """Telegram calls this. Both the path and Telegram's secret header must match, or it is ignored."""
+    ok = hmac.compare_digest(secret, telegram.path_secret()) and hmac.compare_digest(
+        request.headers.get("x-telegram-bot-api-secret-token", ""), telegram.header_secret())
+    if not telegram.enabled() or not ok:
+        raise HTTPException(404)
+    try:
+        update = await request.json()
+    except Exception:  # noqa: BLE001
+        raise HTTPException(400)
+    asyncio.create_task(telegram.handle(update))
+    return {"ok": True}
+
+
+def _tg_view():
+    return {"enabled": telegram.enabled(), "bot": telegram.status["bot"], "webhook": telegram.status["webhook"],
+            "error": telegram.status["error"], "paired": len(telegram.allowed_ids()), "public_url": config.PUBLIC_URL}
+
+
+@app.get("/api/telegram", dependencies=[Depends(auth)])
+async def telegram_status():
+    return _tg_view()
+
+
+@app.post("/api/telegram/connect", dependencies=[Depends(auth)])
+async def telegram_connect(body: dict):
+    """Point Telegram at this server and return a pairing code."""
+    if not telegram.enabled():
+        raise HTTPException(400, "add TELEGRAM_BOT_TOKEN in Render first")
+    base = str(body.get("base") or config.PUBLIC_URL).strip().rstrip("/")
+    try:
+        if not telegram.status["bot"]:
+            telegram.status["bot"] = (await telegram.call("getMe")).get("username", "")
+        await telegram.set_webhook(base)
+    except telegram.TgError as e:
+        telegram.status["error"] = str(e)
+        raise HTTPException(400, f"Telegram said: {e}")
+    d = telegram.state(); d["base"] = base; await kv.put("telegram", d)
+    return {**_tg_view(), "code": telegram.new_code()}
+
+
+@app.delete("/api/telegram/paired", dependencies=[Depends(auth)])
+async def telegram_unpair():
+    d = telegram.state(); d["allowed"] = []; await kv.put("telegram", d)
+    return _tg_view()

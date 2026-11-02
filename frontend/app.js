@@ -1446,6 +1446,24 @@ function cnAdd() {
   sheet('Add connector', seg, h('label', {}, 'Name', name), h('label', {}, 'Server URL (https)', url), authLabel, note, go);
 }
 
+/* ============================================================ telegram */
+async function openTelegram() {
+  const body = h('div', {}, h('div.dim', { text: 'Loading…' }));
+  sheet('Telegram', body);
+  const draw = (t, code) => {
+    if (!t.enabled) { body.replaceChildren(h('div.dim', { text: 'Message your agent from Telegram, with replies, files and Allow / Deny buttons for approvals.' }),
+      h('ol.dim', { style: 'padding-left:20px;font-size:14px;line-height:1.6' }, h('li', { text: 'In Telegram, open @BotFather and send /newbot. Copy the token it gives you.' }), h('li', { text: 'In Render, add an environment variable TELEGRAM_BOT_TOKEN with that token and redeploy.' }), h('li', { text: 'Come back here and tap Connect.' }))); return; }
+    const kids = [h('div.dim', { style: 'font-size:14px', text: `Bot @${t.bot || '…'} · ${t.paired} paired chat${t.paired === 1 ? '' : 's'}${t.webhook ? ' · connected' : ' · not connected yet'}` })];
+    if (t.error) kids.push(h('div.dim', { style: 'color:var(--bad);font-size:13px', text: t.error }));
+    if (code) kids.push(h('div.paircode', { text: code }), h('div.dim', { style: 'font-size:14px', text: `Open the bot in Telegram${t.bot ? ' (t.me/' + t.bot + ')' : ''} and send:  /pair ${code}   The code works once, for 10 minutes.` }));
+    kids.push(h('button.primary', { text: code ? 'New code' : (t.paired ? 'Pair another account' : 'Connect and get a pairing code'), onclick: async (e) => { e.currentTarget.disabled = true; try { const r = await api('/api/telegram/connect', { body: { base: S.api } }); draw(r, r.code); } catch (er) { toast(er.message, true); e.currentTarget.disabled = false; } } }));
+    if (t.paired) kids.push(h('button.secondary', { text: 'Unpair everything', onclick: async () => { try { draw(await api('/api/telegram/paired', { method: 'DELETE' })); } catch (er) { toast(er.message, true); } } }));
+    kids.push(h('div.dim', { style: 'font-size:12.5px', text: 'Only chats you pair can use the agent. In Telegram: /new, /stop, /mode ask|auto|yolo, /status, /unpair.' }));
+    body.replaceChildren(...kids);
+  };
+  try { draw(await api('/api/telegram')); } catch (e) { body.replaceChildren(h('div.dim', { style: 'color:var(--bad)', text: e.message })); }
+}
+
 /* ============================================================ usage */
 async function openUsage() {
   const body = h('div', {}, h('div.dim', { text: 'Loading…' }));
@@ -1547,6 +1565,7 @@ function drawSettings() {
       row('⏱', 'Routines', openRoutines),
       row('◍', 'Memory', openMemory, MEM.notes.length ? String(MEM.notes.length) : ''),
       row('⚭', 'Connectors', openConnectors),
+      row('✈', 'Telegram', openTelegram),
       row('▤', 'Usage', openUsage),
       row('✓', 'Capability check', openEval),
       row('🔔', 'Push notifications', async () => { if (PUSH.state === 'on') await pushDisable(); else await pushEnable(); drawSettings(); },

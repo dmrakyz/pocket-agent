@@ -25,6 +25,9 @@ GIT_USER_NAME = env("GIT_USER_NAME", "Mobile Agent")
 GIT_USER_EMAIL = env("GIT_USER_EMAIL", "agent@users.noreply.github.com")
 
 DEFAULT_MODEL = env("DEFAULT_MODEL")        # "provider:model-id"; auto-picked if empty
+TELEGRAM_BOT_TOKEN = env("TELEGRAM_BOT_TOKEN")
+TELEGRAM_ALLOWED_IDS = {int(x) for x in env("TELEGRAM_ALLOWED_IDS").replace(" ", "").split(",") if x.lstrip("-").isdigit()}
+PUBLIC_URL = (env("PUBLIC_URL") or env("RENDER_EXTERNAL_URL")).rstrip("/")
 IMAGE_MODEL = env("IMAGE_MODEL", "black-forest-labs/flux.1-schnell")   # text-to-image model on NVIDIA
 IMAGE_BASE_URL = env("IMAGE_BASE_URL", "https://ai.api.nvidia.com/v1/genai")
 VISION_MODEL = env("VISION_MODEL")            # model used by view_image; auto-picked if empty
@@ -96,4 +99,5 @@ def mcp_servers() -> list:
 SECRET_ENV_KEYS = {
     "APP_PASSWORD", "APP_SECRET", "GITHUB_TOKEN", "NVIDIA_API_KEY", "OPENROUTER_API_KEY", "OPENAI_API_KEY",
     "ANTHROPIC_API_KEY", "GEMINI_API_KEY", "PROVIDERS_JSON", "MCP_SERVERS", "TAVILY_API_KEY", "BRAVE_API_KEY",
+    "TELEGRAM_BOT_TOKEN",
 }

@@ -445,3 +445,5 @@ label.memrow { flex-direction: row; gap: 12px; align-items: flex-start; }
 .uday { font: 12.5px var(--mono); color: var(--dim); } .unum { font: 13px var(--mono); text-align: right; }
 .ubar { height: 8px; border-radius: 6px; background: var(--panel2); overflow: hidden; } .ubar i { display: block; height: 100%; background: var(--accent); border-radius: 6px; }
 .usub { grid-column: 2 / 4; font-size: 12px; color: var(--dim); }
+
+.paircode { font: 700 34px var(--mono); letter-spacing: .18em; text-align: center; padding: 14px; border-radius: 14px; background: var(--panel2); border: 1px solid var(--line); user-select: all; }

@@ -159,3 +159,10 @@ Settings → Usage shows tokens (in/out), runs and model calls per day for the l
 
 ### Image generation
 `generate_image` calls NVIDIA's hosted text-to-image endpoint (default `black-forest-labs/flux.1-schnell`, 4 steps; square, wide or tall) with your existing `NVIDIA_API_KEY`, saves the result in the workspace and shows it in the chat. Override with `IMAGE_MODEL` / `IMAGE_BASE_URL`. If the key has no access to the model, the tool says so plainly. Verified against NVIDIA's docs and fake servers only; not yet against the live endpoint.
+
+### Telegram
+Message the agent from Telegram: answers, files (images and documents it produces arrive as photos/files), and Allow / Deny buttons for approvals.
+
+Setup: in Telegram talk to **@BotFather**, `/newbot`, copy the token. In Render add `TELEGRAM_BOT_TOKEN` and redeploy (Render provides `RENDER_EXTERNAL_URL`; otherwise set `PUBLIC_URL`). In the app: Settings → Telegram → Connect, then send `/pair CODE` to your bot. Commands: `/new`, `/stop`, `/mode ask|auto|yolo`, `/status`, `/unpair`. Photos and files you send are passed to the agent (files land in `uploads/`).
+
+Security: Telegram calls `/telegram/<secret>` and must also send a matching secret-token header, so the endpoint cannot be guessed or spoofed. Only chats paired with a one-time code (10 minutes) are served; everyone else gets a "private bot" reply and nothing runs. Optional `TELEGRAM_ALLOWED_IDS` pre-approves chat ids. The token is hidden from the agent's shell. Not supported: voice notes (the bot says so). Tested end to end against a fake Telegram server, not the real one.
