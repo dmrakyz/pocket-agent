@@ -67,8 +67,10 @@ def _check_cpp(root, final):
 
 
 def _check_tools(root, final):
-    last = [l for l in final.splitlines() if l.strip().upper().startswith("TOOLS=")]
-    got = last[-1].lower() if last else ""
+    import re
+    plain = re.sub(r"[*`]+", "", final)             # models like to bold or code-format the answer line
+    hits = re.findall(r"TOOLS\s*=\s*([^\n]*)", plain, re.I)
+    got = hits[-1].lower() if hits else ""
     miss = [t for t in ("connector_add", "skill_create", "routine_create") if t not in got]
     return not miss, ("names all three tools" if not miss else "missing or wrong: " + ", ".join(miss) + " | " + final[-120:])
 

@@ -1168,3 +1168,16 @@ def denial_test():
     assert "capabilities" in T.READONLY
     print("PASS denial guard: catches wrong refusals, ignores true ones, capabilities lists live registry")
 denial_test()
+
+
+def eval_tools_check_test():
+    from app import evals
+    ok = lambda t: evals._check_tools(None, t)[0]
+    assert ok("yes\nTOOLS=connector_add,skill_create,routine_create")
+    assert ok("**TOOLS=connector_add,skill_create,routine_create**")
+    assert ok("`TOOLS = connector_add, skill_create, routine_create`\n")
+    assert ok("Sure.\n\n**TOOLS=connector_add,skill_create,routine_create**\nAnything else?")
+    assert not ok("TOOLS=connector_add,skill_create"), "missing one"
+    assert not ok("I can't do that"), "no line at all"
+    print("PASS eval 'Knows its own tools' checker accepts bold/backtick formatting, rejects missing tools")
+eval_tools_check_test()
