@@ -1,5 +1,15 @@
 [
  {
+  "id": 9,
+  "date": "2026-11-03",
+  "title": "Run servers, publish sites, upload anything",
+  "items": [
+   "Live dev server: it can run a Flask/Node app and you use it right in the app (serve)",
+   "One-tap publish to GitHub Pages (you approve every time)",
+   "File picker fixed: any file type, several at once (iOS greyed out non-images)"
+  ]
+ },
+ {
   "id": 8,
   "date": "2026-11-03",
   "title": "It can build bigger things, and checks its work",

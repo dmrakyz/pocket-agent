@@ -27,7 +27,7 @@ NEVER_ALWAYS = {"rm", "sudo", "dd", "chmod", "chown", "bash", "sh", "eval", "cur
                 "kill", "pkill", "mv", "env", "xargs", "python", "python3", "node", "perl", "ruby", "git"}
 
 
-ALWAYS_ASK = {"connector_add", "routine_create", "routine_update", "world_create", "send_email", "forge_tool", "skill_create"}
+ALWAYS_ASK = {"publish_pages", "connector_add", "routine_create", "routine_update", "world_create", "send_email", "forge_tool", "skill_create"}
 
 
 def _segments(cmd: str) -> list[str] | None:
@@ -94,7 +94,7 @@ def matches_rule(rules: list[str], tool: str, args: dict) -> bool:
 def decide(session: dict, tool: str, args: dict) -> tuple[str, str]:
     """Returns ('allow'|'ask'|'deny', reason)."""
     mode = session.get("mode", "ask")
-    if tool == "bash":
+    if tool in ("bash", "serve"):
         cmd = args.get("command", "")
         for rx, why in HARD_DENY:
             if rx.search(cmd):
@@ -118,6 +118,10 @@ def decide(session: dict, tool: str, args: dict) -> tuple[str, str]:
         if mode == "plan":
             return "deny", "Plan mode is read-only. Describe it in your plan instead."
         return "ask", {"routine_create": "Schedule this routine?", "routine_update": "Change this routine?", "world_create": "Start this world?"}[tool]
+    if tool == "publish_pages":   # puts files on the public internet: the user sees repo + folder and decides every time, in any mode
+        if mode == "plan":
+            return "deny", "Plan mode is read-only. Describe what you would publish in your plan instead."
+        return "ask", "Publish this to GitHub Pages?"
     if tool == "skill_create":   # a permanent instruction every future chat will follow: the user reads it first, every time
         if mode == "plan":
             return "deny", "Plan mode is read-only. Describe the skill in your plan instead."

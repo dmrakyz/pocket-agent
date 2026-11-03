@@ -225,6 +225,12 @@ BASE_TOOLS = [
         {"name": {"type": "string", "description": "short, lowercase, letters/digits/-"}, "description": {"type": "string", "description": "one line: when to use it"},
          "instructions": {"type": "string", "description": "the SKILL.md body (markdown)"}}, ["name", "description", "instructions"]),
     _fn("capabilities", "List every tool you have right now (built from the live registry, so it is always correct), grouped by what it does, and say which ones ask the user for approval. Call this BEFORE telling the user you can't do something.", {}, []),
+    _fn("serve", "Start a dev server for the user to use live in the app (Flask, FastAPI, Node/Express, `python3 -m http.server`...). Your command MUST listen on 127.0.0.1 at the port in $PORT. "
+        "Pages must use RELATIVE urls (`api/items`, not `/api/items`) because the app serves them under a prefix. One server per chat; starting another replaces it. Returns once the port answers, with the log if it doesn't. The user opens it from a card.",
+        {"command": {"type": "string", "description": "e.g. `python3 app.py` or `node server.js`; read $PORT for the port"}}, ["command"]),
+    _fn("serve_stop", "Stop this chat's dev server.", {}, []),
+    _fn("publish_pages", "Publish a folder of static files (must contain index.html) to GitHub Pages on a repo the user owns (branch gh-pages). The user approves every time and it becomes PUBLIC on the internet. Returns the live URL.",
+        {"folder": {"type": "string", "description": "workspace folder, default '.'"}, "repo": {"type": "string", "description": "owner/name; created (public) if missing. Default: the user's `pages-<chat title>` style repo you pick, ask via ask_user if unsure"}}, ["repo"]),
     _fn("pack_list", "List the optional toolchain packs (Python science stack, C/C++ toolchain, Emscripten) and whether each is installed.", {}, []),
     _fn("pack_enable", "Install an optional toolchain pack so bash can use it from the next call: py-science (scipy, pandas, sympy, scikit-learn, networkx), "
         "cpp (cmake, ninja, clang), emscripten (emcc/em++, C/C++ to WebAssembly). Only when the task needs it. Big downloads: it may answer 'still installing', then call it again.",
@@ -943,6 +949,81 @@ async def t_capabilities(ctx: Ctx, a: dict):
     return f"You have {len(rows)} tools right now:\n" + "\n".join(rows) + "\nA tool that needs approval is still YOURS to call: the user taps Allow. Never say you can't do something one of these does."
 
 
+SERVERS: dict[str, dict] = {}     # session id -> {"port", "jid"}
+
+
+def _free_port() -> int:
+    with socket.socket() as so:
+        so.bind(("127.0.0.1", 0))
+        return so.getsockname()[1]
+
+
+def _port_open(port: int) -> bool:
+    try:
+        with socket.create_connection(("127.0.0.1", port), timeout=0.5):
+            return True
+    except OSError:
+        return False
+
+
+def _stop_server(sid: str) -> bool:
+    sv = SERVERS.pop(sid, None)
+    if not sv:
+        return False
+    j = JOBS.get(sv["jid"])
+    if j:
+        try:
+            os.killpg(j["p"].pid, signal.SIGKILL)
+        except (ProcessLookupError, PermissionError):
+            pass
+    return True
+
+
+async def t_serve(ctx: Ctx, a: dict):
+    cmd = str(a.get("command") or "").strip()
+    if not cmd:
+        raise ToolError("command is required")
+    sid = ctx.session["id"]
+    _stop_server(sid)
+    port = _free_port()
+    env = workspace.clean_env()
+    env.update({"PORT": str(port), "HOST": "127.0.0.1", "FLASK_RUN_PORT": str(port), "FLASK_RUN_HOST": "127.0.0.1"})
+    JOB_DIR.mkdir(parents=True, exist_ok=True)
+    jid = "job_" + uuid.uuid4().hex[:6]
+    log = JOB_DIR / f"{jid}.log"
+    f = open(log, "wb")
+    p = await asyncio.create_subprocess_shell(cmd, cwd=str(ctx.root), env=env, stdout=f, stderr=asyncio.subprocess.STDOUT,
+                                              executable="/bin/bash", start_new_session=True)
+    JOBS[jid] = {"p": p, "log": log, "pos": 0, "session": sid, "memflag": {}, "t0": time.time()}
+    asyncio.create_task(_mem_guard(p, JOBS[jid]["memflag"]))
+    for _ in range(60):          # up to ~15 s for it to start listening
+        if p.returncode is not None or _port_open(port):
+            break
+        await asyncio.sleep(0.25)
+    if p.returncode is not None or not _port_open(port):
+        out = await _job_read(jid, ctx.session)
+        if p.returncode is None:
+            try:
+                os.killpg(p.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+        raise ToolError(f"the server did not start listening on 127.0.0.1:{port} ($PORT). Log:\n{out}")
+    SERVERS[sid] = {"port": port, "jid": jid}
+    return {"text": f"Server is up on 127.0.0.1:{port} (job {jid}, read its log with bash_output). The user can open it live from a card in this chat. Use relative URLs in the pages.", "preview": "live:"}
+
+
+async def t_serve_stop(ctx: Ctx, a: dict):
+    return "stopped" if _stop_server(ctx.session["id"]) else "no server was running"
+
+
+async def t_publish_pages(ctx: Ctx, a: dict):
+    from . import pages
+    folder = ctx.resolve(a.get("folder") or ".", must_exist=True)
+    if not folder.is_dir() or not (folder / "index.html").exists():
+        raise ToolError("that folder has no index.html")
+    return await pages.publish(folder, str(a.get("repo") or ""))
+
+
 async def t_pack_list(ctx: Ctx, a: dict):
     from . import packs
     rows = packs.status()
@@ -1494,7 +1575,7 @@ HANDLERS: dict[str, Callable[[Ctx, dict], Awaitable[Any]]] = {
     "image_search": t_image_search, "fetch_image": t_fetch_image, "view_image": t_view_image,
     "annotate_image": t_annotate_image, "models": t_models, "connector_search": t_connector_search, "connector_add": t_connector_add, "skill_create": t_skill_create, "routine_list": t_routine_list, "routine_create": t_routine_create, "routine_update": t_routine_update,
     "world_list": t_world_list, "world_read": t_world_read, "world_create": t_world_create, "world_say": t_world_say,
-    "generate_image": t_generate_image, "send_email": t_send_email, "forge_tool": t_forge_tool, "forge_list": t_forge_list, "ask_user": t_ask_user, "repo_map": t_repo_map, "find_symbol": t_find_symbol, "pack_list": t_pack_list, "capabilities": t_capabilities, "pack_enable": t_pack_enable, "create_app": t_create_app, "app_list": t_app_list, "app_read": t_app_read, "memory_save": t_memory_save, "memory_forget": t_memory_forget, "memory_list": t_memory_list,
+    "generate_image": t_generate_image, "send_email": t_send_email, "forge_tool": t_forge_tool, "forge_list": t_forge_list, "ask_user": t_ask_user, "repo_map": t_repo_map, "find_symbol": t_find_symbol, "pack_list": t_pack_list, "serve": t_serve, "serve_stop": t_serve_stop, "publish_pages": t_publish_pages, "capabilities": t_capabilities, "pack_enable": t_pack_enable, "create_app": t_create_app, "app_list": t_app_list, "app_read": t_app_read, "memory_save": t_memory_save, "memory_forget": t_memory_forget, "memory_list": t_memory_list,
     "browser_read": t_browser_read, "browser_act": t_browser_act,
 }
 

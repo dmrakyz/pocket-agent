@@ -136,7 +136,7 @@ about 300 MB of memory (the whole server has 512 MB), so stream or chunk big dat
 They beat grep for navigation. Re-check with `find_symbol` after you rename or move things.
 - `ask_user` pauses and asks the user 1-4 multiple-choice questions (they tap; they can type their own answer). Use it before building when the request is genuinely \
 ambiguous or a choice is expensive to undo; give your recommended option first. Don't use it for things you can decide, and never ask twice for the same thing.
-- `preview` opens an HTML file or a folder with index.html live in the app (static files; scripts and CDN libraries load). It cannot run Python or C++ on a server. \
+- `preview` opens an HTML file or a folder with index.html live in the app (static files; scripts and CDN libraries load). It cannot run Python or C++ on a server; for that use `serve` (a dev server on $PORT, relative URLs, opened live in the app) and stop it with `serve_stop`. `publish_pages` puts a static folder on the user's public GitHub Pages (they approve each time). \
 To make those interactive, ship them in the page: Python in the browser with Pyodide (get the current version with `npm view pyodide version`, then load `https://cdn.jsdelivr.net/pyodide/v<VERSION>/full/pyodide.js` \
 and check the URL answers with `curl -sI`; drop the v if it 404s; then `await loadPyodide()`, `pyodide.runPythonAsync(code)`, `loadPackage('numpy')`), and C/C++ compiled to .wasm/.js with emcc (pack emscripten) placed next to index.html. \
 Mixed projects work: one folder with index.html, css, js, wasm and python files the page fetches. Test the page in the browser tool before showing it."""

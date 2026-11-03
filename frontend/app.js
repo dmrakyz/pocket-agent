@@ -428,7 +428,7 @@ function scrollDown(force) {
   if (force || S.stick) c.scrollTop = c.scrollHeight;
 }
 const ICONS = { read: '▤', write: '✎', edit: '✎', multiedit: '✎', bash: '$', bash_output: '$', kill_bash: '■', grep: '⌕', glob: '✱',
-  web_fetch: '◎', web_search: '◎', browser_read: '◫', browser_act: '◫', todo_write: '☑', task: '⋔', skill: '★', git_sync: '⎇', create_pr: '⎇', exit_plan_mode: '☰', share_file: '⬇', preview: '▶', view_3d: '◈', image_search: '⌕', fetch_image: '▣', view_image: '◉', annotate_image: '✐', generate_image: '✦', send_email: '✉', connector_add: '⚭', routine_list: '⏱', routine_create: '⏱', routine_update: '⏱', world_list: '🌍', world_read: '🌍', world_create: '🌍', world_say: '🌍', create_app: '▦', app_list: '▦', app_read: '▦', forge_tool: '⚒', forge_list: '⚒', pack_list: '⚙', pack_enable: '⚙', skill_create: '✦', ask_user: '?', repo_map: '⌖', find_symbol: '⌖', models: '⋔', connector_search: '⌕' };
+  web_fetch: '◎', web_search: '◎', browser_read: '◫', browser_act: '◫', todo_write: '☑', task: '⋔', skill: '★', git_sync: '⎇', create_pr: '⎇', exit_plan_mode: '☰', share_file: '⬇', preview: '▶', view_3d: '◈', image_search: '⌕', fetch_image: '▣', view_image: '◉', annotate_image: '✐', generate_image: '✦', send_email: '✉', connector_add: '⚭', routine_list: '⏱', routine_create: '⏱', routine_update: '⏱', world_list: '🌍', world_read: '🌍', world_create: '🌍', world_say: '🌍', create_app: '▦', app_list: '▦', app_read: '▦', forge_tool: '⚒', forge_list: '⚒', pack_list: '⚙', pack_enable: '⚙', serve: '▶', serve_stop: '■', publish_pages: '🌐', capabilities: '☰', skill_create: '✦', ask_user: '?', repo_map: '⌖', find_symbol: '⌖', models: '⋔', connector_search: '⌕' };
 function toolSummary(name, a) {
   a = a || {};
   switch (name) {
@@ -443,6 +443,8 @@ function toolSummary(name, a) {
     case 'app_read': return a.id || '';
     case 'routine_create': case 'world_create': return a.name || '';
     case 'pack_enable': return a.name || '';
+    case 'serve': return (a.command || '').slice(0, 60);
+    case 'publish_pages': return a.repo || '';
     case 'skill_create': return (a.name || '') + ' · ' + (a.description || '').slice(0, 50);
     case 'find_symbol': return a.name || '';
     case 'repo_map': return a.path || '.';
@@ -520,7 +522,7 @@ function fillCard(card, call, result, approval) {
   if (result && name !== 'exit_plan_mode' && !(result._diff && !result._error) && !(name === 'create_app' && result._app)) body.append(h('div.lbl', { text: 'output' }), h('pre', { text: result.content || '' }));
   if (result && result._browser) body.append(h('div', { style: 'padding:10px 12px' }, h('button.primary.small', { text: '◫ Open browser', onclick: openBrowser })));
   if (result && result._image) body.append(imgNode(result._image, call.id));
-  if (result && result._preview) body.append(h('div', { style: 'padding:10px 12px' }, h('button.primary.small', { text: '▶ Open preview', onclick: () => openPreview(result._preview) })));
+  if (result && result._preview) body.append(h('div', { style: 'padding:10px 12px' }, h('button.primary.small', { text: result._preview.startsWith('live:') ? '▶ Open live server' : '▶ Open preview', onclick: () => openPreview(result._preview) })));
   if (result && result._app) body.append(h('div', { style: 'padding:10px 12px;display:flex;align-items:center;gap:10px' },
     h('div', { style: 'flex:1;min-width:0;font-weight:600', text: ((a.icon || '▦') + ' ' + (a.name || 'App')).trim() }),
     h('button.primary.small', { text: 'Open app', onclick: () => openApp(result._app, a.name) })));
@@ -605,7 +607,7 @@ const KIND = { bash: ['Ran', 'command', 'commands'], bash_output: ['Ran', 'comma
   read: ['Read', 'file', 'files'], glob: ['Searched', 'folder', 'folders'], grep: ['Searched', 'code search', 'code searches'],
   write: ['Edited', 'file', 'files'], edit: ['Edited', 'file', 'files'], multiedit: ['Edited', 'file', 'files'], annotate_image: ['Edited', 'image', 'images'],
   web_fetch: ['Opened', 'page', 'pages'], web_search: ['Searched the web', 'time', 'times'], browser_read: ['Browsed', 'page', 'pages'], browser_act: ['Used the browser', 'time', 'times'], image_search: ['Searched images', 'time', 'times'],
-  fetch_image: ['Downloaded', 'image', 'images'], generate_image: ['Generated', 'image', 'images'], send_email: ['Sent', 'email', 'emails'], connector_add: ['Proposed', 'connector', 'connectors'], routine_list: ['Listed', 'routines', 'routine lists'], routine_create: ['Scheduled', 'routine', 'routines'], routine_update: ['Updated', 'routine', 'routines'], world_list: ['Listed', 'worlds', 'world lists'], world_read: ['Read', 'world', 'worlds'], world_create: ['Started', 'world', 'worlds'], world_say: ['Stepped into', 'world', 'worlds'], create_app: ['Built', 'app', 'apps'], app_list: ['Listed', 'app list', 'app lists'], app_read: ['Read', 'app', 'apps'], forge_tool: ['Forged', 'tool', 'tools'], forge_list: ['Listed', 'forged tools', 'forged tool lists'], ask_user: ['Asked', 'question', 'questions'], repo_map: ['Mapped', 'repo', 'repos'], find_symbol: ['Looked up', 'symbol', 'symbols'], skill_create: ['Saved', 'skill', 'skills'], pack_list: ['Listed', 'toolchain pack list', 'toolchain pack lists'], pack_enable: ['Installed', 'toolchain pack', 'toolchain packs'], view_image: ['Looked at', 'image', 'images'], task: ['Delegated', 'task', 'tasks'], git_sync: ['Synced', 'time', 'times'], todo_write: ['Updated', 'task list', 'task lists'], skill: ['Loaded', 'skill', 'skills'], models: ['Checked', 'model list', 'model lists'], connector_search: ['Looked up', 'connector tool', 'connector tools'], create_pr: ['Opened', 'pull request', 'pull requests'] };
+  fetch_image: ['Downloaded', 'image', 'images'], generate_image: ['Generated', 'image', 'images'], send_email: ['Sent', 'email', 'emails'], connector_add: ['Proposed', 'connector', 'connectors'], routine_list: ['Listed', 'routines', 'routine lists'], routine_create: ['Scheduled', 'routine', 'routines'], routine_update: ['Updated', 'routine', 'routines'], world_list: ['Listed', 'worlds', 'world lists'], world_read: ['Read', 'world', 'worlds'], world_create: ['Started', 'world', 'worlds'], world_say: ['Stepped into', 'world', 'worlds'], create_app: ['Built', 'app', 'apps'], app_list: ['Listed', 'app list', 'app lists'], app_read: ['Read', 'app', 'apps'], forge_tool: ['Forged', 'tool', 'tools'], forge_list: ['Listed', 'forged tools', 'forged tool lists'], ask_user: ['Asked', 'question', 'questions'], repo_map: ['Mapped', 'repo', 'repos'], find_symbol: ['Looked up', 'symbol', 'symbols'], skill_create: ['Saved', 'skill', 'skills'], pack_list: ['Listed', 'toolchain pack list', 'toolchain pack lists'], pack_enable: ['Installed', 'toolchain pack', 'toolchain packs'], serve: ['Started', 'dev server', 'dev servers'], serve_stop: ['Stopped', 'dev server', 'dev servers'], publish_pages: ['Published', 'site', 'sites'], capabilities: ['Listed', 'tool list', 'tool lists'], view_image: ['Looked at', 'image', 'images'], task: ['Delegated', 'task', 'tasks'], git_sync: ['Synced', 'time', 'times'], todo_write: ['Updated', 'task list', 'task lists'], skill: ['Loaded', 'skill', 'skills'], models: ['Checked', 'model list', 'model lists'], connector_search: ['Looked up', 'connector tool', 'connector tools'], create_pr: ['Opened', 'pull request', 'pull requests'] };
 const isPinned = (c) => { const r = S.results[c._call.id]; return !!(r && (r._file || r._preview || r._model || r._image || r._app)) || c._call.function.name === 'exit_plan_mode'; };
 const isDone = (c) => !!S.results[c._call.id] && !S.pending[c._call.id];
 function tgLabel(cards) {
@@ -2298,9 +2300,10 @@ async function openPreview(path) {
 async function loadPreview() {
   const frame = $('#pv-frame');
   try {
-    const { base } = await api(`/api/sessions/${S.cur.id}/preview-token`, { method: 'POST' });
-    const rel = PV.path.replace(/^\/+/, '').split('/').map(encodeURIComponent).join('/');
-    PV.url = S.api + base + rel;
+    const { base, live } = await api(`/api/sessions/${S.cur.id}/preview-token`, { method: 'POST' });
+    const isLive = PV.path.startsWith('live:');
+    const rel = PV.path.replace(/^live:/, '').replace(/^\/+/, '').split('/').map(encodeURIComponent).join('/');
+    PV.url = S.api + (isLive ? live : base) + rel;
     frame.src = PV.url;
   } catch (e) { toast(e.message, true); }
 }

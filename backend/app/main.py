@@ -17,6 +17,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Optional
 
+import httpx
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response, StreamingResponse
@@ -617,7 +618,8 @@ async def preview_token(sid: str):
     s = get_session(sid)
     await workspace.ensure_workspace(s)
     exp = str(int(time.time()) + 3600)
-    return {"base": f"/preview/{sid}/{exp}.{_preview_sig(sid, exp)}/"}
+    tok = f"{exp}.{_preview_sig(sid, exp)}"
+    return {"base": f"/preview/{sid}/{tok}/", "live": f"/live/{sid}/{tok}/", "serving": sid in tools.SERVERS}
 
 
 @app.get("/preview/{sid}/{ptoken}/{path:path}")
@@ -642,6 +644,44 @@ async def preview_serve(sid: str, ptoken: str, path: str = ""):
     return FileResponse(target, headers={
         "Content-Security-Policy": "sandbox allow-scripts allow-forms allow-modals allow-popups allow-pointer-lock",
         "Access-Control-Allow-Origin": "*", "X-Content-Type-Options": "nosniff", "Cache-Control": "no-store"})
+
+
+HOP = {"connection", "keep-alive", "transfer-encoding", "te", "upgrade", "proxy-authorization", "proxy-authenticate", "trailer",
+       "content-length", "content-encoding", "host", "set-cookie", "authorization", "cookie"}
+
+
+@app.api_route("/live/{sid}/{ptoken}/{path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"])
+async def live_serve(sid: str, ptoken: str, path: str, request: Request):
+    """Reverse proxy to the dev server the agent started in this chat (127.0.0.1 only, this chat's port only)."""
+    try:
+        exp, sig = ptoken.split(".", 1)
+        ok = hmac.compare_digest(sig, _preview_sig(sid, exp)) and int(exp) > time.time()
+    except Exception:  # noqa: BLE001
+        ok = False
+    if not ok:
+        raise HTTPException(403, "preview link expired; reopen it from the app")
+    sv = tools.SERVERS.get(sid)
+    if not sv:
+        raise HTTPException(404, "no dev server is running in this chat")
+    url = f"http://127.0.0.1:{sv['port']}/{path}"
+    body = await request.body()
+    hdr = {k: v for k, v in request.headers.items() if k.lower() not in HOP}
+    try:
+        async with httpx.AsyncClient(timeout=30, follow_redirects=False) as c:
+            r = await c.request(request.method, url, params=request.query_params, content=body, headers=hdr)
+    except httpx.HTTPError as e:
+        log = ""
+        j = tools.JOBS.get(sv["jid"])
+        if j:
+            log = j["log"].read_bytes()[-800:].decode("utf-8", "replace")
+        raise HTTPException(502, f"the dev server did not answer ({type(e).__name__}). Its log:\n{log}")
+    out = {k: v for k, v in r.headers.items() if k.lower() not in HOP}
+    loc = out.get("location")
+    if loc and loc.startswith("/") and not loc.startswith("//"):
+        out["location"] = f"/live/{sid}/{ptoken}" + loc
+    out.update({"Content-Security-Policy": "sandbox allow-scripts allow-forms allow-modals allow-popups allow-pointer-lock",
+                "Access-Control-Allow-Origin": "*", "X-Content-Type-Options": "nosniff", "Cache-Control": "no-store"})
+    return Response(r.content, status_code=r.status_code, headers=out)
 
 
 # ------------------------------------------------------------------ push notifications
