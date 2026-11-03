@@ -265,7 +265,11 @@ Settings → **Backup & restore** downloads one zip: chats, apps and their data,
   - `py-science`: scipy, pandas, sympy, scikit-learn, networkx (~300 MB)
   - `cpp`: cmake, ninja, `clang`/`clang++` via zig (~430 MB)
   - `emscripten`: the official emsdk (`emcc`, `em++`), C/C++ to WebAssembly (~2 GB; needs that much free disk, checked before it starts)
-  - Packs live on Render's ephemeral disk, so a restart wipes them and the agent just re-enables on demand. Idle RAM is the same with or without packs; they cost disk. Remove one any time from the same screen.
+  - Packs live on Render's ephemeral disk, so a restart wipes them. After the first install a copy is saved to your private state repo as a GitHub release asset (tag `pack-cache`, up to 2 GB each), and the next install downloads that instead of rebuilding. No token or repo means no cache; any GitHub problem just falls back to a normal build. The disk must still fit the pack while it runs. Idle RAM is the same with or without packs; they cost disk. Remove one any time from the same screen.
 - **Memory guard:** every `bash` command (and background job) is killed when all its processes together use more than `BASH_MEM_MB` (default 300; the free tier has 512 for the whole server). One runaway script ends, the server lives. `0` turns it off.
 - **Interactive pages:** `preview` shows an HTML file or a folder with `index.html` live in the app. Folders may mix html, css, es modules, `.wasm`, json and text/Python files the page fetches (the preview serves `.wasm` and `.mjs` with the right types and the page can fetch its siblings). It is static: no server-side Python/C++. To make those live, put them in the page: Python via Pyodide from a CDN, C/C++ via emscripten output next to `index.html`.
 - The Platform check has a "Compilers & packs" row; the Capability check has a "Compile C++" task.
+
+## The agent can ask you questions
+
+`ask_user` pauses the run and shows a card with 1 to 4 multiple-choice questions (tap one, or several for multi-select, or type your own answer; Skip is always there). It is meant for ambiguous or expensive-to-undo choices, asked before building. It works in plan mode, sends a "Question for you" push if you are away, and in runs nobody is watching (Shortcut, MCP) the agent is told nobody can answer and picks a default. In Telegram there are no tap cards, so it asks in plain text instead.

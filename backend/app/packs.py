@@ -8,10 +8,13 @@ only while a program that uses it is running (bash runs have their own memory gu
 import asyncio
 import json
 import os
+import platform
 import shutil
 import sys
 import time
 from pathlib import Path
+
+import httpx
 
 from . import config
 
@@ -39,6 +42,14 @@ PACKS: dict[str, dict] = {
 
 _tasks: dict[str, asyncio.Task] = {}
 _last_error: dict[str, str] = {}
+_cache_note: dict[str, str] = {}     # what the GitHub cache did for each pack, shown in Settings
+
+# GitHub Releases on the state repo keep a copy of each installed pack (an asset may be up to 2 GB), so a Render restart
+# restores it with one download instead of rebuilding. Everything here is best effort: no token or repo means no cache.
+GH = os.environ.get("PACKS_GH_API", "https://api.github.com")
+GH_UP = os.environ.get("PACKS_GH_UPLOADS", "https://uploads.github.com")
+CACHE_TAG = "pack-cache"
+MAX_ASSET = 1_900_000_000
 
 
 def _dir(name: str) -> Path:
@@ -73,7 +84,7 @@ def status() -> list[dict]:
         out.append({"name": name, "title": p["title"], "desc": p["desc"], "installed": on,
                     "installing": name in _tasks and not _tasks[name].done(),
                     "size_mb": _size_mb(_dir(name)) if on else 0, "needs_mb": p["needs_mb"],
-                    "error": _last_error.get(name, "")})
+                    "error": _last_error.get(name, ""), "cache": _cache_note.get(name, "")})
     return out
 
 
@@ -155,11 +166,100 @@ async def _install_emsdk(d: Path) -> None:
         raise RuntimeError("emsdk finished but wrote no .emscripten config")
 
 
+def _cache_on() -> bool:
+    return bool(config.GITHUB_TOKEN and config.STATE_REPO)
+
+
+def _asset_name(name: str) -> str:
+    return f"{name}-py{sys.version_info.major}{sys.version_info.minor}-{platform.machine()}.tar.gz"
+
+
+def _hdr(extra: dict | None = None) -> dict:
+    return {"Authorization": f"Bearer {config.GITHUB_TOKEN}", "Accept": "application/vnd.github+json",
+            "X-GitHub-Api-Version": "2022-11-28", **(extra or {})}
+
+
+async def _cache_fetch(name: str) -> bool:
+    """Restore a pack from the GitHub release, if one was saved. False on any problem (then the pack is built normally)."""
+    if not _cache_on():
+        return False
+    tmp = ROOT / f"{name}.dl.tar.gz"
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(900, connect=30), follow_redirects=True) as c:
+            r = await c.get(f"{GH}/repos/{config.STATE_REPO}/releases/tags/{CACHE_TAG}", headers=_hdr())
+            if r.status_code != 200:
+                return False
+            asset = next((a for a in r.json().get("assets", []) if a["name"] == _asset_name(name)), None)
+            if not asset:
+                return False
+            _cache_note[name] = "downloading from GitHub…"
+            async with c.stream("GET", f"{GH}/repos/{config.STATE_REPO}/releases/assets/{asset['id']}",
+                                headers=_hdr({"Accept": "application/octet-stream"})) as resp:
+                if resp.status_code != 200:
+                    return False
+                with open(tmp, "wb") as f:
+                    async for chunk in resp.aiter_bytes(1 << 20):
+                        f.write(chunk)
+        rc, _ = await _sh(["tar", "xzf", str(tmp), "-C", str(ROOT)], timeout=900)
+        ok = rc == 0 and installed(name)
+        _cache_note[name] = "restored from GitHub" if ok else ""
+        return ok
+    except Exception as e:  # noqa: BLE001
+        _cache_note[name] = ""
+        _last_error[name] = f"GitHub cache not usable ({type(e).__name__}); building instead"
+        return False
+    finally:
+        tmp.unlink(missing_ok=True)
+
+
+async def _cache_store(name: str) -> None:
+    """Upload the freshly installed pack to the release (replacing an older copy). Runs in the background, never fails the install."""
+    tmp = ROOT / f"{name}.up.tar.gz"
+    try:
+        _cache_note[name] = "saving to GitHub…"
+        rc, out = await _sh(["nice", "-n", "10", "tar", "czf", str(tmp), "-C", str(ROOT), name], timeout=1800)
+        if rc:
+            raise RuntimeError("could not pack: " + out[-200:])
+        size = tmp.stat().st_size
+        if size > MAX_ASSET:
+            raise RuntimeError(f"{size // (1024 * 1024)} MB is over GitHub's 2 GB asset limit")
+        repo = config.STATE_REPO
+        async with httpx.AsyncClient(timeout=httpx.Timeout(1800, connect=30)) as c:
+            r = await c.get(f"{GH}/repos/{repo}/releases/tags/{CACHE_TAG}", headers=_hdr())
+            if r.status_code == 404:
+                r = await c.post(f"{GH}/repos/{repo}/releases", headers=_hdr(), json={
+                    "tag_name": CACHE_TAG, "name": "Pack cache", "prerelease": True,
+                    "body": "Installed toolchain packs, saved by Pocket Agent so a restart restores them quickly. Safe to delete."})
+            r.raise_for_status()
+            rel = r.json()
+            for a in rel.get("assets", []):
+                if a["name"] == _asset_name(name):
+                    await c.delete(f"{GH}/repos/{repo}/releases/assets/{a['id']}", headers=_hdr())
+
+            async def body():
+                with open(tmp, "rb") as f:
+                    while chunk := f.read(1 << 20):
+                        yield chunk
+            up = await c.post(f"{GH_UP}/repos/{repo}/releases/{rel['id']}/assets", params={"name": _asset_name(name)},
+                              headers=_hdr({"Content-Type": "application/gzip", "Content-Length": str(size)}), content=body())
+            up.raise_for_status()
+        _cache_note[name] = f"saved on GitHub ({size // (1024 * 1024)} MB)"
+    except Exception as e:  # noqa: BLE001
+        _cache_note[name] = f"GitHub save failed: {str(e)[:120]}"
+    finally:
+        tmp.unlink(missing_ok=True)
+
+
 async def _do_install(name: str) -> None:
     d = _dir(name)
     try:
         if d.exists():
             shutil.rmtree(d, ignore_errors=True)
+        ROOT.mkdir(parents=True, exist_ok=True)
+        if await _cache_fetch(name):
+            _last_error.pop(name, None)
+            return
+        shutil.rmtree(d, ignore_errors=True)
         d.mkdir(parents=True)
         if PACKS[name]["kind"] == "pip":
             await _install_pip(name, d)
@@ -167,6 +267,8 @@ async def _do_install(name: str) -> None:
             await _install_emsdk(d)
         (d / ".installed").write_text(json.dumps({"at": time.time()}))
         _last_error.pop(name, None)
+        if _cache_on():
+            _tasks[name + ":save"] = asyncio.create_task(_cache_store(name))
     except Exception as e:  # noqa: BLE001
         _last_error[name] = str(e)[:700]
         shutil.rmtree(d, ignore_errors=True)
@@ -204,6 +306,7 @@ def remove(name: str) -> bool:
         t.cancel()
     shutil.rmtree(_dir(name), ignore_errors=True)
     _last_error.pop(name, None)
+    _cache_note.pop(name, None)
     return True
 
 

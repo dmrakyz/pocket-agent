@@ -1902,12 +1902,13 @@ async function openPacks() {
   sheet('Toolchain packs', body);
   let timer = null;
   const draw = (d) => {
-    const kids = [h('div.dim', { style: 'font-size:14px', text: `Heavy toolchains the agent switches on only when a task needs them, so the image stays small. They cost disk, not idle memory. Every bash command is also killed above ${d.bash_mem_mb} MB so one runaway script cannot take the server down. Packs vanish when Render restarts; the agent just re-installs them when needed. Disk free: ${d.free_mb} MB.` })];
+    const kids = [h('div.dim', { style: 'font-size:14px', text: `Heavy toolchains the agent switches on only when a task needs them, so the image stays small. They cost disk, not idle memory. Every bash command is also killed above ${d.bash_mem_mb} MB so one runaway script cannot take the server down. Copies are saved to your private GitHub state repo (a release), so after a Render restart a pack comes back with one download. Disk free: ${d.free_mb} MB.` })];
     for (const p of d.packs) {
       const state = p.installed ? `installed · ${p.size_mb} MB` : p.installing ? 'installing…' : `off · needs ~${p.needs_mb} MB`;
       kids.push(h('div', { style: 'padding:10px 0;border-top:1px solid var(--line)' },
         h('div', { style: 'display:flex;justify-content:space-between;gap:8px' }, h('div', { style: 'font-weight:600', text: p.title }), h('div.dim', { style: 'font-size:13px;white-space:nowrap', text: state })),
         h('div.dim', { style: 'font-size:13px;margin:2px 0 6px', text: p.desc }),
+        p.cache ? h('div.dim', { style: 'font-size:12.5px;margin-bottom:6px', text: '☁ ' + p.cache }) : null,
         p.error ? h('div', { style: 'font-size:13px;color:var(--bad);margin-bottom:6px;white-space:pre-wrap', text: p.error }) : null,
         p.installed ? h('button.secondary', { text: 'Remove', onclick: async (e) => { const btn = e.currentTarget; btn.disabled = true; try { await api('/api/packs/' + p.name, { method: 'DELETE' }); } catch (er) { toast(er.message, true); } load(); } })
           : h('button', { text: p.installing ? 'Installing…' : 'Install now', disabled: p.installing, onclick: async (e) => { const btn = e.currentTarget; btn.disabled = true; try { await api('/api/packs/' + p.name, { body: {} }); } catch (er) { toast(er.message, true); } load(); } })));
