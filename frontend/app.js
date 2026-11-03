@@ -340,6 +340,7 @@ async function start() {
     else if (S.sessions.length) await openSession(S.sessions[0].id);
     else renderChat();
     if (wl) openWorldFromLink(wl);
+    refreshWorldDot();
   } catch (e) { toast(e.message, true, 6000); }
   clearTimeout(slow);
 }
@@ -1195,13 +1196,14 @@ function openMenu() {
       item('✎', 'Rename chat', () => renameSheet(c)),
       item('◫', 'Browser', openBrowser),
       item('▦', 'Apps', openApps),
+      item('🌍', 'Worlds', openWorlds),
       item('⇣', 'Compact context', () => { $('#input').value = '/compact'; send(); }),
       h('button.mi', { onclick: async () => {
         const v = !c.autopilot;
         try { await api('/api/sessions/' + c.id, { method: 'PATCH', body: { autopilot: v } }); c.autopilot = v; tg.classList.toggle('on', v); applyChips(); } catch (e) { toast(e.message, true); }
       } }, h('span.mic', { text: '∞' }), h('span', { text: 'Autopilot' }), tg),
       item('⎇', 'Save workspace to GitHub', async () => { try { const r = await api(`/api/sessions/${c.id}/sync`, { method: 'POST' }); toast(r.result); } catch (er) { toast(er.message, true); } }));
-  } else rows.push(item('▦', 'Apps', openApps), h('div.dim', { style: 'padding:12px', text: 'Open or start a chat to see chat actions.' }));
+  } else rows.push(item('▦', 'Apps', openApps), item('🌍', 'Worlds', openWorlds), h('div.dim', { style: 'padding:12px', text: 'Open or start a chat to see chat actions.' }));
   menu.replaceChildren(...rows);
   menu.hidden = false; $('#menu-scrim').hidden = false;
 }
@@ -1747,6 +1749,13 @@ async function openMcpServer() {
 
 /* ============================================================ world engine */
 const worldAgo = (t) => { const m = Math.round((Date.now() / 1000 - t) / 60); return m < 1 ? 'just now' : m < 60 ? m + ' min ago' : m < 1440 ? Math.round(m / 60) + ' h ago' : Math.round(m / 1440) + ' d ago'; };
+const WUN = { ids: new Set() };
+const worldUnread = (w) => { const seen = worldSeen.get(w.id); return w.log.some((e) => e.who !== 'You' && e.who !== 'Narrator' && e.t > seen); };
+async function refreshWorldDot() {
+  if (!S.token) return;
+  try { WUN.ids = new Set((await api('/api/worlds')).worlds.filter(worldUnread).map((w) => w.id)); } catch { return; }
+  $('#wl-dot').hidden = WUN.ids.size === 0;
+}
 function openWorldFromLink(wid) { closeDrawer(); worldView(wid, openWorlds); }
 async function openWorlds() {
   const body = h('div', {}, h('div.dim', { text: 'Loading…' }));
@@ -1761,7 +1770,7 @@ async function openWorlds() {
       const last = w.log[w.log.length - 1];
       kids.push(h('div.cnrow', { style: 'cursor:pointer', onclick: () => worldView(w.id, openWorlds) },
         h('div', { style: 'flex:1;min-width:0' },
-          h('div', { style: 'font-weight:600', text: '🌍 ' + w.name + (w.enabled ? '' : '  · paused') + (w.notify ? '' : '  🔕') }),
+          h('div', { style: 'font-weight:600', text: '🌍 ' + w.name + (w.enabled ? '' : '  · paused') + (w.notify ? '' : '  🔕') + (worldUnread(w) ? '  ●' : '') }),
           h('div.dim', { style: 'font-size:13px', text: `${w.cast.map((c) => c.name).join(', ')} · every ${w.minutes} min · ${w.ticks} beats` }),
           last ? h('div.dim', { style: 'font-size:13px;margin-top:2px', text: `${last.who}: ${last.text}`.slice(0, 120) }) : null,
           w.error ? h('div', { style: 'font-size:12.5px;color:var(--bad)', text: w.error.slice(0, 140) }) : null)));
@@ -1788,7 +1797,7 @@ async function worldView(id, back = openWorlds) {
         h('div', { style: e.kind === 'think' ? 'opacity:.75;font-style:italic' : '', text: e.text }),
         h('div', { style: 'font-size:11px;opacity:.6;margin-top:2px', text: worldAgo(e.t) })));
     }
-    if (w.log.length) worldSeen.set(id, w.log[w.log.length - 1].t);
+    if (w.log.length) { worldSeen.set(id, w.log[w.log.length - 1].t); WUN.ids.delete(id); $('#wl-dot').hidden = WUN.ids.size === 0; }
     const log = h('div.worldlog', { style: 'max-height:52vh;overflow:auto;display:flex;flex-direction:column;gap:7px;margin:8px 0' }, ...rows);
     const inp = h('input', { placeholder: 'Step in: "a stranger knocks at the door"', style: 'flex:1', maxlength: 500 });
     const send = async () => { const t = inp.value.trim(); if (!t) return; inp.value = ''; try { render(await api(`/api/worlds/${id}/say`, { body: { text: t } })); toast('Will happen on the next beat'); } catch (e) { toast(e.message, true); } };
@@ -2176,6 +2185,7 @@ function wire() {
   $('#md-dl').onclick = () => downloadPath(V3.path);
   $('#pv-reload').onclick = loadPreview;
   $('#pv-open').onclick = () => { if (PV.url) window.open(PV.url, '_blank', 'noopener'); };
+  $('#dr-worlds').onclick = () => { closeDrawer(); openWorlds(); };
   $('#dr-settings').onclick = openSettings;
   $('#dr-eval').onclick = () => { closeDrawer(); openEval(); };
   $('#ver').onclick = () => { if (UPD.available) applyUpdate(); else openSettings(); };
@@ -2204,6 +2214,8 @@ function wire() {
   });
   // keep the free-tier server awake while the app is open and visible
   setInterval(() => { if (!document.hidden && S.token) fetch(S.api + '/health').catch(() => {}); }, 4 * 60 * 1000);
+  setInterval(() => { if (!document.hidden) refreshWorldDot(); }, 90 * 1000);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) refreshWorldDot(); });
   if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
     navigator.serviceWorker.register('sw.js').catch(() => {});
     navigator.serviceWorker.addEventListener('message', (e) => { if (!e.data || !S.token) return; if (e.data.type === 'open-chat' && e.data.sid) openSession(e.data.sid).catch(() => {}); else if (e.data.type === 'open-world' && e.data.world) openWorldFromLink(e.data.world); });
