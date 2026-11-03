@@ -602,7 +602,7 @@ try:
         p.evaluate("localStorage.setItem('agent.seen_changelog', '5')"); p.reload()
         p.wait_for_selector("#sheet.open >> text=Got it", timeout=20000)
         wn = p.inner_text("#sheet-body")
-        check("after an update the new entries show once, newest first", "What's new".lower() in p.inner_text("#sheet").lower() and wn.index("It can build bigger things") < wn.index("More languages and tools") and "Self-management, backups" not in wn, wn[:200])
+        check("after an update the new entries show once, newest first", "What's new".lower() in p.inner_text("#sheet").lower() and wn.index("It plays, and remembers") < wn.index("Run servers, publish sites") < wn.index("It can build bigger things") and "Self-management, backups" not in wn, wn[:200])
         p.click("#sheet-body >> text=Got it"); p.wait_for_timeout(400)
         p.reload(); p.wait_for_selector(".tool", timeout=20000); p.wait_for_timeout(1500)
         check("and not again on the next launch", not (p.is_visible("#sheet.open") and "Got it" in p.inner_text("#sheet-body")))
