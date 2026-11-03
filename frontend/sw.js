@@ -1,5 +1,5 @@
 // Offline shell only. API calls (cross-origin) are never touched.
-const CACHE = "pocket-agent-v3";
+const CACHE = "pocket-agent-v4";
 const SHELL = ["./", "index.html", "app.js", "style.css", "config.js", "manifest.webmanifest", "icon-192.png"];
 
 self.addEventListener("install", (e) => {
@@ -25,15 +25,15 @@ self.addEventListener("push", (e) => {
   let d = {};
   try { d = e.data ? e.data.json() : {}; } catch (_) { d = { title: "Pocket Agent", body: e.data ? e.data.text() : "" }; }
   e.waitUntil(self.registration.showNotification(d.title || "Pocket Agent", {
-    body: d.body || "", tag: d.tag || undefined, renotify: !!d.tag, data: { sid: d.sid || "" }, icon: "icon-192.png", badge: "icon-192.png",
+    body: d.body || "", tag: d.tag || undefined, renotify: !!d.tag, data: { sid: d.sid || "", world: d.world || "" }, icon: "icon-192.png", badge: "icon-192.png",
   }));
 });
 self.addEventListener("notificationclick", (e) => {
   e.notification.close();
-  const sid = (e.notification.data && e.notification.data.sid) || "";
+  const sid = (e.notification.data && e.notification.data.sid) || "", world = (e.notification.data && e.notification.data.world) || "";
   e.waitUntil((async () => {
     const all = await clients.matchAll({ type: "window", includeUncontrolled: true });
-    for (const c of all) { await c.focus(); c.postMessage({ type: "open-chat", sid }); return; }
-    await clients.openWindow("./" + (sid ? "#chat=" + sid : ""));
+    for (const c of all) { await c.focus(); c.postMessage(world ? { type: "open-world", world } : { type: "open-chat", sid }); return; }
+    await clients.openWindow("./" + (world ? "#world=" + world : sid ? "#chat=" + sid : ""));
   })());
 });

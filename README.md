@@ -233,6 +233,7 @@ Tools exposed: `ask_agent(prompt, chat_id?)`, `list_chats`, `read_chat`. Every c
 
 Settings → **World engine** → New world. Give it a premise and a cast, one character per line: `Mara: a stubborn ferry captain | wants to keep her route`. Every N minutes (10 or more) one model call plays the next beat for everybody: they act on their own goals, the beat is added to the log, and each character keeps a short memory of what happened. You get a push notification (and a Telegram message if that is paired) when something happens.
 
+- **Mute** a world (🔕) and it keeps living and writing its story, you just are not pinged; **Pause** stops it. The notification carries the whole beat, and tapping it opens that world's log. The log is a chat with a colour per character and a "new since you last looked" line.
 - **Step in** any time ("a stranger knocks at the door"); it happens on the next beat and the characters react. **Next beat now** plays one immediately.
 - The model is **pinned** to the world when you create it. If it fails, the beat fails; nothing is swapped for another model, because that would change the characters. Three failures in a row pause the world and tell you why.
 - Editing the cast keeps the memories of everyone who stays.

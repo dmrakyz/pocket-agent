@@ -156,7 +156,7 @@ async def tick(wid: str, why: str = "schedule") -> dict:
                 w["enabled"] = False
                 w["error"] += f" (paused after {PAUSE_AFTER_FAILS} failures in a row; model {w['model']} is pinned, so nothing was swapped)"
                 if w.get("notify"):
-                    await push.notify(f"🌍 {w['name']} paused", w["error"][:200], tag="world-" + wid)
+                    await push.notify(f"🌍 {w['name']} paused", w["error"][:200], tag="world-" + wid, world=wid)
             await save(ws)
             return {"ok": False, "error": w["error"]}
         now = time.time()
@@ -176,8 +176,7 @@ async def tick(wid: str, why: str = "schedule") -> dict:
         w["day"] = day
         await save(ws)
         if w.get("notify"):
-            ev = beat["events"][0]
-            await push.notify(f"🌍 {w['name']}", f"{ev['who']}: {ev['text']}"[:220], tag="world-" + wid)
+            await push.notify(f"🌍 {w['name']}", "\n".join(f"{e['who']}: {e['text']}" for e in beat["events"]), tag="world-" + wid, world=wid)
             asyncio.create_task(_telegram(w, f"🌍 {w['name']}\n" + "\n".join(f"{e['who']}: {e['text']}" for e in beat["events"])))
         return {"ok": True, "events": beat["events"], "why": why}
     finally:

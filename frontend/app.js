@@ -333,10 +333,13 @@ async function start() {
     woke = true;
     S.info = await api('/api/info');
     await loadSessions();
+    const wl = location.hash.startsWith('#world=') ? location.hash.slice(7) : '';
+    if (wl) history.replaceState(null, '', location.pathname);
     const last = location.hash.startsWith('#chat=') ? location.hash.slice(6) : store.get('cur');
     if (last && S.sessions.some((s) => s.id === last)) await openSession(last);
     else if (S.sessions.length) await openSession(S.sessions[0].id);
     else renderChat();
+    if (wl) openWorldFromLink(wl);
   } catch (e) { toast(e.message, true, 6000); }
   clearTimeout(slow);
 }
@@ -1743,10 +1746,11 @@ async function openMcpServer() {
 }
 
 /* ============================================================ world engine */
+const worldAgo = (t) => { const m = Math.round((Date.now() / 1000 - t) / 60); return m < 1 ? 'just now' : m < 60 ? m + ' min ago' : m < 1440 ? Math.round(m / 60) + ' h ago' : Math.round(m / 1440) + ' d ago'; };
+function openWorldFromLink(wid) { closeDrawer(); worldView(wid, openWorlds); }
 async function openWorlds() {
   const body = h('div', {}, h('div.dim', { text: 'Loading…' }));
   sheet('World engine', body);
-  const ago = (t) => { const m = Math.round((Date.now() / 1000 - t) / 60); return m < 1 ? 'just now' : m < 60 ? m + ' min ago' : m < 1440 ? Math.round(m / 60) + ' h ago' : Math.round(m / 1440) + ' d ago'; };
   const draw = async () => {
     let list;
     try { list = (await api('/api/worlds')).worlds; } catch (e) { body.replaceChildren(h('div.dim', { style: 'color:var(--bad)', text: e.message })); return; }
@@ -1757,7 +1761,7 @@ async function openWorlds() {
       const last = w.log[w.log.length - 1];
       kids.push(h('div.cnrow', { style: 'cursor:pointer', onclick: () => worldView(w.id, openWorlds) },
         h('div', { style: 'flex:1;min-width:0' },
-          h('div', { style: 'font-weight:600', text: '🌍 ' + w.name + (w.enabled ? '' : '  · paused') }),
+          h('div', { style: 'font-weight:600', text: '🌍 ' + w.name + (w.enabled ? '' : '  · paused') + (w.notify ? '' : '  🔕') }),
           h('div.dim', { style: 'font-size:13px', text: `${w.cast.map((c) => c.name).join(', ')} · every ${w.minutes} min · ${w.ticks} beats` }),
           last ? h('div.dim', { style: 'font-size:13px;margin-top:2px', text: `${last.who}: ${last.text}`.slice(0, 120) }) : null,
           w.error ? h('div', { style: 'font-size:12.5px;color:var(--bad)', text: w.error.slice(0, 140) }) : null)));
@@ -1765,56 +1769,71 @@ async function openWorlds() {
     body.replaceChildren(...kids);
   };
   draw();
-  async function worldView(id, back) {
-    const box = h('div', {}, h('div.dim', { text: 'Loading…' }));
-    sheet('World', box);
-    const render = (w) => {
-      const log = h('div.worldlog', { style: 'max-height:46vh;overflow:auto;display:flex;flex-direction:column;gap:6px;margin:8px 0' },
-        ...w.log.map((e) => h('div', { style: 'font-size:14px;line-height:1.45' },
-          h('span', { style: 'font-weight:600;color:' + (e.who === 'You' ? 'var(--accent,#7aa2ff)' : 'inherit'), text: e.who + ' ' }),
-          h('span.dim', { style: 'font-size:12px', text: e.kind === 'say' ? 'says' : e.kind === 'think' ? 'thinks' : '' }),
-          h('div', { style: e.kind === 'think' ? 'opacity:.7;font-style:italic' : '', text: e.text }),
-          h('div.dim', { style: 'font-size:11.5px', text: ago(e.t) }))));
-      const inp = h('input', { placeholder: 'Step in: "a stranger knocks at the door"', style: 'flex:1', maxlength: 500 });
-      const send = async () => { const t = inp.value.trim(); if (!t) return; inp.value = ''; try { render(await api(`/api/worlds/${id}/say`, { body: { text: t } })); toast('Will happen on the next beat'); } catch (e) { toast(e.message, true); } };
-      inp.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') send(); });
-      const mem = w.cast.map((c) => h('div.dim', { style: 'font-size:13px' }, h('b', { text: c.name + ': ' }), (c.memory.slice(-3).join(' · ') || 'remembers nothing yet')));
-      box.replaceChildren(
-        h('div', { style: 'font-weight:600;font-size:16px', text: '🌍 ' + w.name }),
-        h('div.dim', { style: 'font-size:13px', text: `${w.premise}\nModel ${w.model} (pinned) · every ${w.minutes} min · ${w.enabled ? 'running' : 'paused'}` }),
-        w.error ? h('div', { style: 'font-size:13px;color:var(--bad)', text: w.error }) : null,
-        log,
-        h('div', { style: 'display:flex;gap:8px' }, inp, h('button.small', { text: 'Send', onclick: send })),
-        w.pending ? h('div.dim', { style: 'font-size:12.5px', text: `${w.pending} waiting for the next beat` }) : null,
-        h('div', { style: 'display:flex;gap:8px;margin-top:10px;flex-wrap:wrap' },
-          h('button.primary', { text: 'Next beat now', onclick: async (e) => { e.currentTarget.disabled = true; e.currentTarget.textContent = 'Playing…'; try { const r = await api(`/api/worlds/${id}/tick`, { body: {} }); if (!r.ok) toast(r.error, true); render(r.world); } catch (er) { toast(er.message, true); } } }),
-          h('button.secondary', { text: w.enabled ? 'Pause' : 'Resume', onclick: async () => { try { render(await api(`/api/worlds/${id}`, { method: 'PATCH', body: { enabled: !w.enabled } })); } catch (er) { toast(er.message, true); } } }),
-          h('button.secondary', { text: 'Edit', onclick: () => worldForm(w, () => worldView(id, back)) }),
-          h('button.secondary', { text: 'Delete', onclick: async () => { if (!(await confirmSheet('Delete this world?', w.name + ' and its whole story will be removed.', 'Delete'))) return; try { await api('/api/worlds/' + id, { method: 'DELETE' }); closeSheet(); back(); } catch (er) { toast(er.message, true); } } })),
-        h('div.dim', { style: 'font-size:13px;font-weight:600;margin-top:12px', text: 'What they remember' }), ...mem);
-      log.scrollTop = log.scrollHeight;
-    };
-    try { render(await api('/api/worlds/' + id)); } catch (e) { box.replaceChildren(h('div.dim', { style: 'color:var(--bad)', text: e.message })); }
-  }
-  function worldForm(w, done) {
-    const f = (ph, v, tag = 'input') => { const el = h(tag, { placeholder: ph, style: 'width:100%;margin:4px 0' }); el.value = v || ''; return el; };
-    const name = f('Name', w && w.name), prem = f('Premise: where and when are we, what is going on?', w && w.premise, 'textarea');
-    const cast = f('Cast, one per line:\nMara: a stubborn ferry captain | wants to keep her route\nOtto: a nervous clerk | wants to leave town', w && w.cast.map((c) => `${c.name}: ${c.persona} | ${c.goal}`).join('\n'), 'textarea');
-    prem.rows = 3; cast.rows = 6;
-    const mins = h('input', { type: 'number', value: w ? w.minutes : 60, min: 10, style: 'width:90px' });
-    const form = h('div', {}, name, prem, cast,
-      h('div', { style: 'display:flex;align-items:center;gap:8px;margin:6px 0' }, h('span.dim', { text: 'A beat every' }), mins, h('span.dim', { text: 'minutes (10 or more)' })),
-      h('div.dim', { style: 'font-size:12.5px', text: w ? 'Editing the cast keeps the memories of anyone who stays.' : 'The current default model gets pinned to this world. If it fails, the world pauses instead of quietly switching to another model.' }),
-      h('button.primary', { text: w ? 'Save' : 'Create', onclick: async (e) => {
-        e.currentTarget.disabled = true;
-        try {
-          const b = { name: name.value, premise: prem.value, cast: cast.value, minutes: Number(mins.value) || 60 };
-          if (w) await api('/api/worlds/' + w.id, { method: 'PATCH', body: b }); else await api('/api/worlds', { body: b });
-          closeSheet(); done();
-        } catch (er) { toast(er.message, true); e.currentTarget.disabled = false; }
-      } }));
-    sheet(w ? 'Edit world' : 'New world', form);
-  }
+}
+
+const worldSeen = { get: (id) => { try { return Number(localStorage.getItem('world-seen-' + id)) || 0; } catch { return 0; } }, set: (id, t) => { try { localStorage.setItem('world-seen-' + id, String(t)); } catch { /* private mode */ } } };
+const worldColor = (name) => { let n = 0; for (const ch of name) n = (n * 31 + ch.charCodeAt(0)) % 360; return `hsl(${n} 70% 68%)`; };
+async function worldView(id, back = openWorlds) {
+  const box = h('div', {}, h('div.dim', { text: 'Loading…' }));
+  sheet('World', box);
+  const render = (w) => {
+    const seen = worldSeen.get(id);
+    const rows = [];
+    let divided = false;
+    for (const e of w.log) {
+      if (!divided && seen && e.t > seen && e.who !== 'You') { rows.push(h('div', { style: 'text-align:center;font-size:11.5px;color:var(--accent,#7aa2ff);border-top:1px solid var(--line);margin:6px 0 2px;padding-top:4px', text: 'new since you last looked' })); divided = true; }
+      const you = e.who === 'You', nar = e.who === 'Narrator';
+      rows.push(h('div', { style: `align-self:${you ? 'flex-end' : 'flex-start'};max-width:92%;background:${you ? 'var(--accent,#7aa2ff)' : 'var(--panel2)'};color:${you ? 'var(--accent-ink,#fff)' : 'inherit'};border-radius:14px;padding:7px 11px;font-size:15px;line-height:1.45${nar ? ';font-style:italic;opacity:.85' : ''}` },
+        nar || you ? null : h('div', { style: `font-weight:700;font-size:12.5px;color:${worldColor(e.who)}`, text: e.who + (e.kind === 'think' ? ' (thinking)' : e.kind === 'do' ? ' (does)' : '') }),
+        h('div', { style: e.kind === 'think' ? 'opacity:.75;font-style:italic' : '', text: e.text }),
+        h('div', { style: 'font-size:11px;opacity:.6;margin-top:2px', text: worldAgo(e.t) })));
+    }
+    if (w.log.length) worldSeen.set(id, w.log[w.log.length - 1].t);
+    const log = h('div.worldlog', { style: 'max-height:52vh;overflow:auto;display:flex;flex-direction:column;gap:7px;margin:8px 0' }, ...rows);
+    const inp = h('input', { placeholder: 'Step in: "a stranger knocks at the door"', style: 'flex:1', maxlength: 500 });
+    const send = async () => { const t = inp.value.trim(); if (!t) return; inp.value = ''; try { render(await api(`/api/worlds/${id}/say`, { body: { text: t } })); toast('Will happen on the next beat'); } catch (e) { toast(e.message, true); } };
+    inp.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') send(); });
+    const mem = w.cast.map((c) => h('div.dim', { style: 'font-size:13px' }, h('b', { text: c.name + ': ' }), (c.memory.slice(-3).join(' · ') || 'remembers nothing yet')));
+    const patch = async (b) => { try { render(await api(`/api/worlds/${id}`, { method: 'PATCH', body: b })); } catch (er) { toast(er.message, true); } };
+    box.replaceChildren(
+      h('div', { style: 'font-weight:600;font-size:16px', text: '🌍 ' + w.name + (w.notify ? '' : '  🔕') }),
+      h('div.dim', { style: 'font-size:13px;white-space:pre-wrap', text: `${w.premise}\nModel ${w.model} (pinned) · every ${w.minutes} min · ${w.enabled ? 'running' : 'paused'} · notifications ${w.notify ? 'on' : 'muted'}` }),
+      w.error ? h('div', { style: 'font-size:13px;color:var(--bad)', text: w.error }) : null,
+      log,
+      h('div', { style: 'display:flex;gap:8px' }, inp, h('button.small', { text: 'Send', onclick: send })),
+      w.pending ? h('div.dim', { style: 'font-size:12.5px', text: `${w.pending} waiting for the next beat` }) : null,
+      h('div', { style: 'display:flex;gap:8px;margin-top:10px;flex-wrap:wrap' },
+        h('button.primary', { text: 'Next beat now', onclick: async (e) => { e.currentTarget.disabled = true; e.currentTarget.textContent = 'Playing…'; try { const r = await api(`/api/worlds/${id}/tick`, { body: {} }); if (!r.ok) toast(r.error, true); render(r.world); } catch (er) { toast(er.message, true); } } }),
+        h('button.secondary', { text: w.notify ? '🔕 Mute' : '🔔 Unmute', onclick: () => patch({ notify: !w.notify }) }),
+        h('button.secondary', { text: w.enabled ? 'Pause' : 'Resume', onclick: () => patch({ enabled: !w.enabled }) }),
+        h('button.secondary', { text: 'Edit', onclick: () => worldForm(w, () => worldView(id, back)) }),
+        h('button.secondary', { text: 'Delete', onclick: async () => { if (!(await confirmSheet('Delete this world?', w.name + ' and its whole story will be removed.', 'Delete'))) return; try { await api('/api/worlds/' + id, { method: 'DELETE' }); closeSheet(); back(); } catch (er) { toast(er.message, true); } } })),
+      h('div.dim', { style: 'font-size:12.5px;margin-top:6px', text: 'Muted worlds keep living and writing their story; you just are not pinged. Pause stops them.' }),
+      h('div.dim', { style: 'font-size:13px;font-weight:600;margin-top:12px', text: 'What they remember' }), ...mem);
+    log.scrollTop = log.scrollHeight;
+  };
+  try { render(await api('/api/worlds/' + id)); } catch (e) { box.replaceChildren(h('div.dim', { style: 'color:var(--bad)', text: e.message })); }
+}
+function worldForm(w, done) {
+  const f = (ph, v, tag = 'input') => { const el = h(tag, { placeholder: ph, style: 'width:100%;margin:4px 0' }); el.value = v || ''; return el; };
+  const name = f('Name', w && w.name), prem = f('Premise: where and when are we, what is going on?', w && w.premise, 'textarea');
+  const cast = f('Cast, one per line:\nMara: a stubborn ferry captain | wants to keep her route\nOtto: a nervous clerk | wants to leave town', w && w.cast.map((c) => `${c.name}: ${c.persona} | ${c.goal}`).join('\n'), 'textarea');
+  prem.rows = 3; cast.rows = 6;
+  const mins = h('input', { type: 'number', value: w ? w.minutes : 60, min: 10, style: 'width:90px' });
+  const ntf = h('input', { type: 'checkbox', style: 'width:auto' }); ntf.checked = w ? w.notify : true;
+  const form = h('div', {}, name, prem, cast,
+    h('div', { style: 'display:flex;align-items:center;gap:8px;margin:6px 0' }, h('span.dim', { text: 'A beat every' }), mins, h('span.dim', { text: 'minutes (10 or more)' })),
+    h('label', { style: 'display:flex;align-items:center;gap:8px;margin:6px 0;font-size:14px' }, ntf, h('span', { text: 'Notify me when something happens' })),
+    h('div.dim', { style: 'font-size:12.5px', text: w ? 'Editing the cast keeps the memories of anyone who stays.' : 'The current default model gets pinned to this world. If it fails, the world pauses instead of quietly switching to another model.' }),
+    h('button.primary', { text: w ? 'Save' : 'Create', onclick: async (e) => {
+      e.currentTarget.disabled = true;
+      try {
+        const b = { name: name.value, premise: prem.value, cast: cast.value, minutes: Number(mins.value) || 60, notify: ntf.checked };
+        if (w) await api('/api/worlds/' + w.id, { method: 'PATCH', body: b }); else await api('/api/worlds', { body: b });
+        closeSheet(); done();
+      } catch (er) { toast(er.message, true); e.currentTarget.disabled = false; }
+    } }));
+  sheet(w ? 'Edit world' : 'New world', form);
 }
 
 /* ============================================================ usage */
@@ -2187,7 +2206,7 @@ function wire() {
   setInterval(() => { if (!document.hidden && S.token) fetch(S.api + '/health').catch(() => {}); }, 4 * 60 * 1000);
   if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
     navigator.serviceWorker.register('sw.js').catch(() => {});
-    navigator.serviceWorker.addEventListener('message', (e) => { if (e.data && e.data.type === 'open-chat' && e.data.sid && S.token) openSession(e.data.sid).catch(() => {}); });
+    navigator.serviceWorker.addEventListener('message', (e) => { if (!e.data || !S.token) return; if (e.data.type === 'open-chat' && e.data.sid) openSession(e.data.sid).catch(() => {}); else if (e.data.type === 'open-world' && e.data.world) openWorldFromLink(e.data.world); });
   }
   setInterval(() => { if (!document.hidden) sendPresence(); }, 25000);
   window.addEventListener('pagehide', sendPresence);

@@ -68,7 +68,7 @@ def _send_one(sub: dict, payload: str):
                    vapid_claims={"sub": "mailto:" + config.GIT_USER_EMAIL}, ttl=3600)
 
 
-async def notify(title: str, body: str, sid: str = "", tag: str = "", force: bool = False) -> int:
+async def notify(title: str, body: str, sid: str = "", tag: str = "", force: bool = False, world: str = "") -> int:
     """Send to every subscribed device unless the app is open on screen. Returns how many were sent."""
     if not AVAILABLE or not _vapid["pem"] or not subs():
         return 0
@@ -78,7 +78,7 @@ async def notify(title: str, body: str, sid: str = "", tag: str = "", force: boo
     if not force and time.time() - _last.get(key, 0) < 20:
         return 0
     _last[key] = time.time()
-    payload = json.dumps({"title": title[:80], "body": body[:180], "sid": sid, "tag": tag or key})
+    payload = json.dumps({"title": title[:80], "body": body[:(400 if world else 180)], "sid": sid, "world": world, "tag": tag or key})
     sent, dead = 0, []
     for endpoint, rec in list(subs().items()):
         try:

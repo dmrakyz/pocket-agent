@@ -715,3 +715,29 @@ async def act_gate_test():
     assert got == {"a": True, "b": False, "c": False, "d": False, "e": False}, got
     print("PASS app act: only connector tools are allowed, shell/files/email/forging are refused")
 asyncio.run(act_gate_test())
+
+
+async def world_notify_test():
+    from app import world, push, llm
+    sent = []
+
+    async def fake_notify(title, body, sid="", tag="", force=False, world=""):
+        sent.append({"title": title, "body": body, "world": world}); return 1
+
+    async def fake_chat(ref, msgs, tools, a, b, c, **kw):
+        assert kw.get("fallback") is False, "pinned model must never fall back"
+        return {"message": {"content": '{"events":[{"who":"Mara","kind":"say","text":"Fog again."},{"who":"Otto","kind":"do","text":"Packs a bag."}],"memory":{}}'}, "usage": {}}
+    old_n, old_c = push.notify, llm.chat
+    push.notify, llm.chat = fake_notify, fake_chat
+    try:
+        w = await world.create({"name": "W", "cast": "Mara: captain | route\nOtto: clerk | leave", "model": "mock:x"})
+        r = await world.tick(w["id"]); assert r["ok"], r
+        assert len(sent) == 1 and sent[0]["world"] == w["id"] and "Mara: Fog again." in sent[0]["body"] and "Otto: Packs a bag." in sent[0]["body"], sent
+        ws = world.all_worlds(); next(x for x in ws if x["id"] == w["id"])["notify"] = False; await world.save(ws)
+        r = await world.tick(w["id"]); assert r["ok"] and len(sent) == 1, "a muted world must not notify"
+        assert len(world.find(w["id"])["log"]) >= 5, "muted worlds still write their story"
+    finally:
+        push.notify, llm.chat = old_n, old_c
+        await world.save([x for x in world.all_worlds() if x["id"] != w["id"]])
+    print("PASS world notify: whole beat + world id in the notification, muted worlds stay silent but keep going")
+asyncio.run(world_notify_test())
