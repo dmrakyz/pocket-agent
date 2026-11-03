@@ -129,6 +129,16 @@ def _browser():
     return "ok", "Playwright is installed (the browser itself starts on first use, so it is not launched here)"
 
 
+def _toolchains():
+    import shutil
+    from . import packs
+    have = [t for t in ("python3", "g++", "gcc", "make", "node", "git") if shutil.which(t)]
+    miss = [t for t in ("python3", "g++", "make", "node", "git") if t not in have]
+    on = [p["name"] for p in packs.status() if p["installed"]]
+    detail = "base: " + ", ".join(have) + (f"; MISSING: {', '.join(miss)}" if miss else "") + f"; packs on: {', '.join(on) or 'none'}; disk free {packs.free_mb()} MB; bash capped at {config.BASH_MEM_MB} MB per command"
+    return ("fail" if miss else "ok"), detail
+
+
 def _optional():
     out = []
     for name, on, hint in (("send_email", bool(config.RESEND_API_KEY), "RESEND_API_KEY"), ("Telegram", bool(config.TELEGRAM_BOT_TOKEN), "TELEGRAM_BOT_TOKEN"),
@@ -160,6 +170,7 @@ async def run(mcp_client) -> dict:
     await one("Connectors", _connectors(mcp_client))
     await one("Push notifications", _push())
     await one("Browser", _browser())
+    await one("Compilers & packs", _toolchains())
     for name, st, detail in _optional():
         results.append({"name": name, "status": st, "detail": detail, "ms": 0})
     count = {k: sum(1 for r in results if r["status"] == k) for k in ("ok", "warn", "fail", "skip")}

@@ -46,6 +46,7 @@ FALLBACK_MODEL = env("FALLBACK_MODEL")      # used when the main model keeps fai
 COMPACT_AT_TOKENS = int(env("COMPACT_AT_TOKENS", "120000"))
 MAX_STEPS = int(env("MAX_STEPS", "60"))     # tool-loop iterations per user turn
 BASH_TIMEOUT = int(env("BASH_TIMEOUT", "120"))
+BASH_MEM_MB = int(env("BASH_MEM_MB", "300"))     # a bash command (all its processes together) is killed above this; 0 = off
 TOOL_OUTPUT_LIMIT = int(env("TOOL_OUTPUT_LIMIT", "30000"))
 AUTOPILOT_STEPS = int(env("AUTOPILOT_STEPS", "300"))      # step budget when Autopilot is on
 MAX_SUBAGENTS = int(env("MAX_SUBAGENTS", "12"))            # per user turn, across all nesting levels

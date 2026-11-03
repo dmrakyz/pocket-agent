@@ -3,6 +3,7 @@ import asyncio
 import base64
 import hashlib
 import hmac
+import mimetypes
 import html
 import json
 import os
@@ -587,6 +588,10 @@ async def boom(request: Request, exc: Exception):
                         headers={"Access-Control-Allow-Origin": "*"})
 
 
+mimetypes.add_type("text/javascript", ".mjs")   # emcc/ES-module output must load as a module script
+mimetypes.add_type("application/wasm", ".wasm")
+
+
 # ------------------------------------------------------------------ live preview of built pages
 # The page is served from the workspace under a URL carrying a short-lived token scoped to ONE chat, with a CSP
 # sandbox (opaque origin): model-written page JS can't reach the app, its token, or other chats.
@@ -1028,6 +1033,30 @@ async def app_data_set(app_id: str, key: str, body: dict):
 async def app_data_del(app_id: str, key: str):
     _need_app(app_id)
     await apps.data_del(app_id, key)
+    return {"ok": True}
+
+
+# ------------------------------------------------------------------ toolchain packs
+@app.get("/api/packs", dependencies=[Depends(auth)])
+async def packs_list():
+    from . import packs
+    return {"packs": packs.status(), "free_mb": packs.free_mb(), "bash_mem_mb": config.BASH_MEM_MB}
+
+
+@app.post("/api/packs/{name}", dependencies=[Depends(auth)])
+async def packs_install(name: str):
+    from . import packs
+    try:
+        return {"message": await packs.enable(name, wait=1)}
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+@app.delete("/api/packs/{name}", dependencies=[Depends(auth)])
+async def packs_remove(name: str):
+    from . import packs
+    if not packs.remove(name):
+        raise HTTPException(404, "no such pack")
     return {"ok": True}
 
 

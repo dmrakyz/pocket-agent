@@ -55,6 +55,17 @@ def _check_pkg(root, final):
     return rc == 0 and rc2 == 0 and "OK" in out2, (out + out2)[-200:]
 
 
+def _check_cpp(root, final):
+    if not (root / "fib.cpp").exists():
+        return False, "fib.cpp was not written"
+    rc, out = _run(root, "g++", "-O1", "-o", "_fib_check", "fib.cpp")
+    if rc:
+        return False, "does not compile: " + out[-160:]
+    rc, out = _run(root, "./_fib_check")
+    nums = out.split()
+    return rc == 0 and nums in (["0", "1", "1", "2", "3", "5", "8", "13", "21", "34"], ["1", "1", "2", "3", "5", "8", "13", "21", "34", "55"]), out[-120:]
+
+
 def _app_hits():
     from . import apps
     return [a for a in apps.index().values() if "counter" in a["name"].lower()]
@@ -97,6 +108,9 @@ TASKS = [
                "div(a,b), where div raises ValueError on division by zero. Write unit tests in test_calc.py using "
                "unittest and run them until they pass.",
      "check": _check_pkg},
+    {"name": "Compile C++", "files": {},
+     "prompt": "Write fib.cpp that prints the first 10 Fibonacci numbers separated by single spaces, compile it with g++ and run it.",
+     "check": _check_cpp},
     {"name": "Build an app", "files": {},
      "prompt": "Use the create_app tool to build a tiny app called Counter: a big number, a + button and a - button, and it must remember the number after the app is closed "
                "(use localStorage). One self-contained HTML page, no external resources. Then say it is ready.",

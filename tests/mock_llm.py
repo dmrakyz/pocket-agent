@@ -96,6 +96,11 @@ def scenario(msgs, model):
         steps = [[tool_call("write", {"path": "fizzbuzz.py", "content": code})],
                  [tool_call("bash", {"command": "python3 fizzbuzz.py"})]]
         return ("tools", steps[k]) if k < len(steps) else ("text", "Done: fizzbuzz works.")
+    if "fib.cpp" in prompt:          # the built-in eval task: C++
+        code = '#include <cstdio>\nint main(){long a=0,b=1;for(int i=0;i<10;i++){std::printf(i?" %ld":"%ld",a);long t=a+b;a=b;b=t;}std::printf("\\n");}\n'
+        steps = [[tool_call("write", {"path": "fib.cpp", "content": code})],
+                 [tool_call("bash", {"command": "g++ -o fib fib.cpp && ./fib"})]]
+        return ("tools", steps[k]) if k < len(steps) else ("text", "Done: compiled and ran fib.cpp.")
     if "MULTI" in prompt:
         steps = [
             [tool_call("todo_write", {"todos": [{"content": "write hello", "status": "in_progress"}]})],

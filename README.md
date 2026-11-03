@@ -252,8 +252,20 @@ The agent has `routine_list / routine_create / routine_update` and `world_list /
 ## Platform check and Capability check
 
 - **Settings → Platform check** tests the server itself in a few seconds, with no model tasks: saving to the state repo, the default model, memory use, app drawer, tool forging, MCP server, worlds, routines, connectors, push, browser, and which optional features are set up. Each row is ✓ ok, ! look at, ✕ broken or – not set up. It leaves nothing behind. Run it after every update.
-- **Capability check** (drawer) is the model exam: five real tasks checked by code, now including building an app.
+- **Capability check** (drawer) is the model exam: six real tasks checked by code, including compiling C++ and building an app.
 
 ## Backup & restore
 
 Settings → **Backup & restore** downloads one zip: chats, apps and their data, routines, worlds, forged tools, memory and the connector list. It never contains passwords, tokens, OAuth sign-ins, push subscriptions, Telegram/Instagram pairings, Shortcut/MCP tokens or connector keys, so it is safe to store. Restore shows what is in a file first, keeps what already exists (unless you tick replace), and brings things back **safe**: chats in Ask mode with no saved "always allow", routines and worlds paused, forged tools re-tested then switched off, connectors without keys (OAuth ones need signing in again), memory through the normal secret filter. Zips are validated strictly: unknown file names are ignored and oversized ones refused.
+
+## Languages, toolchain packs and live pages
+
+- **Always there:** Python 3 (numpy, pillow, matplotlib, the Office/PDF libraries), Node, `g++`/`gcc`/`make`, git.
+- **Packs** (Settings → Toolchain packs): heavy toolchains that are *not* in the Docker image. The agent switches one on with `pack_enable` when a task needs it (it asks you first, unless YOLO), it installs once into the data dir, and `bash` sees it from then on.
+  - `py-science`: scipy, pandas, sympy, scikit-learn, networkx (~300 MB)
+  - `cpp`: cmake, ninja, `clang`/`clang++` via zig (~430 MB)
+  - `emscripten`: the official emsdk (`emcc`, `em++`), C/C++ to WebAssembly (~2 GB; needs that much free disk, checked before it starts)
+  - Packs live on Render's ephemeral disk, so a restart wipes them and the agent just re-enables on demand. Idle RAM is the same with or without packs; they cost disk. Remove one any time from the same screen.
+- **Memory guard:** every `bash` command (and background job) is killed when all its processes together use more than `BASH_MEM_MB` (default 300; the free tier has 512 for the whole server). One runaway script ends, the server lives. `0` turns it off.
+- **Interactive pages:** `preview` shows an HTML file or a folder with `index.html` live in the app. Folders may mix html, css, es modules, `.wasm`, json and text/Python files the page fetches (the preview serves `.wasm` and `.mjs` with the right types and the page can fetch its siblings). It is static: no server-side Python/C++. To make those live, put them in the page: Python via Pyodide from a CDN, C/C++ via emscripten output next to `index.html`.
+- The Platform check has a "Compilers & packs" row; the Capability check has a "Compile C++" task.

@@ -203,6 +203,10 @@ BASE_TOOLS = [
          "id": {"type": "string", "description": "existing app id to replace (omit to create)"}}, ["name", "html"]),
     _fn("app_list", "List the user's apps (id, name, description).", {}, []),
     _fn("app_read", "Read the HTML of one of the user's apps, so you can modify it.", {"id": {"type": "string"}}, ["id"]),
+    _fn("pack_list", "List the optional toolchain packs (Python science stack, C/C++ toolchain, Emscripten) and whether each is installed.", {}, []),
+    _fn("pack_enable", "Install an optional toolchain pack so bash can use it from the next call: py-science (scipy, pandas, sympy, scikit-learn, networkx), "
+        "cpp (cmake, ninja, clang), emscripten (emcc/em++, C/C++ to WebAssembly). Only when the task needs it. Big downloads: it may answer 'still installing', then call it again.",
+        {"name": {"type": "string", "enum": ["py-science", "cpp", "emscripten"]}}, ["name"]),
     _fn("forge_list", "List the custom tools that have been forged so far (name, what it does, whether it is switched on).", {}, []),
     _fn("memory_save", "Save durable facts about the user that every future chat should know (identity basics, ongoing projects, tools, "
         "how they like answers). Use when they ask you to remember something, or state a clear lasting preference. One short fact per note, "
@@ -233,7 +237,7 @@ BASE_TOOLS = [
     _fn("exit_plan_mode", "Plan mode only: present your finished plan to the user for approval.",
         {"plan": S}, ["plan"]),
 ]
-READONLY = {"read", "glob", "grep", "web_fetch", "web_search", "image_search", "view_image", "models", "browser_read", "todo_write", "bash_output", "skill", "task", "share_file", "preview", "view_3d", "connector_search", "memory_save", "memory_list", "forge_list", "app_list", "app_read", "routine_list", "world_list", "world_read"}
+READONLY = {"read", "glob", "grep", "web_fetch", "web_search", "image_search", "view_image", "models", "browser_read", "todo_write", "bash_output", "skill", "task", "share_file", "preview", "view_3d", "connector_search", "memory_save", "memory_list", "forge_list", "pack_list", "app_list", "app_read", "routine_list", "world_list", "world_read"}
 EDITS = {"write", "edit", "multiedit", "fetch_image", "annotate_image", "generate_image", "create_app", "world_say"}
 SUBAGENT_TOOLS = {"read", "glob", "grep", "bash", "bash_output", "kill_bash", "web_fetch", "web_search"}
 SUBAGENT_EDIT_TOOLS = SUBAGENT_TOOLS | EDITS
@@ -426,6 +430,48 @@ JOBS: dict[str, dict] = {}
 JOB_DIR = Path(config.DATA_DIR) / "jobs"
 
 
+def _group_rss_mb(pgid: int) -> float:
+    """Resident memory of every process in a process group, in MB (Linux /proc)."""
+    total, page = 0, os.sysconf("SC_PAGE_SIZE")
+    try:
+        pids = [x for x in os.listdir("/proc") if x.isdigit()]
+    except OSError:
+        return 0.0
+    for pid in pids:
+        try:
+            with open(f"/proc/{pid}/stat") as f:
+                rest = f.read().rsplit(")", 1)[1].split()
+            if int(rest[2]) != pgid:
+                continue
+            with open(f"/proc/{pid}/statm") as f:
+                total += int(f.read().split()[1]) * page
+        except (OSError, ValueError, IndexError):
+            continue
+    return total / 1048576
+
+
+async def _mem_guard(p, flag: dict):
+    """Kill a bash command that outgrows BASH_MEM_MB, so one runaway script can't take the whole server down."""
+    lim = config.BASH_MEM_MB
+    if lim <= 0:
+        return
+    while p.returncode is None:
+        await asyncio.sleep(0.4)
+        mb = _group_rss_mb(p.pid)
+        if mb > lim:
+            flag["killed"] = int(mb)
+            try:
+                os.killpg(p.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            return
+
+
+def _mem_msg(flag: dict) -> str:
+    return (f"\n[killed: used {flag['killed']} MB, over the {config.BASH_MEM_MB} MB limit per command (the server has 512 MB in total). "
+            f"Process data in chunks, use a smaller input, or split the work.]")
+
+
 async def t_bash(ctx: Ctx, a: dict):
     cmd = a["command"]
     timeout = min(int(a.get("timeout") or config.BASH_TIMEOUT), 600)
@@ -437,12 +483,15 @@ async def t_bash(ctx: Ctx, a: dict):
         f = open(log, "wb")
         p = await asyncio.create_subprocess_shell(cmd, cwd=str(ctx.root), env=env, stdout=f, stderr=asyncio.subprocess.STDOUT,
                                                   executable="/bin/bash", start_new_session=True)
-        JOBS[jid] = {"p": p, "log": log, "pos": 0, "session": ctx.session["id"]}
+        JOBS[jid] = {"p": p, "log": log, "pos": 0, "session": ctx.session["id"], "memflag": {}}
+        asyncio.create_task(_mem_guard(p, JOBS[jid]["memflag"]))
         await asyncio.sleep(1.5)
         return f"started background job {jid} (pid {p.pid}). Use bash_output to read it.\n" + await _job_read(jid)
     p = await asyncio.create_subprocess_shell(cmd, cwd=str(ctx.root), env=env, stdout=asyncio.subprocess.PIPE,
                                               stderr=asyncio.subprocess.STDOUT, executable="/bin/bash",
                                               start_new_session=True)
+    mflag: dict = {}
+    guard = asyncio.create_task(_mem_guard(p, mflag))
     try:
         out, _ = await asyncio.wait_for(p.communicate(), timeout=timeout)
     except asyncio.TimeoutError:
@@ -458,12 +507,14 @@ async def t_bash(ctx: Ctx, a: dict):
         except ProcessLookupError:
             pass
         raise
+    finally:
+        guard.cancel()
     text = out.decode("utf-8", "replace")
     for secret in (config.GITHUB_TOKEN,):
         if secret:
             text = text.replace(secret, "***")
     text = cap(text) or "(no output)"
-    return text + (f"\n[exit code {p.returncode}]" if p.returncode else "")
+    return text + (_mem_msg(mflag) if mflag.get("killed") else "") + (f"\n[exit code {p.returncode}]" if p.returncode else "")
 
 
 async def _job_read(jid: str) -> str:
@@ -474,7 +525,8 @@ async def _job_read(jid: str) -> str:
     new = data[j["pos"]:]
     j["pos"] = len(data)
     status = "running" if j["p"].returncode is None else f"exited with code {j['p'].returncode}"
-    return f"[{status}]\n" + (cap(new.decode("utf-8", "replace")) or "(no new output)")
+    extra = _mem_msg(j["memflag"]) if j.get("memflag", {}).get("killed") else ""
+    return f"[{status}]\n" + (cap(new.decode("utf-8", "replace")) or "(no new output)") + extra
 
 
 async def t_bash_output(ctx: Ctx, a: dict):
@@ -771,6 +823,21 @@ async def t_app_read(ctx: Ctx, a: dict):
     if not apps.get(a["id"]):
         raise ToolError(f"no app with id {a['id']!r}. Use app_list.")
     return apps.html_of(a["id"])
+
+
+async def t_pack_list(ctx: Ctx, a: dict):
+    from . import packs
+    rows = packs.status()
+    return "\n".join(f"- {p['name']}: {p['title']} · {'installed (%d MB)' % p['size_mb'] if p['installed'] else 'installing…' if p['installing'] else 'not installed (needs ~%d MB disk)' % p['needs_mb']}"
+                      f" · {p['desc']}" + (f" · last error: {p['error'][:200]}" if p['error'] else "") for p in rows) + f"\nDisk free: {packs.free_mb()} MB."
+
+
+async def t_pack_enable(ctx: Ctx, a: dict):
+    from . import packs
+    try:
+        return await packs.enable(str(a.get("name") or ""))
+    except ValueError as e:
+        raise ToolError(str(e))
 
 
 async def t_forge_list(ctx: Ctx, a: dict):
@@ -1282,7 +1349,7 @@ HANDLERS: dict[str, Callable[[Ctx, dict], Awaitable[Any]]] = {
     "image_search": t_image_search, "fetch_image": t_fetch_image, "view_image": t_view_image,
     "annotate_image": t_annotate_image, "models": t_models, "connector_search": t_connector_search, "connector_add": t_connector_add, "routine_list": t_routine_list, "routine_create": t_routine_create, "routine_update": t_routine_update,
     "world_list": t_world_list, "world_read": t_world_read, "world_create": t_world_create, "world_say": t_world_say,
-    "generate_image": t_generate_image, "send_email": t_send_email, "forge_tool": t_forge_tool, "forge_list": t_forge_list, "create_app": t_create_app, "app_list": t_app_list, "app_read": t_app_read, "memory_save": t_memory_save, "memory_forget": t_memory_forget, "memory_list": t_memory_list,
+    "generate_image": t_generate_image, "send_email": t_send_email, "forge_tool": t_forge_tool, "forge_list": t_forge_list, "pack_list": t_pack_list, "pack_enable": t_pack_enable, "create_app": t_create_app, "app_list": t_app_list, "app_read": t_app_read, "memory_save": t_memory_save, "memory_forget": t_memory_forget, "memory_list": t_memory_list,
     "browser_read": t_browser_read, "browser_act": t_browser_act,
 }
 

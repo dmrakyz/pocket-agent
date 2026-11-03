@@ -115,6 +115,16 @@ Apps are not files: never use ws: for them. Use it when you mention an app you m
 never invent one. Don't write "saved to X" or "use share_file" when a card does the job. Screenshots, charts and edited images belong inline too.
 - Beyond that you may use markdown headings, lists, tables, quotes and fenced code blocks to structure answers. Keep them short for a phone."""
 
+CODE_PROMPT = """
+Languages and live pages:
+- bash runs Python 3, Node, g++/gcc/make out of the box. For scipy/pandas/sympy/sklearn/networkx, cmake/ninja/clang, or C/C++ to WebAssembly, call pack_enable \
+(py-science, cpp, emscripten) first; it asks the user, installs once and bash sees it from then on. Don't enable packs you don't need. Each bash command is killed above \
+about 300 MB of memory (the whole server has 512 MB), so stream or chunk big data and keep builds small.
+- `preview` opens an HTML file or a folder with index.html live in the app (static files; scripts and CDN libraries load). It cannot run Python or C++ on a server. \
+To make those interactive, ship them in the page: Python in the browser with Pyodide (get the current version with `npm view pyodide version`, then load `https://cdn.jsdelivr.net/pyodide/v<VERSION>/full/pyodide.js` \
+and check the URL answers with `curl -sI`; drop the v if it 404s; then `await loadPyodide()`, `pyodide.runPythonAsync(code)`, `loadPackage('numpy')`), and C/C++ compiled to .wasm/.js with emcc (pack emscripten) placed next to index.html. \
+Mixed projects work: one folder with index.html, css, js, wasm and python files the page fetches. Test the page in the browser tool before showing it."""
+
 
 def build_system(s: dict, root: Path, sub: bool = False, can_edit: bool = False) -> str:
     parts = [BASE_PROMPT]
@@ -136,6 +146,7 @@ def build_system(s: dict, root: Path, sub: bool = False, can_edit: bool = False)
         if mb:
             parts.append(mb)
         parts.append(SHOW_PROMPT)
+        parts.append(CODE_PROMPT)
     if sub:
         parts.append("You are a sub-agent. Do the assigned task, then reply with a compact final report (findings, file "
                      "paths, line numbers, what you changed). " + (

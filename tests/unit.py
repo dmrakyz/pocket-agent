@@ -914,3 +914,68 @@ async def backup_test():
         for k in list(store.sessions): store.sessions.pop(k)
     print("PASS backup: secrets never exported, full round trip, restores come back safe (Ask mode, paused, re-tested), idempotent, hostile zips ignored or refused")
 asyncio.run(backup_test())
+
+
+async def packs_test():
+    import pathlib, shutil, subprocess
+    from app import packs, tools, workspace, config, selftest
+    root = pathlib.Path("/tmp/agent-unit/packs")
+    shutil.rmtree(root, ignore_errors=True)
+    assert [p["name"] for p in packs.status()] == ["py-science", "cpp", "emscripten"]
+    assert not any(p["installed"] for p in packs.status())
+    # unknown pack and the tool wrapper turn into clean tool errors
+    try:
+        await packs.enable("nope")
+        raise AssertionError("unknown pack accepted")
+    except ValueError:
+        pass
+    ctx = tools.Ctx({"id": "pk"}, pathlib.Path("/tmp/agent-unit"), None)
+    try:
+        await tools.t_pack_enable(ctx, {"name": "nope"})
+        raise AssertionError("tool accepted unknown pack")
+    except tools.ToolError:
+        pass
+    assert "py-science" in await tools.t_pack_list(ctx, {}) and "not installed" in await tools.t_pack_list(ctx, {})
+    assert "pack_list" in tools.READONLY and "pack_enable" not in tools.READONLY and "pack_enable" not in tools.EDITS
+    assert any(t["function"]["name"] == "pack_enable" for t in tools.BASE_TOOLS)
+    # not enough disk is refused before anything downloads
+    real = packs.free_mb
+    packs.free_mb = lambda: 10
+    try:
+        await packs.enable("cpp")
+        raise AssertionError("installed with no disk")
+    except ValueError as e:
+        assert "not enough disk" in str(e)
+    finally:
+        packs.free_mb = real
+    # an installed pack lands on PATH / PYTHONPATH (fake install: just the marker + dirs)
+    for n in ("py-science", "cpp"):
+        (root / n).mkdir(parents=True, exist_ok=True)
+        (root / n / ".installed").write_text("{}")
+    env = packs.env_patch({"PATH": "/usr/bin", "HOME": "/tmp/h"})
+    assert str(root / "cpp" / "wrap") in env["PATH"] and str(root / "py-science") in env["PYTHONPATH"], env
+    assert workspace.clean_env()["PATH"].startswith(str(root / "cpp")), "clean_env must apply packs"
+    assert "installed" in await tools.t_pack_list(ctx, {})
+    assert (await tools.t_pack_enable(ctx, {"name": "cpp"})).startswith("Pack cpp is already installed")
+    assert packs.remove("cpp") and not packs.installed("cpp") and not packs.remove("zzz")
+    # the memory guard kills one runaway command and leaves the server alone
+    config.BASH_MEM_MB = 120
+    out = await tools.t_bash(ctx, {"command": "python3 -c \"x=bytearray(400*1024*1024); x[::4096]=b'a'*len(x[::4096]); import time; time.sleep(5)\""})
+    assert "killed: used" in out and "120 MB" in out, out
+    ok = await tools.t_bash(ctx, {"command": "echo fine"})
+    assert ok.strip() == "fine", ok
+    config.BASH_MEM_MB = 0
+    assert "killed" not in await tools.t_bash(ctx, {"command": "echo off"})
+    config.BASH_MEM_MB = 300
+    # background jobs are guarded too
+    config.BASH_MEM_MB = 120
+    r = await tools.t_bash(ctx, {"command": "python3 -c \"x=bytearray(400*1024*1024); x[::4096]=b'a'*len(x[::4096]); import time; time.sleep(8)\"", "background": True})
+    jid = r.split()[3]
+    await asyncio.sleep(3)
+    assert "killed: used" in await tools.t_bash_output(ctx, {"job_id": jid})
+    config.BASH_MEM_MB = 300
+    st, detail = selftest._toolchains()
+    assert st == "ok" and "base:" in detail, (st, detail)
+    shutil.rmtree(root, ignore_errors=True)
+    print("PASS packs: registry, disk check, env wiring, memory guard (fg + bg), platform row")
+asyncio.run(packs_test())

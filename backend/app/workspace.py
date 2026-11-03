@@ -41,7 +41,8 @@ def clean_env() -> dict:
         "GIT_AUTHOR_EMAIL": config.GIT_USER_EMAIL, "GIT_COMMITTER_NAME": config.GIT_USER_NAME,
         "GIT_COMMITTER_EMAIL": config.GIT_USER_EMAIL, "PAGER": "cat", "TERM": "dumb",
     })
-    return env
+    from . import packs
+    return packs.env_patch(env)
 
 
 async def run(cmd: list[str], cwd: Path | None = None, auth: bool = False, timeout: int = 180):

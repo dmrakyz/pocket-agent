@@ -401,7 +401,7 @@ function scrollDown(force) {
   if (force || S.stick) c.scrollTop = c.scrollHeight;
 }
 const ICONS = { read: '▤', write: '✎', edit: '✎', multiedit: '✎', bash: '$', bash_output: '$', kill_bash: '■', grep: '⌕', glob: '✱',
-  web_fetch: '◎', web_search: '◎', browser_read: '◫', browser_act: '◫', todo_write: '☑', task: '⋔', skill: '★', git_sync: '⎇', create_pr: '⎇', exit_plan_mode: '☰', share_file: '⬇', preview: '▶', view_3d: '◈', image_search: '⌕', fetch_image: '▣', view_image: '◉', annotate_image: '✐', generate_image: '✦', send_email: '✉', connector_add: '⚭', routine_list: '⏱', routine_create: '⏱', routine_update: '⏱', world_list: '🌍', world_read: '🌍', world_create: '🌍', world_say: '🌍', create_app: '▦', app_list: '▦', app_read: '▦', forge_tool: '⚒', forge_list: '⚒', models: '⋔', connector_search: '⌕' };
+  web_fetch: '◎', web_search: '◎', browser_read: '◫', browser_act: '◫', todo_write: '☑', task: '⋔', skill: '★', git_sync: '⎇', create_pr: '⎇', exit_plan_mode: '☰', share_file: '⬇', preview: '▶', view_3d: '◈', image_search: '⌕', fetch_image: '▣', view_image: '◉', annotate_image: '✐', generate_image: '✦', send_email: '✉', connector_add: '⚭', routine_list: '⏱', routine_create: '⏱', routine_update: '⏱', world_list: '🌍', world_read: '🌍', world_create: '🌍', world_say: '🌍', create_app: '▦', app_list: '▦', app_read: '▦', forge_tool: '⚒', forge_list: '⚒', pack_list: '⚙', pack_enable: '⚙', models: '⋔', connector_search: '⌕' };
 function toolSummary(name, a) {
   a = a || {};
   switch (name) {
@@ -415,6 +415,7 @@ function toolSummary(name, a) {
     case 'create_app': return (a.icon || '') + ' ' + (a.name || '');
     case 'app_read': return a.id || '';
     case 'routine_create': case 'world_create': return a.name || '';
+    case 'pack_enable': return a.name || '';
     case 'routine_update': case 'world_say': case 'world_read': return a.id || '';
     case 'connector_add': return (a.name || '') + ' · ' + (a.url || '');
     case 'send_email': return ((a.to || []).join?.(', ') || a.to || '') + ' · ' + (a.subject || '').slice(0, 60);
@@ -548,7 +549,7 @@ const KIND = { bash: ['Ran', 'command', 'commands'], bash_output: ['Ran', 'comma
   read: ['Read', 'file', 'files'], glob: ['Searched', 'folder', 'folders'], grep: ['Searched', 'code search', 'code searches'],
   write: ['Edited', 'file', 'files'], edit: ['Edited', 'file', 'files'], multiedit: ['Edited', 'file', 'files'], annotate_image: ['Edited', 'image', 'images'],
   web_fetch: ['Opened', 'page', 'pages'], web_search: ['Searched the web', 'time', 'times'], browser_read: ['Browsed', 'page', 'pages'], browser_act: ['Used the browser', 'time', 'times'], image_search: ['Searched images', 'time', 'times'],
-  fetch_image: ['Downloaded', 'image', 'images'], generate_image: ['Generated', 'image', 'images'], send_email: ['Sent', 'email', 'emails'], connector_add: ['Proposed', 'connector', 'connectors'], routine_list: ['Listed', 'routines', 'routine lists'], routine_create: ['Scheduled', 'routine', 'routines'], routine_update: ['Updated', 'routine', 'routines'], world_list: ['Listed', 'worlds', 'world lists'], world_read: ['Read', 'world', 'worlds'], world_create: ['Started', 'world', 'worlds'], world_say: ['Stepped into', 'world', 'worlds'], create_app: ['Built', 'app', 'apps'], app_list: ['Listed', 'app list', 'app lists'], app_read: ['Read', 'app', 'apps'], forge_tool: ['Forged', 'tool', 'tools'], forge_list: ['Listed', 'forged tools', 'forged tool lists'], view_image: ['Looked at', 'image', 'images'], task: ['Delegated', 'task', 'tasks'], git_sync: ['Synced', 'time', 'times'], todo_write: ['Updated', 'task list', 'task lists'], skill: ['Loaded', 'skill', 'skills'], models: ['Checked', 'model list', 'model lists'], connector_search: ['Looked up', 'connector tool', 'connector tools'], create_pr: ['Opened', 'pull request', 'pull requests'] };
+  fetch_image: ['Downloaded', 'image', 'images'], generate_image: ['Generated', 'image', 'images'], send_email: ['Sent', 'email', 'emails'], connector_add: ['Proposed', 'connector', 'connectors'], routine_list: ['Listed', 'routines', 'routine lists'], routine_create: ['Scheduled', 'routine', 'routines'], routine_update: ['Updated', 'routine', 'routines'], world_list: ['Listed', 'worlds', 'world lists'], world_read: ['Read', 'world', 'worlds'], world_create: ['Started', 'world', 'worlds'], world_say: ['Stepped into', 'world', 'worlds'], create_app: ['Built', 'app', 'apps'], app_list: ['Listed', 'app list', 'app lists'], app_read: ['Read', 'app', 'apps'], forge_tool: ['Forged', 'tool', 'tools'], forge_list: ['Listed', 'forged tools', 'forged tool lists'], pack_list: ['Listed', 'toolchain pack list', 'toolchain pack lists'], pack_enable: ['Installed', 'toolchain pack', 'toolchain packs'], view_image: ['Looked at', 'image', 'images'], task: ['Delegated', 'task', 'tasks'], git_sync: ['Synced', 'time', 'times'], todo_write: ['Updated', 'task list', 'task lists'], skill: ['Loaded', 'skill', 'skills'], models: ['Checked', 'model list', 'model lists'], connector_search: ['Looked up', 'connector tool', 'connector tools'], create_pr: ['Opened', 'pull request', 'pull requests'] };
 const isPinned = (c) => { const r = S.results[c._call.id]; return !!(r && (r._file || r._preview || r._model || r._image || r._app)) || c._call.function.name === 'exit_plan_mode'; };
 const isDone = (c) => !!S.results[c._call.id] && !S.pending[c._call.id];
 function tgLabel(cards) {
@@ -1872,6 +1873,30 @@ async function openSelftest() {
   draw(null);
 }
 
+/* ============================================================ toolchain packs */
+async function openPacks() {
+  const body = h('div', {});
+  sheet('Toolchain packs', body);
+  let timer = null;
+  const draw = (d) => {
+    const kids = [h('div.dim', { style: 'font-size:14px', text: `Heavy toolchains the agent switches on only when a task needs them, so the image stays small. They cost disk, not idle memory. Every bash command is also killed above ${d.bash_mem_mb} MB so one runaway script cannot take the server down. Packs vanish when Render restarts; the agent just re-installs them when needed. Disk free: ${d.free_mb} MB.` })];
+    for (const p of d.packs) {
+      const state = p.installed ? `installed · ${p.size_mb} MB` : p.installing ? 'installing…' : `off · needs ~${p.needs_mb} MB`;
+      kids.push(h('div', { style: 'padding:10px 0;border-top:1px solid var(--line)' },
+        h('div', { style: 'display:flex;justify-content:space-between;gap:8px' }, h('div', { style: 'font-weight:600', text: p.title }), h('div.dim', { style: 'font-size:13px;white-space:nowrap', text: state })),
+        h('div.dim', { style: 'font-size:13px;margin:2px 0 6px', text: p.desc }),
+        p.error ? h('div', { style: 'font-size:13px;color:var(--bad);margin-bottom:6px;white-space:pre-wrap', text: p.error }) : null,
+        p.installed ? h('button.secondary', { text: 'Remove', onclick: async (e) => { const btn = e.currentTarget; btn.disabled = true; try { await api('/api/packs/' + p.name, { method: 'DELETE' }); } catch (er) { toast(er.message, true); } load(); } })
+          : h('button', { text: p.installing ? 'Installing…' : 'Install now', disabled: p.installing, onclick: async (e) => { const btn = e.currentTarget; btn.disabled = true; try { await api('/api/packs/' + p.name, { body: {} }); } catch (er) { toast(er.message, true); } load(); } })));
+    }
+    body.replaceChildren(...kids);
+    clearTimeout(timer);
+    if (d.packs.some((p) => p.installing) && body.isConnected) timer = setTimeout(load, 4000);
+  };
+  async function load() { try { draw(await api('/api/packs')); } catch (e) { toast(e.message, true); } }
+  load();
+}
+
 /* ============================================================ backup & restore */
 async function rawPost(path, buf) {
   let r;
@@ -2038,6 +2063,7 @@ function drawSettings() {
       row('▤', 'Usage', openUsage),
       row('✓', 'Capability check', openEval),
       row('🩺', 'Platform check', openSelftest),
+      row('⚙', 'Toolchain packs', openPacks),
       row('💾', 'Backup & restore', openBackup),
       row('🔔', 'Push notifications', async () => { if (PUSH.state === 'on') await pushDisable(); else await pushEnable(); drawSettings(); },
         { on: 'On', off: 'Off', blocked: 'Blocked', unsupported: 'Not supported', 'server-off': 'Server off', unknown: '…' }[PUSH.state] || ''),
@@ -2109,7 +2135,7 @@ function evDraw() {
   if (EV.err) parts.push(h('div.evwarn', { text: EV.err }));
   if (!ev) {
     parts.push(h('div.evhead', {}, h('div.big', { text: 'Not run yet' }),
-      h('div.dim', { text: `Runs 5 real tasks (write code, debug, explore a codebase, build a package, build an app) on ${shortModel(S.cur && S.cur.model || S.info && S.info.default_model)} and checks each result with code. Runs on the server, so you can close this screen and come back.` })),
+      h('div.dim', { text: `Runs 6 real tasks (write code, debug, explore a codebase, build a package, compile C++, build an app) on ${shortModel(S.cur && S.cur.model || S.info && S.info.default_model)} and checks each result with code. Runs on the server, so you can close this screen and come back.` })),
       h('button.primary', { text: EV.busy ? 'Starting…' : 'Run check', disabled: EV.busy, onclick: evStart }));
     box.replaceChildren(...parts); return;
   }

@@ -379,9 +379,9 @@ try:
         if ev["status"] == "done":
             break
         time.sleep(0.5)
-    check("eval ran all tasks", ev["status"] == "done" and len(ev["results"]) == 5, str(ev))
+    check("eval ran all tasks", ev["status"] == "done" and len(ev["results"]) == 6, str(ev))
     check("eval task 1 passes with scripted model", ev["results"][0]["passed"], str(ev["results"][0]))
-    check("eval exposes task list + clock", ev.get("tasks") and len(ev["tasks"]) == 5 and ev.get("now"), str(ev.keys()))
+    check("eval exposes task list + clock", ev.get("tasks") and len(ev["tasks"]) == 6 and ev.get("now"), str(ev.keys()))
     check("eval task 5 (build an app) passes with scripted model and leaves the drawer clean", ev["results"][4]["passed"] and c2.get("/api/apps").json()["apps"] == [], str(ev["results"][4]) + str(c2.get("/api/apps").json()))
     check("eval-latest returns it", c2.get("/api/eval-latest").json()["eval"]["id"] == eid)
     eid2 = c2.post("/api/eval", json={"model": "mock:mock/ultra-550b"}).json()["id"]
