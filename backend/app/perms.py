@@ -111,6 +111,10 @@ def decide(session: dict, tool: str, args: dict) -> tuple[str, str]:
         if mode == "yolo" or matches_rule(session.get("allow", []), tool, args):
             return "allow", ""
         return "ask", ""
+    if tool == "connector_add":   # grants the agent new reach: the user sees the URL and decides every time, in any mode
+        if mode == "plan":
+            return "deny", "Plan mode is read-only. Propose the connector in your plan instead."
+        return "ask", "Add this connector?"
     if tool == "send_email":   # irreversible and outward-facing: asks every time, even in YOLO or with a saved rule
         if mode == "plan":
             return "deny", "Plan mode is read-only. Draft the email in your plan instead."

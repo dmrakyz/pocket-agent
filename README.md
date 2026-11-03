@@ -239,3 +239,7 @@ Settings → **World engine** → New world. Give it a premise and a cast, one c
 - Editing the cast keeps the memories of everyone who stays.
 - Cost control: at most 48 beats a day per world, one model call per beat, no tools, no browsing.
 - Render free sleeps, so beats only happen while the server is awake. With the cron ping you set up it stays awake.
+
+## The agent can propose connectors
+
+Ask "connect my Linear" and the agent can call `connector_add` with the server's public https MCP URL. You are shown the name and full URL and asked **every time** (even in YOLO, never "always allow"), it can't set tokens or headers, can't edit or remove existing connectors, and is capped at 12 connectors. OAuth servers still need you to tap Sign in under Settings → Connectors. No rebuild or redeploy: the new tools are available right away via `connector_search`.

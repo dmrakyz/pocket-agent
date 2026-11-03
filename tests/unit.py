@@ -741,3 +741,45 @@ async def world_notify_test():
         await world.save([x for x in world.all_worlds() if x["id"] != w["id"]])
     print("PASS world notify: whole beat + world id in the notification, muted worlds stay silent but keep going")
 asyncio.run(world_notify_test())
+
+
+async def connector_add_test():
+    from app import tools as T, perms, kv
+    from pathlib import Path
+    import tempfile
+
+    class FakeMCP:
+        def __init__(self): self.tools, self.report, self.refreshed = {}, {}, 0
+        def servers(self): return [{"name": "notion"}]
+        async def refresh(self):
+            self.refreshed += 1
+            for c in (kv.get("connectors", []) or []):
+                self.report[c["name"]] = "ok"; self.tools[f"mcp__{c['name']}__ping"] = {"server": {"name": c["name"]}, "name": "ping", "def": {}}
+    m = FakeMCP()
+    ctx = T.Ctx({"id": "ca1"}, Path(tempfile.mkdtemp()), lambda e: asyncio.sleep(0), None, m)
+    await kv.put("connectors", [])
+    r = await T.execute(ctx, "connector_add", {"name": "x", "url": "http://insecure.example.com/mcp"}); assert r["error"] and "https" in r["text"], r
+    r = await T.execute(ctx, "connector_add", {"name": "x", "url": "https://127.0.0.1/mcp"}); assert r["error"], "private addresses must be refused"
+    real = T._check_public; T._check_public = lambda u: None
+    try:
+        r = await T.execute(ctx, "connector_add", {"name": "Notion", "url": "https://mcp.example.com/mcp"}); assert r["error"] and "already exists" in r["text"], r
+        r = await T.execute(ctx, "connector_add", {"name": "linear", "url": "https://mcp.linear.example/mcp", "oauth": True})
+        assert not r["error"] and "Sign in" in r["text"] or "added" in r["text"], r
+        saved = kv.get("connectors", [])
+        assert saved == [{"name": "linear", "url": "https://mcp.linear.example/mcp", "oauth": True}] and m.refreshed == 1, saved
+        r = await T.execute(ctx, "connector_add", {"name": "linear", "url": "https://other.example/mcp"}); assert r["error"], "cannot overwrite an existing connector"
+        assert kv.get("connectors")[0]["url"] == "https://mcp.linear.example/mcp"
+        r = await T.execute(ctx, "connector_add", {"name": "tok", "url": "https://t.example/mcp", "headers": {"Authorization": "Bearer x"}, "auth": "Bearer y"})
+        assert "headers" not in kv.get("connectors")[-1] and kv.get("connectors")[-1] == {"name": "tok", "url": "https://t.example/mcp"}, "agent must not be able to set tokens"
+    finally:
+        T._check_public = real
+    for mode in ("ask", "auto", "yolo"):
+        assert perms.decide({"mode": mode, "allow": ["tool:connector_add"]}, "connector_add", {})[0] == "ask", mode
+    assert perms.decide({"mode": "plan"}, "connector_add", {})[0] == "deny"
+    assert perms.always_rule("connector_add", {}) is None, "can never be remembered as always-allow"
+    assert "connector_add" in [x["function"]["name"] for x in T.schemas({})]
+    assert "connector_add" not in [x["function"]["name"] for x in T.schemas({}, only={"read"})], "sub-agents must not get it"
+    assert "connector_add" not in T.READONLY and "connector_add" not in T.SUBAGENT_TOOLS
+    await kv.put("connectors", [])
+    print("PASS connector_add: https+public only, never overwrites, no tokens, always asks, never remembered, not for sub-agents")
+asyncio.run(connector_add_test())
