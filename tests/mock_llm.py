@@ -8,6 +8,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 
 app = FastAPI()
 SEEN = {"thinking_param": [], "models": []}
+TOOLS_OFFERED = [False]
 
 
 @app.get("/v1/models")
@@ -56,10 +57,13 @@ def scenario(msgs, model):
     tool_texts = [m["content"] for m in after if m["role"] == "tool"]
 
     # ---- sub-agent roles (prompts the main scenarios hand to sub-agents)
+    if "WORLD ENGINE" in sysmsg and TOOLS_OFFERED[0] and ("LOOPFOREVER" in prompt or ("LOOKUP" in prompt and k == 0)):
+        return "tools", [tool_call("web_search", {"query": "foggy harbor towns"})]
     if "WORLD ENGINE" in sysmsg:
         names = re.findall(r"^### (.+)$", prompt, re.M)
         n = len(re.findall(r"^\[.*?\] \S", prompt, re.M))
         say = "ZAP-INTERJECT" if "Nobody told you" in prompt and "STRANGER" in prompt else "tick"
+        say += f", looked={k}"
         ev = [{"who": nm, "kind": "say" if i == 0 else "do", "text": f"{nm} reacts ({say}, log={n})"} for i, nm in enumerate(names[:2])]
         mem = {names[0]: f"remembered tick {n}"} if names else {}
         return "text", "Sure, here is the next beat:\n```json\n" + json.dumps({"events": ev, "memory": mem}) + "\n```"
@@ -216,6 +220,7 @@ async def chat(req: Request):
         return JSONResponse({"error": {"message": "nope"}}, status_code=401)
     SEEN["thinking_param"].append(body.get("chat_template_kwargs"))
     SEEN["models"].append(body["model"])
+    TOOLS_OFFERED[0] = bool(body.get("tools"))
     kind, payload = scenario(body["messages"], body["model"])
 
     async def gen():

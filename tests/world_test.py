@@ -80,6 +80,19 @@ try:
     check("fixing the model and resuming clears the error", r["ok"] and r["world"]["fails"] == 0 and r["world"]["error"] == "", str(r)[:200])
     lst = c.get("/api/worlds", headers=A).json()["worlds"]
     check("list is light (3 log lines) and the full world has the whole log", len(lst[0]["log"]) <= 3 and len(c.get(f"/api/worlds/{wid}", headers=A).json()["log"]) > 3)
+    # ---- worlds with tools
+    wt = c.post("/api/worlds", headers=A, json={"name": "Looky", "premise": "LOOKUP the fog", "tools": True, "cast": "Mara: captain | route\nOtto: clerk | leave"}).json()
+    check("tools flag is stored, off by default elsewhere", wt["tools"] is True and w["tools"] is False)
+    r = c.post(f"/api/worlds/{wt['id']}/tick", headers=A).json()
+    check("a world with tools looks something up, then writes the beat from it", r["ok"] and "looked=1" in r["events"][0]["text"], str(r)[:300])
+    lg = r["world"]["log"]
+    check("the lookup is visible in the log", any(e["kind"] == "look" and "foggy harbor towns" in e["text"] for e in lg), str(lg[-4:]))
+    wl = c.post("/api/worlds", headers=A, json={"name": "Loop", "premise": "LOOPFOREVER", "tools": True, "cast": "Mara: captain | route"}).json()
+    r = c.post(f"/api/worlds/{wl['id']}/tick", headers=A).json()
+    check("a model that never stops searching is cut off at 3 lookups and still produces a beat", r["ok"] and sum(1 for e in r["world"]["log"] if e["kind"] == "look") == 3 and "looked=3" in r["events"][0]["text"], str(r)[:400])
+    r = c.post(f"/api/worlds/{wid}/tick", headers=A).json()
+    check("a world with tools off never gets the lookup tools", r["ok"] and "looked=0" in r["events"][0]["text"] and not any(e["kind"] == "look" for e in r["world"]["log"]), str(r)[:300])
+    c.delete(f"/api/worlds/{wt['id']}", headers=A); c.delete(f"/api/worlds/{wl['id']}", headers=A)
     c.delete(f"/api/worlds/{wid}", headers=A)
     check("delete", c.get("/api/worlds", headers=A).json()["worlds"] == [] and c.get(f"/api/worlds/{wid}", headers=A).status_code == 404)
 finally:

@@ -176,7 +176,8 @@ BASE_TOOLS = [
     _fn("world_create", "Start a new story world: a premise and 1-8 characters who act on their own goals every few minutes and remember what happened. The user is asked first. "
         "cast is one character per line: 'Name: who they are | what they want'. The current default model is pinned to the world.",
         {"name": {"type": "string"}, "premise": {"type": "string"}, "cast": {"type": "string"},
-         "minutes": {"type": "integer", "description": "minutes between beats, 10 or more (default 60)"}, "notify": {"type": "boolean", "description": "ping the user on each beat (default true)"}}, ["name", "premise", "cast"]),
+         "minutes": {"type": "integer", "description": "minutes between beats, 10 or more (default 60)"}, "notify": {"type": "boolean", "description": "ping the user on each beat (default true)"},
+         "tools": {"type": "boolean", "description": "let the characters look things up on the web during a beat (slower, costs more); default false"}}, ["name", "premise", "cast"]),
     _fn("world_say", "Step into a world as the user would: something happens there on the next beat (e.g. 'a stranger knocks'). Only when the user asked.",
         {"id": {"type": "string"}, "text": {"type": "string"}}, ["id", "text"]),
     _fn("forge_tool", "Create a NEW reusable tool by writing Python, when a job keeps coming up and no existing tool does it (a parser, a unit converter, a calculator for the "
@@ -1169,7 +1170,7 @@ async def t_world_create(ctx: Ctx, a: dict):
         raise ToolError("there are already 10 worlds; the user must delete one first")
     try:
         w = await world.create({"name": a.get("name"), "premise": a.get("premise"), "cast": a.get("cast"), "minutes": a.get("minutes") or 60,
-                               "notify": a.get("notify", True)})
+                               "notify": a.get("notify", True), "tools": bool(a.get("tools"))})
     except (ValueError, TypeError) as e:
         raise ToolError(str(e))
     return f"World {w['name']!r} created (id {w['id']}) with {', '.join(c['name'] for c in w['cast'])}; a beat every {w['minutes']} min on {w['model']}. The user can read it under Worlds."

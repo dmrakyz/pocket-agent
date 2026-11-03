@@ -179,10 +179,10 @@ async def restore(raw: bytes, overwrite: bool = False) -> dict:
                  "memory": [_clip(m, 200) for m in (c.get("memory") or [])][-world.MEM_CAP:]} for c in w["cast"] if isinstance(c, dict) and c.get("name")][:8]
         if not cast:
             continue
-        log = [{"t": float(e.get("t") or time.time()), "who": _clip(e.get("who"), 40), "kind": e.get("kind") if e.get("kind") in ("say", "do", "think") else "do", "text": _clip(e.get("text"), 700)}
+        log = [{"t": float(e.get("t") or time.time()), "who": _clip(e.get("who"), 40), "kind": e.get("kind") if e.get("kind") in ("say", "do", "think", "look") else "do", "text": _clip(e.get("text"), 700)}
                for e in (w.get("log") or []) if isinstance(e, dict)][-world.LOG_CAP:]
         ws.append({"id": uuid.uuid4().hex[:8], "name": _clip(w.get("name") or "World", 60), "premise": _clip(w.get("premise"), 2000), "cast": cast, "model": _clip(w.get("model"), 120),
-                   "minutes": max(world.MIN_MINUTES, min(int(w.get("minutes") or 60), 1440)), "enabled": False, "notify": w.get("notify", True) is not False, "created": time.time(),
+                   "minutes": max(world.MIN_MINUTES, min(int(w.get("minutes") or 60), 1440)), "tools": bool(w.get("tools")), "enabled": False, "notify": w.get("notify", True) is not False, "created": time.time(),
                    "last_tick": time.time(), "log": log, "inbox": [], "fails": 0, "error": "", "ticks": int(w.get("ticks") or 0), "day": "", "day_n": 0})
         done["worlds"] += 1
     if done["worlds"]:

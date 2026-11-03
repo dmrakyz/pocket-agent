@@ -1794,6 +1794,7 @@ async function worldView(id, back = openWorlds) {
     let divided = false;
     for (const e of w.log) {
       if (!divided && seen && e.t > seen && e.who !== 'You') { rows.push(h('div', { style: 'text-align:center;font-size:11.5px;color:var(--accent,#7aa2ff);border-top:1px solid var(--line);margin:6px 0 2px;padding-top:4px', text: 'new since you last looked' })); divided = true; }
+      if (e.kind === 'look') { rows.push(h('div', { style: 'align-self:center;font-size:12px;opacity:.65;font-style:italic', text: '🔎 ' + e.text })); continue; }
       const you = e.who === 'You', nar = e.who === 'Narrator';
       rows.push(h('div', { style: `align-self:${you ? 'flex-end' : 'flex-start'};max-width:92%;background:${you ? 'var(--accent,#7aa2ff)' : 'var(--panel2)'};color:${you ? 'var(--accent-ink,#fff)' : 'inherit'};border-radius:14px;padding:7px 11px;font-size:15px;line-height:1.45${nar ? ';font-style:italic;opacity:.85' : ''}` },
         nar || you ? null : h('div', { style: `font-weight:700;font-size:12.5px;color:${worldColor(e.who)}`, text: e.who + (e.kind === 'think' ? ' (thinking)' : e.kind === 'do' ? ' (does)' : '') }),
@@ -1809,7 +1810,7 @@ async function worldView(id, back = openWorlds) {
     const patch = async (b) => { try { render(await api(`/api/worlds/${id}`, { method: 'PATCH', body: b })); } catch (er) { toast(er.message, true); } };
     box.replaceChildren(
       h('div', { style: 'font-weight:600;font-size:16px', text: '🌍 ' + w.name + (w.notify ? '' : '  🔕') }),
-      h('div.dim', { style: 'font-size:13px;white-space:pre-wrap', text: `${w.premise}\nModel ${w.model} (pinned) · every ${w.minutes} min · ${w.enabled ? 'running' : 'paused'} · notifications ${w.notify ? 'on' : 'muted'}` }),
+      h('div.dim', { style: 'font-size:13px;white-space:pre-wrap', text: `${w.premise}\nModel ${w.model} (pinned) · every ${w.minutes} min · ${w.enabled ? 'running' : 'paused'} · notifications ${w.notify ? 'on' : 'muted'}${w.tools ? ' · can look things up' : ''}` }),
       w.error ? h('div', { style: 'font-size:13px;color:var(--bad)', text: w.error }) : null,
       log,
       h('div', { style: 'display:flex;gap:8px' }, inp, h('button.small', { text: 'Send', onclick: send })),
@@ -1833,14 +1834,16 @@ function worldForm(w, done) {
   prem.rows = 3; cast.rows = 6;
   const mins = h('input', { type: 'number', value: w ? w.minutes : 60, min: 10, style: 'width:90px' });
   const ntf = h('input', { type: 'checkbox', style: 'width:auto' }); ntf.checked = w ? w.notify : true;
+  const ntl = h('input', { type: 'checkbox', style: 'width:auto' }); ntl.checked = w ? !!w.tools : false;
   const form = h('div', {}, name, prem, cast,
     h('div', { style: 'display:flex;align-items:center;gap:8px;margin:6px 0' }, h('span.dim', { text: 'A beat every' }), mins, h('span.dim', { text: 'minutes (10 or more)' })),
     h('label', { style: 'display:flex;align-items:center;gap:8px;margin:6px 0;font-size:14px' }, ntf, h('span', { text: 'Notify me when something happens' })),
+    h('label', { style: 'display:flex;align-items:center;gap:8px;margin:6px 0;font-size:14px' }, ntl, h('span', { text: 'Let characters look things up on the web (up to 3 searches a beat; slower, uses more of the model)' })),
     h('div.dim', { style: 'font-size:12.5px', text: w ? 'Editing the cast keeps the memories of anyone who stays.' : 'The current default model gets pinned to this world. If it fails, the world pauses instead of quietly switching to another model.' }),
     h('button.primary', { text: w ? 'Save' : 'Create', onclick: async (e) => {
       const btn = e.currentTarget; btn.disabled = true;
       try {
-        const b = { name: name.value, premise: prem.value, cast: cast.value, minutes: Number(mins.value) || 60, notify: ntf.checked };
+        const b = { name: name.value, premise: prem.value, cast: cast.value, minutes: Number(mins.value) || 60, notify: ntf.checked, tools: ntl.checked };
         if (w) await api('/api/worlds/' + w.id, { method: 'PATCH', body: b }); else await api('/api/worlds', { body: b });
         closeSheet(); done();
       } catch (er) { toast(er.message, true); btn.disabled = false; }

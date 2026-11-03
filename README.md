@@ -236,6 +236,7 @@ Settings → **World engine** → New world. Give it a premise and a cast, one c
 - **Mute** a world (🔕) and it keeps living and writing its story, you just are not pinged; **Pause** stops it. The notification carries the whole beat, and tapping it opens that world's log. The log is a chat with a colour per character and a "new since you last looked" line.
 - **Step in** any time ("a stranger knocks at the door"); it happens on the next beat and the characters react. **Next beat now** plays one immediately.
 - The model is **pinned** to the world when you create it. If it fails, the beat fails; nothing is swapped for another model, because that would change the characters. Three failures in a row pause the world and tell you why.
+- **Looking things up:** tick "Let characters look things up on the web" (or `tools` when the agent creates the world) and each beat may use `web_search` / `web_fetch`, at most 3 calls, read-only, results treated as untrusted data. What they looked up shows as 🔎 lines in the log, and characters only know what they actually found. It is slower and uses more of the model, so it is off by default.
 - Editing the cast keeps the memories of everyone who stays.
 - Cost control: at most 48 beats a day per world, one model call per beat, no tools, no browsing.
 - Render free sleeps, so beats only happen while the server is awake. With the cron ping you set up it stays awake.
