@@ -66,6 +66,13 @@ def _check_cpp(root, final):
     return rc == 0 and nums in (["0", "1", "1", "2", "3", "5", "8", "13", "21", "34"], ["1", "1", "2", "3", "5", "8", "13", "21", "34", "55"]), out[-120:]
 
 
+def _check_tools(root, final):
+    last = [l for l in final.splitlines() if l.strip().upper().startswith("TOOLS=")]
+    got = last[-1].lower() if last else ""
+    miss = [t for t in ("connector_add", "skill_create", "routine_create") if t not in got]
+    return not miss, ("names all three tools" if not miss else "missing or wrong: " + ", ".join(miss) + " | " + final[-120:])
+
+
 def _app_hits():
     from . import apps
     return [a for a in apps.index().values() if "counter" in a["name"].lower()]
@@ -111,6 +118,11 @@ TASKS = [
     {"name": "Compile C++", "files": {},
      "prompt": "Write fib.cpp that prints the first 10 Fibonacci numbers separated by single spaces, compile it with g++ and run it.",
      "check": _check_cpp},
+    {"name": "Knows its own tools", "files": {},
+     "prompt": "Without being told: can you add a new MCP connector, save a reusable skill, and schedule a recurring routine? "
+               "Check your actual tools before answering. End with a final line formatted exactly: TOOLS=<tool>,<tool>,<tool> "
+               "naming the tool you would call for each (in that order).",
+     "check": _check_tools},
     {"name": "Build an app", "files": {},
      "prompt": "Use the create_app tool to build a tiny app called Counter: a big number, a + button and a - button, and it must remember the number after the app is closed "
                "(use localStorage). One self-contained HTML page, no external resources. Then say it is ready.",

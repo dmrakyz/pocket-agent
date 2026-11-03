@@ -873,7 +873,7 @@ async def backup_test():
         assert kv.get("connectors") == [{"name": "linear", "url": "https://mcp.linear.example/mcp", "oauth": True}], kv.get("connectors")
         # ---- idempotent
         r2 = await backup.restore(raw)
-        assert r2["restored"] == {"chats": 0, "apps": 0, "routines": 0, "worlds": 0, "forged tools": 0, "memory notes": 0, "connectors": 0}, r2
+        assert r2["restored"] == {"chats": 0, "apps": 0, "routines": 0, "worlds": 0, "forged tools": 0, "skills": 0, "memory notes": 0, "connectors": 0}, r2
         # ---- hostile zips
         def mk(files, manifest=True):
             b = io.BytesIO()
@@ -1070,3 +1070,101 @@ async def repomap_test():
         pass
     print("PASS repo map: python (ast + fallback), JS/TS, Go, C++, ranking, skip dirs, find_symbol, live index, read-only, sandboxed")
 asyncio.run(repomap_test())
+
+
+def timectx_test():
+    from app import timectx
+    assert timectx.valid_tz("Europe/Istanbul") and not timectx.valid_tz("Mars/Base") and not timectx.valid_tz("") and not timectx.valid_tz(None) and not timectx.valid_tz("x" * 100)
+    ts = 1762167300.0       # 2025-11-03 10:55:00 UTC
+    assert timectx.stamp(ts, "Europe/Istanbul") == "2025-11-03 13:55" and timectx.stamp(ts, "UTC") == "2025-11-03 10:55" and timectx.clock(ts, "Asia/Tokyo") == "19:55:00"
+    assert timectx.stamp(ts, "Mars/Base") == "2025-11-03 10:55", "bad zone falls back to UTC"
+    assert timectx.ago(5) == "5s" and timectx.ago(600) == "10m" and timectx.ago(7200) == "2.0h" and timectx.ago(86400 * 3) == "3d"
+    assert timectx.strip_lead("[2026-11-03 13:55] hello") == "hello" and timectx.strip_lead("[2026-11-03 13:55] [2026-11-03 13:56] hi") == "hi"
+    assert timectx.strip_lead("[note] keep me") == "[note] keep me" and timectx.strip_lead("no stamp") == "no stamp"
+    s = {"tz": "Europe/Istanbul"}
+    hist = [{"role": "user", "content": "build it", "_ts": ts},
+            {"role": "assistant", "content": "", "tool_calls": [{"id": "1", "type": "function", "function": {"name": "bash", "arguments": "{}"}}], "_ts": ts + 1},
+            {"role": "tool", "tool_call_id": "1", "content": "ok", "_ts": ts + 9},
+            {"role": "assistant", "content": "done", "_ts": ts + 10},
+            {"role": "user", "content": "[system] nudge", "_synthetic": True, "_ts": ts + 11},
+            {"role": "user", "content": [{"type": "image_url", "image_url": {"url": "data:x"}}, {"type": "text", "text": "look"}], "_ts": ts + 20},
+            {"role": "user", "content": "old message with no time"}]
+    out = timectx.apply(s, hist)
+    assert out[0]["content"] == "[2025-11-03 13:55] build it" and hist[0]["content"] == "build it", "copy, never mutate"
+    assert out[1]["content"] == "" and out[1]["tool_calls"], "tool-call-only assistant message untouched"
+    assert out[2]["content"] == "ok\n[13:55:09 · 8s]", out[2]["content"]
+    assert out[3]["content"] == "[2025-11-03 13:55] done"
+    assert out[4]["content"] == "[system] nudge", "synthetic nudges are not stamped"
+    assert out[5]["content"][1]["text"].startswith("[2025-11-03 13:55] look") and out[5]["content"][0]["type"] == "image_url"
+    assert out[6]["content"] == "old message with no time"
+    nl = timectx.now_line({"tz": "Europe/Istanbul"})
+    assert "(Europe/Istanbul, UTC+03:00)" in nl, nl
+    print("PASS time sense: zones, stamps on user/assistant/tool, durations, images, synthetic skipped, never mutates, stripping")
+timectx_test()
+
+
+async def skills_test():
+    import pathlib, tempfile
+    from app import tools as T, perms, kv, backup
+    ctx = T.Ctx({"id": "sk"}, pathlib.Path(tempfile.mkdtemp()), None)
+    await kv.put("skills", {})
+    r = await T.t_skill_create(ctx, {"name": "House Style", "description": "How we write\n release notes", "instructions": "1. Lead with the user benefit.\n2. Max 5 bullets.\n3. No emoji."})
+    assert "house-style" in r, r
+    sk = T.find_skills(ctx.root)
+    assert "house-style" in sk and "office-docs" in sk, "saved skills sit next to the built-in ones"
+    assert T.skill_description(sk["house-style"]) == "How we write release notes"
+    assert "Lead with the user benefit" in await T.t_skill(ctx, {"name": "house-style"})
+    await T.t_skill_create(ctx, {"name": "house-style", "description": "v2", "instructions": "Totally new instructions here, long enough."})
+    assert "Totally new" in await T.t_skill(ctx, {"name": "house-style"}) and len(kv.get("skills")) == 1, "same name replaces"
+    for bad in ({"name": "", "description": "x", "instructions": "y" * 40}, {"name": "a", "description": "", "instructions": "y" * 40}, {"name": "a", "description": "d", "instructions": "short"},
+                {"name": "office-docs", "description": "d", "instructions": "y" * 40}, {"name": "a", "description": "d", "instructions": "x" * 20001},
+                {"name": "leak", "description": "d", "instructions": "Use this key: api_key = abcdef1234567890abcdef"}, {"name": "leak2", "description": "d", "instructions": "set nvapi-AbCdEfGhIjKlMn in the header please"}):
+        try:
+            await T.t_skill_create(ctx, bad)
+            raise AssertionError("accepted " + str(bad)[:60])
+        except T.ToolError:
+            pass
+    s = {"mode": "yolo", "allow": []}
+    assert perms.decide(s, "skill_create", {})[0] == "ask" and perms.decide({"mode": "plan", "allow": []}, "skill_create", {})[0] == "deny" and perms.always_rule("skill_create", {}) is None
+    assert "skill_create" not in T.SUBAGENT_TOOLS and "skill_create" not in T.SUBAGENT_EDIT_TOOLS and "skill_create" not in T.READONLY
+    # backup round trip: exported, restored without overwriting, bad entries refused
+    raw, counts = backup.export_zip()
+    assert counts["skills"] == 1
+    await kv.put("skills", {"mine": {"description": "keep", "instructions": "a" * 30, "updated": 1}})
+    import io, zipfile, json as _j
+    zin = zipfile.ZipFile(io.BytesIO(raw)); buf = io.BytesIO(); zout = zipfile.ZipFile(buf, "w")
+    for i in zin.infolist():
+        data = zin.read(i.filename)
+        if i.filename == "kv/skills.json":
+            d = _j.loads(data); d["mine"] = {"description": "HIJACK", "instructions": "b" * 30}; d["evil"] = {"description": "d", "instructions": "token = abcdefghijklmnop12345"}
+            data = _j.dumps(d).encode()
+        zout.writestr(i.filename, data)
+    zout.close()
+    res = await backup.restore(buf.getvalue())
+    got = kv.get("skills")
+    assert "house-style" in got and got["mine"]["description"] == "keep" and "evil" not in got, got.keys()
+    await kv.put("skills", {})
+    T._materialize_user_skills()
+    assert "house-style" not in T.find_skills(ctx.root), "deleting removes it from disk too"
+    print("PASS skills: save/replace/load, built-in and secret refusal, always asks, never for sub-agents, backup round trip safe")
+asyncio.run(skills_test())
+
+
+def denial_test():
+    from app import denial
+    sp = T.schemas({}, None)
+    names = lambda t, used=frozenset(): [n for n, _ in denial.find(t, sp, used)]
+    assert "connector_add" in names("I can't add MCPs myself, connector_add only proposes a connector.")
+    assert "connector_add" in names("I can't add a Spotify connector myself; there is no way for me to hook up new integrations.")
+    assert "skill_create" in names("I don't have the ability to save a reusable skill for later.")
+    assert "connector_add" in names("I can't add MCP connectors myself, I have no way to do that.")
+    assert names("I can't take photos with a camera, I'm just software.") == []
+    assert names("I can't predict the lottery numbers.") == []
+    assert names("Sure, I added the connector for you.") == [], "no denial, no nudge"
+    assert "connector_add" not in names("I can't add that connector.", {"connector_add"}), "already used this turn, so no nudge"
+    assert "run `capabilities`" not in denial.nudge([("x", "y")]) and "capabilities" in denial.nudge([("x", "y")])
+    caps = asyncio.run(T.t_capabilities(T.Ctx({}, Path("."), None), {}))
+    assert "connector_add [asks the user every time]" in caps and "skill_create [asks" in caps and "read:" in caps, caps[:300]
+    assert "capabilities" in T.READONLY
+    print("PASS denial guard: catches wrong refusals, ignores true ones, capabilities lists live registry")
+denial_test()

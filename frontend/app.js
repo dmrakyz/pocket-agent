@@ -323,6 +323,32 @@ async function connect() {
   } catch (e) { st.textContent = e.message; st.classList.add('err'); }
   $('#btn-connect').disabled = false;
 }
+/* ============================================================ what's new */
+const WN = { list: null };
+async function loadChangelog() {
+  if (WN.list) return WN.list;
+  try { const r = await fetch('changelog.json?t=' + Date.now(), { cache: 'no-store' }); WN.list = r.ok ? await r.json() : []; } catch { WN.list = []; }
+  return WN.list;
+}
+function whatsNewNodes(entries) {
+  return entries.flatMap((e) => [h('div', { style: 'margin-top:12px;font-weight:700', text: e.title }), h('div.dim', { style: 'font-size:12.5px;margin-bottom:4px', text: e.date }),
+    h('ul', { style: 'margin:4px 0 0;padding-left:20px' }, ...e.items.map((t) => h('li', { style: 'margin:3px 0', text: t })))]);
+}
+async function maybeWhatsNew() {
+  const list = await loadChangelog();
+  if (!list.length) return;
+  const top = Math.max(...list.map((e) => e.id));
+  const seen = parseInt(store.get('seen_changelog') || '0', 10);
+  store.set('seen_changelog', String(top));
+  if (!seen || seen >= top) return;     // first launch: nothing to compare against
+  const fresh = list.filter((e) => e.id > seen).sort((a, b) => b.id - a.id).slice(0, 4);
+  if (fresh.length) sheet("What's new", ...whatsNewNodes(fresh), h('button.primary', { text: 'Got it', onclick: closeSheet }));
+}
+async function openWhatsNew() {
+  const list = (await loadChangelog()).slice().sort((a, b) => b.id - a.id);
+  sheet("What's new", ...(list.length ? whatsNewNodes(list.slice(0, 8)) : [h('div.dim', { text: 'Nothing to show yet.' })]));
+}
+
 async function start() {
   show('main');
   applyChips();
@@ -341,6 +367,7 @@ async function start() {
     else renderChat();
     if (wl) openWorldFromLink(wl);
     refreshWorldDot();
+    if (!wl) maybeWhatsNew();
   } catch (e) { toast(e.message, true, 6000); }
   clearTimeout(slow);
 }
@@ -401,7 +428,7 @@ function scrollDown(force) {
   if (force || S.stick) c.scrollTop = c.scrollHeight;
 }
 const ICONS = { read: '▤', write: '✎', edit: '✎', multiedit: '✎', bash: '$', bash_output: '$', kill_bash: '■', grep: '⌕', glob: '✱',
-  web_fetch: '◎', web_search: '◎', browser_read: '◫', browser_act: '◫', todo_write: '☑', task: '⋔', skill: '★', git_sync: '⎇', create_pr: '⎇', exit_plan_mode: '☰', share_file: '⬇', preview: '▶', view_3d: '◈', image_search: '⌕', fetch_image: '▣', view_image: '◉', annotate_image: '✐', generate_image: '✦', send_email: '✉', connector_add: '⚭', routine_list: '⏱', routine_create: '⏱', routine_update: '⏱', world_list: '🌍', world_read: '🌍', world_create: '🌍', world_say: '🌍', create_app: '▦', app_list: '▦', app_read: '▦', forge_tool: '⚒', forge_list: '⚒', pack_list: '⚙', pack_enable: '⚙', ask_user: '?', repo_map: '⌖', find_symbol: '⌖', models: '⋔', connector_search: '⌕' };
+  web_fetch: '◎', web_search: '◎', browser_read: '◫', browser_act: '◫', todo_write: '☑', task: '⋔', skill: '★', git_sync: '⎇', create_pr: '⎇', exit_plan_mode: '☰', share_file: '⬇', preview: '▶', view_3d: '◈', image_search: '⌕', fetch_image: '▣', view_image: '◉', annotate_image: '✐', generate_image: '✦', send_email: '✉', connector_add: '⚭', routine_list: '⏱', routine_create: '⏱', routine_update: '⏱', world_list: '🌍', world_read: '🌍', world_create: '🌍', world_say: '🌍', create_app: '▦', app_list: '▦', app_read: '▦', forge_tool: '⚒', forge_list: '⚒', pack_list: '⚙', pack_enable: '⚙', skill_create: '✦', ask_user: '?', repo_map: '⌖', find_symbol: '⌖', models: '⋔', connector_search: '⌕' };
 function toolSummary(name, a) {
   a = a || {};
   switch (name) {
@@ -416,6 +443,7 @@ function toolSummary(name, a) {
     case 'app_read': return a.id || '';
     case 'routine_create': case 'world_create': return a.name || '';
     case 'pack_enable': return a.name || '';
+    case 'skill_create': return (a.name || '') + ' · ' + (a.description || '').slice(0, 50);
     case 'find_symbol': return a.name || '';
     case 'repo_map': return a.path || '.';
     case 'ask_user': return ((a.questions || [])[0] || {}).question || '';
@@ -481,6 +509,8 @@ function fillCard(card, call, result, approval) {
     body.append(h('div.plan.prose', { html: md(a.plan || '') }));
   } else if (name === 'bash') {
     body.append(h('div.lbl', { text: 'command' }), h('pre', { text: a.command || '' }));
+  } else if (name === 'skill_create') {
+    body.append(h('div.lbl', { text: (a.name || '') + ': ' + (a.description || '') }), h('pre', { style: 'white-space:pre-wrap', text: a.instructions || '' }));
   } else {
     const d = (result && result._diff) || previewDiff(name, a);
     if (name === 'create_app' && result && result._app) { /* the HTML is long and useless here: the card below is the result */ }
@@ -575,7 +605,7 @@ const KIND = { bash: ['Ran', 'command', 'commands'], bash_output: ['Ran', 'comma
   read: ['Read', 'file', 'files'], glob: ['Searched', 'folder', 'folders'], grep: ['Searched', 'code search', 'code searches'],
   write: ['Edited', 'file', 'files'], edit: ['Edited', 'file', 'files'], multiedit: ['Edited', 'file', 'files'], annotate_image: ['Edited', 'image', 'images'],
   web_fetch: ['Opened', 'page', 'pages'], web_search: ['Searched the web', 'time', 'times'], browser_read: ['Browsed', 'page', 'pages'], browser_act: ['Used the browser', 'time', 'times'], image_search: ['Searched images', 'time', 'times'],
-  fetch_image: ['Downloaded', 'image', 'images'], generate_image: ['Generated', 'image', 'images'], send_email: ['Sent', 'email', 'emails'], connector_add: ['Proposed', 'connector', 'connectors'], routine_list: ['Listed', 'routines', 'routine lists'], routine_create: ['Scheduled', 'routine', 'routines'], routine_update: ['Updated', 'routine', 'routines'], world_list: ['Listed', 'worlds', 'world lists'], world_read: ['Read', 'world', 'worlds'], world_create: ['Started', 'world', 'worlds'], world_say: ['Stepped into', 'world', 'worlds'], create_app: ['Built', 'app', 'apps'], app_list: ['Listed', 'app list', 'app lists'], app_read: ['Read', 'app', 'apps'], forge_tool: ['Forged', 'tool', 'tools'], forge_list: ['Listed', 'forged tools', 'forged tool lists'], ask_user: ['Asked', 'question', 'questions'], repo_map: ['Mapped', 'repo', 'repos'], find_symbol: ['Looked up', 'symbol', 'symbols'], pack_list: ['Listed', 'toolchain pack list', 'toolchain pack lists'], pack_enable: ['Installed', 'toolchain pack', 'toolchain packs'], view_image: ['Looked at', 'image', 'images'], task: ['Delegated', 'task', 'tasks'], git_sync: ['Synced', 'time', 'times'], todo_write: ['Updated', 'task list', 'task lists'], skill: ['Loaded', 'skill', 'skills'], models: ['Checked', 'model list', 'model lists'], connector_search: ['Looked up', 'connector tool', 'connector tools'], create_pr: ['Opened', 'pull request', 'pull requests'] };
+  fetch_image: ['Downloaded', 'image', 'images'], generate_image: ['Generated', 'image', 'images'], send_email: ['Sent', 'email', 'emails'], connector_add: ['Proposed', 'connector', 'connectors'], routine_list: ['Listed', 'routines', 'routine lists'], routine_create: ['Scheduled', 'routine', 'routines'], routine_update: ['Updated', 'routine', 'routines'], world_list: ['Listed', 'worlds', 'world lists'], world_read: ['Read', 'world', 'worlds'], world_create: ['Started', 'world', 'worlds'], world_say: ['Stepped into', 'world', 'worlds'], create_app: ['Built', 'app', 'apps'], app_list: ['Listed', 'app list', 'app lists'], app_read: ['Read', 'app', 'apps'], forge_tool: ['Forged', 'tool', 'tools'], forge_list: ['Listed', 'forged tools', 'forged tool lists'], ask_user: ['Asked', 'question', 'questions'], repo_map: ['Mapped', 'repo', 'repos'], find_symbol: ['Looked up', 'symbol', 'symbols'], skill_create: ['Saved', 'skill', 'skills'], pack_list: ['Listed', 'toolchain pack list', 'toolchain pack lists'], pack_enable: ['Installed', 'toolchain pack', 'toolchain packs'], view_image: ['Looked at', 'image', 'images'], task: ['Delegated', 'task', 'tasks'], git_sync: ['Synced', 'time', 'times'], todo_write: ['Updated', 'task list', 'task lists'], skill: ['Loaded', 'skill', 'skills'], models: ['Checked', 'model list', 'model lists'], connector_search: ['Looked up', 'connector tool', 'connector tools'], create_pr: ['Opened', 'pull request', 'pull requests'] };
 const isPinned = (c) => { const r = S.results[c._call.id]; return !!(r && (r._file || r._preview || r._model || r._image || r._app)) || c._call.function.name === 'exit_plan_mode'; };
 const isDone = (c) => !!S.results[c._call.id] && !S.pending[c._call.id];
 function tgLabel(cards) {
@@ -908,7 +938,7 @@ async function dispatch({ text, images }) {
   S.run = { running: true }; S.partial = { text: '', reasoning: '' }; S.finished = false; S.stick = true;
   renderLive(); applyChips(); updateSend(); scrollDown(true);
   try {
-    const r = await api(`/api/sessions/${S.cur.id}/messages`, { body: { text, images } });
+    const r = await api(`/api/sessions/${S.cur.id}/messages`, { body: { text, images, tz: (Intl.DateTimeFormat().resolvedOptions().timeZone || '') } });
     if (r.compacted) { S.run.running = false; renderLive(); await reloadCurrent(); updateSend(); toast('Context compacted'); drainQueue(); return; }
     S.lastSeq = r.seq;
     attach();
@@ -1906,6 +1936,34 @@ async function openSelftest() {
   draw(null);
 }
 
+/* ============================================================ saved skills */
+async function openSkills() {
+  const body = h('div', {});
+  sheet('Skills', body);
+  const draw = (d) => {
+    const kids = [h('div.dim', { style: 'font-size:14px', text: 'Reusable instructions the agent can load in any chat. Ask it to "save this as a skill" and you approve the text first. Built-in skills ship with the app.' })];
+    kids.push(h('div.sec', { text: 'Yours' }));
+    if (!d.skills.length) kids.push(h('div.dim', { style: 'padding:6px 0', text: 'None yet.' }));
+    for (const s of d.skills) {
+      kids.push(h('details', { style: 'padding:8px 0;border-top:1px solid var(--line)' },
+        h('summary', { style: 'cursor:pointer' }, h('b', { text: s.name }), h('div.dim', { style: 'font-size:13px', text: s.description })),
+        h('pre', { style: 'white-space:pre-wrap;font-size:12.5px;max-height:240px;overflow:auto;margin:8px 0', text: s.instructions }),
+        h('button.secondary.danger', { text: 'Delete', onclick: async (e) => {
+          const btn = e.currentTarget;
+          if (!(await confirmSheet('Delete ' + s.name + '?', 'Future chats will no longer have it.', 'Delete', true))) return;
+          btn.disabled = true;
+          try { await api('/api/skills/' + encodeURIComponent(s.name), { method: 'DELETE' }); } catch (er) { toast(er.message, true); }
+          load();
+        } })));
+    }
+    kids.push(h('div.sec', { style: 'margin-top:14px', text: 'Built in' }));
+    for (const s of d.builtin) kids.push(h('div', { style: 'padding:6px 0;border-top:1px solid var(--line)' }, h('b', { text: s.name }), h('div.dim', { style: 'font-size:13px', text: s.description })));
+    body.replaceChildren(...kids);
+  };
+  async function load() { try { draw(await api('/api/skills')); } catch (e) { toast(e.message, true); } }
+  load();
+}
+
 /* ============================================================ toolchain packs */
 async function openPacks() {
   const body = h('div', {});
@@ -2097,6 +2155,8 @@ function drawSettings() {
       row('▤', 'Usage', openUsage),
       row('✓', 'Capability check', openEval),
       row('🩺', 'Platform check', openSelftest),
+      row('✨', "What's new", openWhatsNew),
+      row('✦', 'Skills', openSkills),
       row('⚙', 'Toolchain packs', openPacks),
       row('💾', 'Backup & restore', openBackup),
       row('🔔', 'Push notifications', async () => { if (PUSH.state === 'on') await pushDisable(); else await pushEnable(); drawSettings(); },

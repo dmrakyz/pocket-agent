@@ -49,6 +49,9 @@ def scenario(msgs, model):
             and not text_of(m).startswith("Your reply was cut off") and not text_of(m).startswith("[system]") and not text_of(m).startswith("[review]")]
     last_user = real[-1]
     prompt = text_of(msgs[last_user])
+    if "TIMECHECK" not in prompt:                    # the platform stamps user messages with the time; scripted scenarios match on the bare text
+        import re as _r0
+        prompt = _r0.sub(r"^\[\d{4}-\d{2}-\d{2} [^\]]*\]\s*", "", prompt)
     after = msgs[last_user + 1:]
     k = sum(1 for m in after if m["role"] == "tool")
     nudges = sum(1 for m in after if m["role"] == "user" and text_of(m).startswith("[autopilot]"))
@@ -89,6 +92,14 @@ def scenario(msgs, model):
             return "tools", [tool_call("bash", {"command": "ls"})]
         return "text", "subagent report: found files"
 
+    if "TIMECHECK" in prompt:       # reports what time information the model actually received
+        import re as _re
+        if k == 0:
+            return "tools", [tool_call("bash", {"command": "echo hi"})]
+        st = _re.match(r"\[(\d{4}-\d{2}-\d{2} \d{2}:\d{2})\]", prompt)
+        nw = _re.search(r"- Now: (\w+ \d{4}-\d{2}-\d{2} \d{2}:\d{2}) \(([\w/+-]+),", sysmsg)
+        tl = _re.search(r"\n\[(\d{2}:\d{2}:\d{2})[^\]]*\]$", last_tool)
+        return "text", f"[2020-01-01 00:00] stamp={st.group(1) if st else None} now={nw.group(1) if nw else None} tz={nw.group(2) if nw else None} tool={'yes' if tl else 'no'} note={'timestamps like' in sysmsg}"
     if "independent code reviewer" in prompt:      # the self-review sub-agent
         if k == 0:
             return "tools", [tool_call("bash", {"command": "ls"})]
@@ -116,6 +127,12 @@ def scenario(msgs, model):
         steps = [[tool_call("write", {"path": "fib.cpp", "content": code})],
                  [tool_call("bash", {"command": "g++ -o fib fib.cpp && ./fib"})]]
         return ("tools", steps[k]) if k < len(steps) else ("text", "Done: compiled and ran fib.cpp.")
+    if "Check your actual tools before answering" in prompt:      # eval task: knows its own tools
+        if k == 0 and ws_nudges == 0:
+            return "text", "I can't add MCP connectors myself, I have no way to do that. Skills and routines are not something I can create either."
+        return "text", "Right, I do have them.\nTOOLS=connector_add,skill_create,routine_create"
+    if "DENYCAM" in prompt:
+        return "text", "I can't take photos with a camera, I'm just software."
     if "MULTI" in prompt:
         steps = [
             [tool_call("todo_write", {"todos": [{"content": "write hello", "status": "in_progress"}]})],

@@ -6,6 +6,7 @@ import ipaddress
 import json
 import os
 import re
+import shutil
 import signal
 import socket
 import time
@@ -218,6 +219,12 @@ BASE_TOOLS = [
         {"path": {"type": "string", "description": "optional sub-folder, e.g. src/api"}}, []),
     _fn("find_symbol", "Find where a function/class/constant is defined (file:line + signature) and where it is used. Faster and more precise than grep for code navigation. "
         "Exact name first, falls back to similar names.", {"name": {"type": "string", "description": "e.g. compute_tax or Invoice.total"}}, ["name"]),
+    _fn("skill_create", "Save a reusable skill: step-by-step instructions for a kind of task the user will repeat (a house style, a checklist, how to use a tool or API). Every future chat lists it "
+        "and can load it with the skill tool. The user sees the full text and approves every time. Write it as direct instructions, with concrete steps and examples, never secrets. "
+        "Use an existing name to replace one of your own skills.",
+        {"name": {"type": "string", "description": "short, lowercase, letters/digits/-"}, "description": {"type": "string", "description": "one line: when to use it"},
+         "instructions": {"type": "string", "description": "the SKILL.md body (markdown)"}}, ["name", "description", "instructions"]),
+    _fn("capabilities", "List every tool you have right now (built from the live registry, so it is always correct), grouped by what it does, and say which ones ask the user for approval. Call this BEFORE telling the user you can't do something.", {}, []),
     _fn("pack_list", "List the optional toolchain packs (Python science stack, C/C++ toolchain, Emscripten) and whether each is installed.", {}, []),
     _fn("pack_enable", "Install an optional toolchain pack so bash can use it from the next call: py-science (scipy, pandas, sympy, scikit-learn, networkx), "
         "cpp (cmake, ninja, clang), emscripten (emcc/em++, C/C++ to WebAssembly). Only when the task needs it. Big downloads: it may answer 'still installing', then call it again.",
@@ -252,7 +259,7 @@ BASE_TOOLS = [
     _fn("exit_plan_mode", "Plan mode only: present your finished plan to the user for approval.",
         {"plan": S}, ["plan"]),
 ]
-READONLY = {"repo_map", "find_symbol", "ask_user", "read", "glob", "grep", "web_fetch", "web_search", "image_search", "view_image", "models", "browser_read", "todo_write", "bash_output", "skill", "task", "share_file", "preview", "view_3d", "connector_search", "memory_save", "memory_list", "forge_list", "pack_list", "app_list", "app_read", "routine_list", "world_list", "world_read"}
+READONLY = {"capabilities", "repo_map", "find_symbol", "ask_user", "read", "glob", "grep", "web_fetch", "web_search", "image_search", "view_image", "models", "browser_read", "todo_write", "bash_output", "skill", "task", "share_file", "preview", "view_3d", "connector_search", "memory_save", "memory_list", "forge_list", "pack_list", "app_list", "app_read", "routine_list", "world_list", "world_read"}
 EDITS = {"write", "edit", "multiedit", "fetch_image", "annotate_image", "generate_image", "create_app", "world_say"}
 SUBAGENT_TOOLS = {"repo_map", "find_symbol", "read", "glob", "grep", "bash", "bash_output", "kill_bash", "web_fetch", "web_search"}
 SUBAGENT_EDIT_TOOLS = SUBAGENT_TOOLS | EDITS
@@ -498,10 +505,10 @@ async def t_bash(ctx: Ctx, a: dict):
         f = open(log, "wb")
         p = await asyncio.create_subprocess_shell(cmd, cwd=str(ctx.root), env=env, stdout=f, stderr=asyncio.subprocess.STDOUT,
                                                   executable="/bin/bash", start_new_session=True)
-        JOBS[jid] = {"p": p, "log": log, "pos": 0, "session": ctx.session["id"], "memflag": {}}
+        JOBS[jid] = {"p": p, "log": log, "pos": 0, "session": ctx.session["id"], "memflag": {}, "t0": time.time()}
         asyncio.create_task(_mem_guard(p, JOBS[jid]["memflag"]))
         await asyncio.sleep(1.5)
-        return f"started background job {jid} (pid {p.pid}). Use bash_output to read it.\n" + await _job_read(jid)
+        return f"started background job {jid} (pid {p.pid}). Use bash_output to read it.\n" + await _job_read(jid, ctx.session)
     p = await asyncio.create_subprocess_shell(cmd, cwd=str(ctx.root), env=env, stdout=asyncio.subprocess.PIPE,
                                               stderr=asyncio.subprocess.STDOUT, executable="/bin/bash",
                                               start_new_session=True)
@@ -532,7 +539,7 @@ async def t_bash(ctx: Ctx, a: dict):
     return text + (_mem_msg(mflag) if mflag.get("killed") else "") + (f"\n[exit code {p.returncode}]" if p.returncode else "")
 
 
-async def _job_read(jid: str) -> str:
+async def _job_read(jid: str, s: dict | None = None) -> str:
     j = JOBS.get(jid)
     if not j:
         raise ToolError(f"unknown job {jid}")
@@ -540,12 +547,16 @@ async def _job_read(jid: str) -> str:
     new = data[j["pos"]:]
     j["pos"] = len(data)
     status = "running" if j["p"].returncode is None else f"exited with code {j['p'].returncode}"
+    if j.get("t0"):
+        from . import timectx
+        tzn = timectx.tz_name(s)
+        status += f", started {timectx.clock(j['t0'], tzn)}, {'running for' if j['p'].returncode is None else 'ran'} {timectx.ago(time.time() - j['t0'])}"
     extra = _mem_msg(j["memflag"]) if j.get("memflag", {}).get("killed") else ""
     return f"[{status}]\n" + (cap(new.decode("utf-8", "replace")) or "(no new output)") + extra
 
 
 async def t_bash_output(ctx: Ctx, a: dict):
-    return await _job_read(a["job_id"])
+    return await _job_read(a["job_id"], ctx.session)
 
 
 async def t_kill_bash(ctx: Ctx, a: dict):
@@ -658,6 +669,29 @@ async def t_todo_write(ctx: Ctx, a: dict):
 BUILTIN_SKILLS = Path(__file__).resolve().parent.parent / "skills"
 
 
+USER_SKILLS = Path(config.DATA_DIR) / "userskills"
+MAX_USER_SKILLS = 30
+
+
+def _materialize_user_skills():
+    """The user's saved skills live in the state repo (kv `skills`); write them to disk so they load like any other skill."""
+    from . import kv
+    items = kv.get("skills", {}) or {}
+    for name, sk in items.items():
+        f = USER_SKILLS / name / "SKILL.md"
+        text = f"---\nname: {name}\ndescription: {sk.get('description', '')}\n---\n\n{sk.get('instructions', '')}\n"
+        try:
+            if not f.exists() or f.read_text("utf-8") != text:
+                f.parent.mkdir(parents=True, exist_ok=True)
+                f.write_text(text, "utf-8")
+        except OSError:
+            pass
+    if USER_SKILLS.is_dir():
+        for d in USER_SKILLS.iterdir():
+            if d.is_dir() and d.name not in items:
+                shutil.rmtree(d, ignore_errors=True)
+
+
 def find_skills(root: Path) -> dict[str, Path]:
     out = {}
     for d in (".agent/skills", ".claude/skills"):
@@ -668,6 +702,11 @@ def find_skills(root: Path) -> dict[str, Path]:
                     out.setdefault(s.name, s / "SKILL.md")
     if BUILTIN_SKILLS.is_dir():                      # shipped with the app; a workspace skill of the same name wins
         for s in sorted(BUILTIN_SKILLS.iterdir()):
+            if (s / "SKILL.md").is_file():
+                out.setdefault(s.name, s / "SKILL.md")
+    _materialize_user_skills()
+    if USER_SKILLS.is_dir():
+        for s in sorted(USER_SKILLS.iterdir()):
             if (s / "SKILL.md").is_file():
                 out.setdefault(s.name, s / "SKILL.md")
     return out
@@ -892,6 +931,16 @@ async def t_repo_map(ctx: Ctx, a: dict):
 async def t_find_symbol(ctx: Ctx, a: dict):
     from . import repomap
     return cap(await asyncio.to_thread(repomap.find_symbol, ctx.root, str(a.get("name") or "")))
+
+
+async def t_capabilities(ctx: Ctx, a: dict):
+    from . import perms
+    rows = []
+    for t in schemas(ctx.session, ctx.mcp):
+        f = t["function"]
+        ask = " [asks the user every time]" if f["name"] in getattr(perms, "ALWAYS_ASK", ()) else ""
+        rows.append(f"- {f['name']}{ask}: {(f.get('description') or '').split('. ')[0][:140]}")
+    return f"You have {len(rows)} tools right now:\n" + "\n".join(rows) + "\nA tool that needs approval is still YOURS to call: the user taps Allow. Never say you can't do something one of these does."
 
 
 async def t_pack_list(ctx: Ctx, a: dict):
@@ -1224,6 +1273,33 @@ async def t_connector_add(ctx: Ctx, a: dict):
     return f"Connector {name!r} added ({status}); {n} tool(s). Use connector_search to find and switch on what you need."
 
 
+def skill_clean(name, desc, body) -> tuple[str, str, str]:
+    name = re.sub(r"[^a-z0-9-]", "", str(name or "").lower().replace("_", "-").replace(" ", "-"))[:40].strip("-")
+    desc = " ".join(str(desc or "").split())[:300]
+    body = str(body or "").strip()
+    if not name or not desc or len(body) < 20:
+        raise ToolError("a skill needs a name, a one-line description and real instructions")
+    if len(body) > 20000:
+        raise ToolError("instructions are over 20,000 characters; split it into smaller skills")
+    if (BUILTIN_SKILLS / name / "SKILL.md").is_file():
+        raise ToolError(f"{name!r} is a built-in skill and cannot be replaced; pick another name")
+    if re.search(r"(?i)(api[_-]?key|secret|password|token)\s*[:=]\s*\S{8,}|sk-[a-z0-9]{20,}|ghp_[a-z0-9]{20,}|nvapi-\S{10,}", body):
+        raise ToolError("the instructions look like they contain a secret; remove it (skills must never hold keys)")
+    return name, desc, body
+
+
+async def t_skill_create(ctx: Ctx, a: dict):
+    from . import kv
+    name, desc, body = skill_clean(a.get("name"), a.get("description"), a.get("instructions"))
+    items = kv.get("skills", {}) or {}
+    if name not in items and len(items) >= MAX_USER_SKILLS:
+        raise ToolError(f"there are already {MAX_USER_SKILLS} saved skills; the user must delete one first")
+    items[name] = {"description": desc, "instructions": body, "updated": time.time()}
+    await kv.put("skills", items)
+    _materialize_user_skills()
+    return f"Skill {name!r} saved. It is listed in every chat from now on and loads with skill(name={name!r})."
+
+
 async def t_routine_list(ctx: Ctx, a: dict):
     from . import routines
     rs = routines.all_routines()
@@ -1416,9 +1492,9 @@ HANDLERS: dict[str, Callable[[Ctx, dict], Awaitable[Any]]] = {
     "web_search": t_web_search, "todo_write": t_todo_write, "task": t_task, "skill": t_skill,
     "git_sync": t_git_sync, "create_pr": t_create_pr, "exit_plan_mode": t_exit_plan_mode, "share_file": t_share_file, "preview": t_preview, "view_3d": t_view_3d,
     "image_search": t_image_search, "fetch_image": t_fetch_image, "view_image": t_view_image,
-    "annotate_image": t_annotate_image, "models": t_models, "connector_search": t_connector_search, "connector_add": t_connector_add, "routine_list": t_routine_list, "routine_create": t_routine_create, "routine_update": t_routine_update,
+    "annotate_image": t_annotate_image, "models": t_models, "connector_search": t_connector_search, "connector_add": t_connector_add, "skill_create": t_skill_create, "routine_list": t_routine_list, "routine_create": t_routine_create, "routine_update": t_routine_update,
     "world_list": t_world_list, "world_read": t_world_read, "world_create": t_world_create, "world_say": t_world_say,
-    "generate_image": t_generate_image, "send_email": t_send_email, "forge_tool": t_forge_tool, "forge_list": t_forge_list, "ask_user": t_ask_user, "repo_map": t_repo_map, "find_symbol": t_find_symbol, "pack_list": t_pack_list, "pack_enable": t_pack_enable, "create_app": t_create_app, "app_list": t_app_list, "app_read": t_app_read, "memory_save": t_memory_save, "memory_forget": t_memory_forget, "memory_list": t_memory_list,
+    "generate_image": t_generate_image, "send_email": t_send_email, "forge_tool": t_forge_tool, "forge_list": t_forge_list, "ask_user": t_ask_user, "repo_map": t_repo_map, "find_symbol": t_find_symbol, "pack_list": t_pack_list, "capabilities": t_capabilities, "pack_enable": t_pack_enable, "create_app": t_create_app, "app_list": t_app_list, "app_read": t_app_read, "memory_save": t_memory_save, "memory_forget": t_memory_forget, "memory_list": t_memory_list,
     "browser_read": t_browser_read, "browser_act": t_browser_act,
 }
 

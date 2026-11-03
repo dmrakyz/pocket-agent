@@ -21,7 +21,7 @@ MAX_FILES = 3000
 SID = re.compile(r"^[a-f0-9]{16}$")
 APPID = re.compile(r"^[a-z0-9-]{1,40}$")
 NAME_OK = re.compile(
-    r"^(manifest\.json|sessions/[a-f0-9]{16}\.json|kv/(apps|routines|worlds|forged_tools|memory|connectors|connector_perms)\.json|kv/(app|appdata)_[a-z0-9-]{1,40}\.json)$")
+    r"^(manifest\.json|sessions/[a-f0-9]{16}\.json|kv/(apps|routines|worlds|forged_tools|skills|memory|connectors|connector_perms)\.json|kv/(app|appdata)_[a-z0-9-]{1,40}\.json)$")
 
 
 class BackupError(Exception):
@@ -34,7 +34,7 @@ def _j(o) -> bytes:
 
 def export_zip() -> tuple[bytes, dict]:
     buf = io.BytesIO()
-    counts = {"chats": 0, "apps": 0, "routines": 0, "worlds": 0, "forged tools": 0, "memory notes": 0, "connectors": 0}
+    counts = {"chats": 0, "apps": 0, "routines": 0, "worlds": 0, "forged tools": 0, "skills": 0, "memory notes": 0, "connectors": 0}
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED, compresslevel=6) as z:
         for s in list(store.sessions.values()):
             if s.get("_ephemeral"):
@@ -53,6 +53,8 @@ def export_zip() -> tuple[bytes, dict]:
         z.writestr("kv/worlds.json", _j(ws)); counts["worlds"] = len(ws)
         ft = kv.get("forged_tools", {}) or {}
         z.writestr("kv/forged_tools.json", _j(ft)); counts["forged tools"] = len(ft)
+        sk = kv.get("skills", {}) or {}
+        z.writestr("kv/skills.json", _j(sk)); counts["skills"] = len(sk)
         mem = kv.get("memory", []) or []
         z.writestr("kv/memory.json", _j(mem)); counts["memory notes"] = len(mem)
         cons = [{"name": c["name"], "url": c["url"], **({"oauth": True} if c.get("oauth") else {})} for c in (kv.get("connectors", []) or []) if c.get("name") and c.get("url")]
@@ -108,7 +110,7 @@ def _clip(v, n):
 
 async def restore(raw: bytes, overwrite: bool = False) -> dict:
     data = _read(_open(raw))
-    done = {"chats": 0, "apps": 0, "routines": 0, "worlds": 0, "forged tools": 0, "memory notes": 0, "connectors": 0}
+    done = {"chats": 0, "apps": 0, "routines": 0, "worlds": 0, "forged tools": 0, "skills": 0, "memory notes": 0, "connectors": 0}
     skipped: list[str] = []
 
     # chats
@@ -187,6 +189,23 @@ async def restore(raw: bytes, overwrite: bool = False) -> dict:
         done["worlds"] += 1
     if done["worlds"]:
         await world.save(ws)
+
+    # skills: plain instructions, validated again (no secrets, no built-in names), never overwriting one you already have
+    from . import tools as _tools
+    have_sk = kv.get("skills", {}) or {}
+    sk_in = data.get("kv/skills.json") or {}
+    for name, spec in (sk_in.items() if isinstance(sk_in, dict) else []):
+        if not isinstance(spec, dict) or name in have_sk or len(have_sk) >= _tools.MAX_USER_SKILLS:
+            continue
+        try:
+            n2, d2, b2 = _tools.skill_clean(name, spec.get("description"), spec.get("instructions"))
+        except _tools.ToolError:
+            skipped.append(f"skill {name}: refused")
+            continue
+        have_sk[n2] = {"description": d2, "instructions": b2, "updated": time.time()}
+        done["skills"] += 1
+    if done["skills"]:
+        await kv.put("skills", have_sk)
 
     # forged tools: re-tested in the sandbox, then left switched OFF
     ft = data.get("kv/forged_tools.json") or {}

@@ -146,6 +146,24 @@ try:
     check("plan approval switched mode", sess5["mode"] == "auto", sess5["mode"])
     check("write allowed after plan approval", os.path.exists(os.path.join(DATA, "ws", s5["id"], "a.txt")) and "planned" in open(os.path.join(DATA, "ws", s5["id"], "a.txt")).read())
 
+    # --- sense of time: stamps on what the model sees, in the user's zone; its own copied stamp is stripped
+    from datetime import datetime as _dt
+    from zoneinfo import ZoneInfo as _Z
+    stz = c.post("/api/sessions", json={"mode": "yolo"}).json()
+    r_tz = c.post(f"/api/sessions/{stz['id']}/messages", json={"text": "TIMECHECK please", "tz": "Asia/Tokyo"})
+    for _ in range(100):
+        sess_tz = c.get(f"/api/sessions/{stz['id']}").json()
+        if not sess_tz["run"].get("running") and sess_tz["session"]["messages"][-1]["role"] == "assistant":
+            break
+        time.sleep(0.2)
+    out_tz = sess_tz["session"]["messages"][-1]["content"]
+    jst = _dt.now(_Z("Asia/Tokyo")).strftime("%Y-%m-%d %H:%M")
+    check("the model sees a timestamp on the user's message, in the user's own zone", f"stamp={jst}" in out_tz or f"stamp={_dt.fromtimestamp(time.time() - 60, _Z('Asia/Tokyo')).strftime('%Y-%m-%d %H:%M')}" in out_tz, out_tz)
+    check("the system prompt says what time it is and where", "tz=Asia/Tokyo" in out_tz and "now=" in out_tz and "now=None" not in out_tz, out_tz)
+    check("tool results carry a finish time, and the prompt explains the stamps", "tool=yes" in out_tz and "note=True" in out_tz, out_tz)
+    check("a timestamp the model copies onto its own reply is stripped before saving", not out_tz.startswith("[2020-01-01"), out_tz)
+    check("the stored chat itself is not polluted with stamps", not str(sess_tz["session"]["messages"][0]["content"]).startswith("[20"), str(sess_tz["session"]["messages"][0]["content"])[:40])
+
     # --- self-review: a fresh reviewer reads the diff; real problems go back once, LGTM changes nothing, off by default
     def rv_turn(prompt, on):
         sr = c.post("/api/sessions", json={"mode": "yolo"}).json()
@@ -430,13 +448,14 @@ try:
         if ev["status"] == "done":
             break
         time.sleep(0.5)
-    check("eval ran all tasks", ev["status"] == "done" and len(ev["results"]) == 6, str(ev))
+    check("eval ran all tasks", ev["status"] == "done" and len(ev["results"]) == 7, str(ev))
     check("eval task 1 passes with scripted model", ev["results"][0]["passed"], str(ev["results"][0]))
-    check("eval exposes task list + clock", ev.get("tasks") and len(ev["tasks"]) == 6 and ev.get("now"), str(ev.keys()))
-    check("eval task 5 (build an app) passes with scripted model and leaves the drawer clean", ev["results"][4]["passed"] and c2.get("/api/apps").json()["apps"] == [], str(ev["results"][4]) + str(c2.get("/api/apps").json()))
+    check("eval exposes task list + clock", ev.get("tasks") and len(ev["tasks"]) == 7 and ev.get("now"), str(ev.keys()))
+    check("eval task 5 (build an app) passes with scripted model and leaves the drawer clean", ev["results"][6]["passed"] and c2.get("/api/apps").json()["apps"] == [], str(ev["results"][6]) + str(c2.get("/api/apps").json()))
+    check("eval task 'Knows its own tools' passes only after the guard sends the wrong refusal back", ev["results"][5]["name"] == "Knows its own tools" and ev["results"][5]["passed"], str(ev["results"][5]))
     check("eval records the effort level and suite it ran with", ev["effort"] == "medium" and ev["suite"] == "standard", str(ev.get("effort")))
     hist = c2.get("/api/eval-history").json()["history"]
-    check("finished run is kept in the comparison history", hist and hist[0]["id"] == eid and hist[0]["effort"] == "medium" and hist[0]["passed"] >= 2 and hist[0]["total"] == 6, str(hist[:1]))
+    check("finished run is kept in the comparison history", hist and hist[0]["id"] == eid and hist[0]["effort"] == "medium" and hist[0]["passed"] >= 2 and hist[0]["total"] == 7, str(hist[:1]))
     check("eval-latest returns it", c2.get("/api/eval-latest").json()["eval"]["id"] == eid)
     eh = c2.post("/api/eval", json={"model": "mock:mock/ultra-550b", "suite": "hard", "effort": "off"}).json()["id"]
     for _ in range(240):

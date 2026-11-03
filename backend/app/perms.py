@@ -27,6 +27,9 @@ NEVER_ALWAYS = {"rm", "sudo", "dd", "chmod", "chown", "bash", "sh", "eval", "cur
                 "kill", "pkill", "mv", "env", "xargs", "python", "python3", "node", "perl", "ruby", "git"}
 
 
+ALWAYS_ASK = {"connector_add", "routine_create", "routine_update", "world_create", "send_email", "forge_tool", "skill_create"}
+
+
 def _segments(cmd: str) -> list[str] | None:
     """Split a command line on && || ; | and newlines. None if it has constructs we can't judge."""
     if "$(" in cmd or "`" in cmd or "<(" in cmd or re.search(r"(^|[^>&0-9])>{1,2}(?!&)", cmd):
@@ -115,6 +118,10 @@ def decide(session: dict, tool: str, args: dict) -> tuple[str, str]:
         if mode == "plan":
             return "deny", "Plan mode is read-only. Describe it in your plan instead."
         return "ask", {"routine_create": "Schedule this routine?", "routine_update": "Change this routine?", "world_create": "Start this world?"}[tool]
+    if tool == "skill_create":   # a permanent instruction every future chat will follow: the user reads it first, every time
+        if mode == "plan":
+            return "deny", "Plan mode is read-only. Describe the skill in your plan instead."
+        return "ask", "Save this skill?"
     if tool == "connector_add":   # grants the agent new reach: the user sees the URL and decides every time, in any mode
         if mode == "plan":
             return "deny", "Plan mode is read-only. Propose the connector in your plan instead."

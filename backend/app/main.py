@@ -23,7 +23,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from starlette.background import BackgroundTask
 
 from .browser import browser, BrowserError
-from . import agent, app_act, apps, backup, config, evals, forge, instagram, kv, llm, mcp_server, selftest, shortcut, mcp, memory, oauth, perms, push, routines, store, telegram, tools, usage, workspace, world
+from . import agent, app_act, apps, backup, config, evals, forge, instagram, kv, llm, mcp_server, selftest, shortcut, mcp, memory, timectx, oauth, perms, push, routines, store, telegram, tools, usage, workspace, world
 
 mcp_client = mcp.MCP()
 agent.MCP = mcp_client
@@ -275,6 +275,11 @@ async def send_message(sid: str, body: dict):
             s["_running"] = False
             run.done = True
         return {"ok": True, "compacted": True}
+    tzn = body.get("tz")
+    if timectx.valid_tz(tzn):
+        s["tz"] = tzn
+        if kv.get("user_tz") != tzn:
+            await kv.put("user_tz", tzn)
     agent.start(s, text or "(see attached image)", images)
     return {"ok": True, "seq": agent.runs[sid].seq}
 
@@ -1041,6 +1046,26 @@ async def app_data_set(app_id: str, key: str, body: dict):
 async def app_data_del(app_id: str, key: str):
     _need_app(app_id)
     await apps.data_del(app_id, key)
+    return {"ok": True}
+
+
+# ------------------------------------------------------------------ saved skills
+@app.get("/api/skills", dependencies=[Depends(auth)])
+async def skills_list():
+    items = kv.get("skills", {}) or {}
+    return {"skills": [{"name": n, "description": v.get("description", ""), "instructions": v.get("instructions", ""), "updated": v.get("updated", 0)}
+                       for n, v in sorted(items.items(), key=lambda kv_: -kv_[1].get("updated", 0))],
+            "builtin": [{"name": n, "description": tools.skill_description(p)} for n, p in sorted(tools.find_skills(Path("/nonexistent")).items()) if tools.BUILTIN_SKILLS in p.parents]}
+
+
+@app.delete("/api/skills/{name}", dependencies=[Depends(auth)])
+async def skills_delete(name: str):
+    items = kv.get("skills", {}) or {}
+    if name not in items:
+        raise HTTPException(404, "no such skill")
+    items.pop(name)
+    await kv.put("skills", items)
+    tools._materialize_user_skills()
     return {"ok": True}
 
 

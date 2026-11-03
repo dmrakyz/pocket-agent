@@ -8,7 +8,7 @@ import time
 from pathlib import Path
 from typing import Optional
 
-from . import verify
+from . import verify, timectx, denial
 from . import apps, push, config, llm, perms, store, tools, usage, workspace
 
 runs: dict[str, "Run"] = {}
@@ -98,7 +98,8 @@ SELF-EDIT: this workspace is the source code of the app you are running on (Fast
 Your changes only reach production when the user merges your pull request, so work like a careful contributor: keep changes small and focused, \
 read the code before editing, run `python3 tests/unit.py` (and e2e.py / ui.py when you touched the API or UI) and fix what breaks, never weaken or \
 delete a test to make it pass, never hard-code secrets, don't touch render.yaml or the Dockerfile unless asked, and finish with `create_pr` whose body \
-explains what changed, how you tested it, and any risk. Never claim a change is live; it isn't until the user merges and Render redeploys."""
+explains what changed, how you tested it, and any risk. Never claim a change is live; it isn't until the user merges and Render redeploys. \
+For any change the user will notice, also add an entry at the top of frontend/changelog.json (`{"id": <highest id + 1>, "date": "YYYY-MM-DD", "title": "...", "items": ["plain-language bullet", ...]}`); the app shows it once as a "What's new" notice after the update."""
 
 
 SHOW_PROMPT = """
@@ -115,6 +116,16 @@ Apps are not files: never use ws: for them. Use it when you mention an app you m
 - The same links work inline inside a sentence (shown as a small chip). Paths are relative to the workspace and must already exist; \
 never invent one. Don't write "saved to X" or "use share_file" when a card does the job. Screenshots, charts and edited images belong inline too.
 - Beyond that you may use markdown headings, lists, tables, quotes and fenced code blocks to structure answers. Keep them short for a phone."""
+
+EXTEND_PROMPT = """
+How you can extend yourself (these are real tools in this app; try the right one before ever saying you can't):
+- `connector_add(name, url)`: add a remote MCP server (an https URL) as a connector. The user just taps Allow on a card that shows the URL; no trip to Settings. Then `connector_search` finds and switches on its tools. \
+Find the official remote MCP URL with web_search first. If the server needs sign-in (oauth=true) or an API key, add it anyway, then tell the user to sign in or paste the key under Settings → Connectors (never ask for keys in chat). \
+Only remote HTTP(S) MCP servers work here, not local stdio/npx ones; if the thing the user wants only has a stdio server, say that plainly and offer another route (its REST API in an app, or forge_tool).
+- `forge_tool`: write your own Python tool (tested before it is saved, no network unless declared). `create_app`: a mini-app in the user's drawer (`agent.act` reaches connectors). \
+`skill_create`: save a reusable skill every future chat can load. `routine_create` / `world_create`: scheduled runs and simulations. `pack_enable`: heavier toolchains (scipy/pandas, cmake/clang, emscripten). `memory_save`: remember a lasting fact.
+- Each of those asks the user first (they see exactly what will be added). You cannot edit your own source except in a Pocket Agent self-edit chat, where changes go out as a pull request."""
+
 
 CODE_PROMPT = """
 Languages and live pages:
@@ -152,6 +163,7 @@ def build_system(s: dict, root: Path, sub: bool = False, can_edit: bool = False)
             parts.append(mb)
         parts.append(SHOW_PROMPT)
         parts.append(CODE_PROMPT)
+        parts.append(EXTEND_PROMPT)
     if sub:
         parts.append("You are a sub-agent. Do the assigned task, then reply with a compact final report (findings, file "
                      "paths, line numbers, what you changed). " + (
@@ -161,9 +173,10 @@ def build_system(s: dict, root: Path, sub: bool = False, can_edit: bool = False)
         parts.append("\nAUTOPILOT is on: keep working autonomously until the goal is fully met and verified. Don't stop to "
                      "ask for confirmation. When completely finished, begin your final reply with `DONE:` and a short "
                      "summary. If you are blocked on something only the user can provide, begin with `BLOCKED:` and say what.")
-    parts.append(f"\nEnvironment:\n- Working directory: {root}\n- Date: {time.strftime('%Y-%m-%d')}\n"
+    parts.append(f"\nEnvironment:\n- Working directory: {root}\n- Now: {timectx.now_line(s)}\n"
                  f"- Workspace: {'repo ' + s['repo'] if s.get('repo') else 'scratch workspace (no repo)'}, "
                  f"git branch {workspace.branch_for(s)}\n- Permission mode: {s.get('mode', 'ask')}")
+    parts.append("\n" + timectx.NOTE)
     if s.get("mode") == "plan":
         parts.append("\nPLAN MODE is on: you can only read and search. Investigate, then call `exit_plan_mode` with a clear "
                      "step-by-step plan. Do not try to modify anything before it is approved.")
@@ -491,6 +504,8 @@ PARALLEL_OK = {"task", "read", "glob", "grep", "web_fetch", "web_search"}
 # ------------------------------------------------------------------ the turn
 async def commit_message(run: Run, s: dict, msg: dict):
     msg.setdefault("_ts", time.time())
+    if msg.get("role") == "assistant" and isinstance(msg.get("content"), str) and timectx.LEAD.match(msg["content"]):
+        msg["content"] = timectx.strip_lead(msg["content"])
     s["messages"].append(msg)
     store.touch(s)
     await run.emit({"type": "message", "message": msg})
@@ -510,6 +525,13 @@ def _autoload_connectors(s: dict):
             if hits and named:
                 tools.activate(s, hits)
             return
+
+
+def _turn_start(msgs: list) -> int:
+    for i in range(len(msgs) - 1, -1, -1):
+        if msgs[i].get("role") == "user" and not msgs[i].get("_synthetic"):
+            return i
+    return 0
 
 
 def _text_of(m: dict) -> str:
@@ -579,6 +601,7 @@ async def run_turn(s: dict, run: Run):
         nudged_ap = 0
         nudged_ws = 0
         nudged_vf = 0
+        nudged_deny = 0
         reviewed = False
         for step in range(limit):
             await compact(s, run)
@@ -595,7 +618,7 @@ async def run_turn(s: dict, run: Run):
             async def notify(t):
                 await run.emit({"type": "notice", "text": t})
 
-            resp = await llm.chat(s["model"], [{"role": "system", "content": build_system(s, ws)}] + await vision_proxy(s, run, s["messages"]),
+            resp = await llm.chat(s["model"], [{"role": "system", "content": build_system(s, ws)}] + timectx.apply(s, await vision_proxy(s, run, s["messages"])),
                                   sch, on_text, on_reason, notify, thinking=s.get("thinking"), effort=s.get("effort"))
             m = resp["message"]
             if resp.get("usage"):
@@ -624,6 +647,14 @@ async def run_turn(s: dict, run: Run):
                         "[system] Your answer links files that do not exist in the workspace (or apps that do not exist: apps are written [Name](app:ID) with an id from create_app/app_list): " + ", ".join(missing[:8]) +
                         ". Create them or fix the paths, then answer again."})
                     continue
+                if nudged_deny < 1:
+                    used = {c["function"]["name"] for x in s["messages"][_turn_start(s["messages"]):] for c in (x.get("tool_calls") or [])}
+                    found = denial.find(m.get("content") or "", sch, used)
+                    if found:
+                        nudged_deny += 1
+                        await run.emit({"type": "notice", "text": "It said it can't, but has a tool for that; sending it back"})
+                        await commit_message(run, s, {"role": "user", "_synthetic": True, "content": denial.nudge(found)})
+                        continue
                 said = (m.get("content") or "").strip().upper()
                 if s.get("mode") != "plan":
                     why = verify.check(s["messages"])

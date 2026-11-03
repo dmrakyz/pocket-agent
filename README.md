@@ -252,7 +252,7 @@ The agent has `routine_list / routine_create / routine_update` and `world_list /
 ## Platform check and Capability check
 
 - **Settings → Platform check** tests the server itself in a few seconds, with no model tasks: saving to the state repo, the default model, memory use, app drawer, tool forging, MCP server, worlds, routines, connectors, push, browser, and which optional features are set up. Each row is ✓ ok, ! look at, ✕ broken or – not set up. It leaves nothing behind. Run it after every update.
-- **Capability check** (drawer) is the model exam: six real tasks checked by code, including compiling C++ and building an app.
+- **Capability check** (drawer) is the model exam: seven real tasks checked by code, including compiling C++, building an app and knowing its own tools.
 
 ## Backup & restore
 
@@ -290,3 +290,12 @@ Before a run you pick the **effort level** (Off / Medium / High reasoning) and t
 
 The Capability check's "Hard" suite has 12 realistic tasks (bugs across files, implement-from-spec with a performance bar, project-wide rename with a decoy, CLI flags, import cycle, a big-codebase needle, C++ compiled and timed, SQL report, JavaScript with `node --test`, security holes, a broken Makefile). The agent never sees the checkers; test files are hash-locked so editing them to pass fails. `tests/hard_suite_test.py` proves every checker fails on the starting files and passes on a reference solution, so a score means something. Tasks get 10 minutes each.
 
+## What's new, timestamps, skills
+
+- **What's new:** `frontend/changelog.json` lists user-visible changes (newest id highest). After an update the app shows the entries you haven't seen once, in a sheet; Settings → What's new reopens them. The first launch only records the current id. Add an entry whenever you ship something people will notice (the self-edit prompt tells the agent to).
+- **Sense of time:** the model sees `[YYYY-MM-DD HH:MM]` on your messages and its own earlier replies, `[HH:MM:SS · 8s]` (finish time and duration) on tool results, "Now:" with your time zone in the system prompt, and the start time on routine runs and background jobs. Your time zone comes from your phone with each message; stored chats are not changed (stamps are added to a copy before each model call, and a stamp the model copies is stripped).
+- **Skills:** `skill_create` saves reusable instructions to the state repo (you read and approve the text every time; text that looks like a secret is refused). They show up in every chat next to the built-in skills; Settings → Skills lists and deletes them, and backups include them.
+
+
+### It knows what it can do
+If the model says "I can't / I don't have a way to…" and a tool in the live registry does exactly that, the harness sends the answer back once with the matching tools listed (`backend/app/denial.py`). A read-only `capabilities` tool lists every tool from the live registry (and which ones ask you each time), and the Capability check has a "Knows its own tools" task so regressions show up.

@@ -1,0 +1,47 @@
+[
+ {
+  "id": 8,
+  "date": "2026-11-03",
+  "title": "It can build bigger things, and checks its work",
+  "items": [
+   "Asks you questions: tap-to-answer cards when a request is ambiguous (ask_user)",
+   "Verify gate: it can't say done after changing code until a check passed, otherwise it says \"Not verified\"",
+   "Repo map and symbol search to navigate big codebases",
+   "Optional self-review: a fresh reviewer checks the diff (Model sheet)",
+   "Sense of time: it now sees timestamps in your time zone on messages, answers and tool results",
+   "Can add connectors (remote MCP), save skills and schedule routines itself (you approve each)",
+   "Won't deny tools it has: a guard sends wrong \"I can't\" answers back, plus a `capabilities` tool and a new Capability-check task"
+  ]
+ },
+ {
+  "id": 7,
+  "date": "2026-11-03",
+  "title": "Capability check grows up",
+  "items": [
+   "Choose reasoning effort (Off / Medium / High) and a Hard suite of 12 real tasks",
+   "Past runs are saved so you can compare models and effort levels",
+   "New Compile C++ task"
+  ]
+ },
+ {
+  "id": 6,
+  "date": "2026-11-03",
+  "title": "More languages and tools",
+  "items": [
+   "Settings → Toolchain packs: scipy/pandas, cmake/clang and Emscripten, installed only when needed and cached on GitHub",
+   "Every command is memory-capped so one runaway script can't kill the server",
+   "Previews can run WebAssembly and multi-file pages",
+   "Settings → Skills: reusable instructions the agent can save for every chat (you approve them)"
+  ]
+ },
+ {
+  "id": 5,
+  "date": "2026-11-02",
+  "title": "Self-management, backups and worlds",
+  "items": [
+   "The agent can propose MCP connectors, routines and worlds from chat (you approve each)",
+   "Settings → Platform check and Backup & restore",
+   "Worlds can look things up on the web, and you can read and mute them"
+  ]
+ }
+]
