@@ -1586,18 +1586,25 @@ function rtEdit(r) {
 /* ============================================================ connectors */
 async function openConnectors() { $('#connpage').hidden = false; await cnLoad(); }
 function closeConnectors() { $('#connpage').hidden = true; }
-async function cnLoad(refresh) { try { CN.list = (await api(refresh ? '/api/connectors/refresh' : '/api/connectors', refresh ? { method: 'POST' } : {})).connectors; } catch (e) { toast(e.message, true); } cnDraw(); }
-const CN = { list: [] };
+async function cnLoad(refresh) { try { if (!CN.cat.length) CN.cat = (await api('/api/connector-catalog')).apps; } catch { /* the list just won't show */ } try { CN.list = (await api(refresh ? '/api/connectors/refresh' : '/api/connectors', refresh ? { method: 'POST' } : {})).connectors; } catch (e) { toast(e.message, true); } cnDraw(); }
+const CN = { list: [], cat: [] };
+function cnPopular() {
+  const have = new Set(CN.list.map((c) => c.name));
+  const rows = CN.cat.filter((a) => !have.has(a.name));
+  if (!rows.length) return null;
+  return h('div.cnpop', {}, h('div.sec', { text: 'Popular apps' }),
+    ...rows.map((a) => h('button.rtcard.cnapp', { onclick: () => cnAdd(a) }, h('div.rttop', {}, h('span.nm', { text: a.title }), h('span.badge', { text: a.oauth ? 'sign in' : 'token' })), h('div.rtmeta', { text: a.about }))));
+}
 function cnDraw() {
   const box = $('#cnbody');
-  if (!CN.list.length) { box.replaceChildren(h('div.evhead', {}, h('div.big', { text: 'No connectors yet' }), h('div.dim', { text: 'A connector is a remote MCP server: it gives the agent extra tools, like your calendar, notes, a smart home, or any service that offers one. It needs an https URL that works from the internet.' })), h('button.primary', { text: 'Add a connector', onclick: cnAdd })); return; }
+  if (!CN.list.length) { box.replaceChildren(h('div.evhead', {}, h('div.big', { text: 'No connectors yet' }), h('div.dim', { text: 'A connector is a remote MCP server: it gives the agent extra tools, like your calendar, notes, a smart home, or any service that offers one. It needs an https URL that works from the internet.' })), h('button.primary', { text: 'Add a connector', onclick: () => cnAdd() }), cnPopular()); return; }
   box.replaceChildren(...CN.list.map((c) => h('div.rtcard', {},
     h('div.rttop', {}, h('span.nm', { text: c.name }), h('span.badge ' + (/^\d+ tools/.test(c.status) ? 'ok' : c.status === 'needs sign-in' ? 'run' : 'bad'), { text: /^\d+ tools/.test(c.status) ? c.status : c.status === 'needs sign-in' ? 'sign in' : 'problem' })),
     h('div.rtmeta', { text: c.url.replace(/^https:\/\//, '').slice(0, 60) + (c.source === 'env' ? ' · set on the server' : '') }),
     /^\d+ tools/.test(c.status) ? h('div.rtlast', { text: c.tools.join(', ') }) : c.status === 'needs sign-in' ? h('div.rtlast', { text: 'Tap Sign in, log in on the page that opens, then come back here.' }) : h('div.rtlast', { style: 'color:var(--bad)', text: c.status }),
     /^\d+ tools/.test(c.status) ? cnPermRow(c) : null,
     c.source === 'app' ? h('div.rtbtns', {}, c.oauth ? h('button', { text: c.signed_in ? 'Sign in again' : 'Sign in', onclick: () => cnLogin(c.name) }) : null, h('button', { text: 'Remove', onclick: async () => { if (!(await confirmSheet('Remove ' + c.name + '?', 'The agent loses those tools.', 'Remove', true))) return; try { CN.list = (await api('/api/connectors/' + c.name, { method: 'DELETE' })).connectors; cnDraw(); closeSheet(); } catch (e) { toast(e.message, true); } } })) : null)),
-    h('button.secondary', { text: 'Reconnect all', onclick: () => cnLoad(true) }));
+    h('button.secondary', { text: 'Reconnect all', onclick: () => cnLoad(true) }), cnPopular());
 }
 const PERMS = [['ask', 'Ask before writes'], ['readonly', 'Read-only'], ['trusted', 'Trusted']];
 const PERM_HINT = { ask: 'Reading is automatic. Anything that creates, edits or deletes asks you first.', readonly: 'Reading only. Anything that would change data is blocked, even in YOLO.', trusted: 'Everything runs without asking. Only for apps you trust with your data.' };
@@ -1615,11 +1622,13 @@ async function cnLogin(name) {
       h('a.btn-link', { href: url, target: '_blank', rel: 'noopener', text: 'Continue to sign in', onclick: () => setTimeout(closeSheet, 400) }));
   } catch (e) { body.replaceChildren(h('div.dim', { style: 'color:var(--bad)', text: e.message })); }
 }
-function cnAdd() {
-  let mode = 'token';
+function cnAdd(pre) {
+  pre = pre && pre.name ? pre : null;
+  let mode = pre && pre.oauth ? 'oauth' : 'token';
   const name = h('input', { type: 'text', placeholder: 'short name, e.g. notes', autocapitalize: 'off', spellcheck: 'false' });
   const url = h('input', { type: 'url', placeholder: 'https://example.com/mcp', autocapitalize: 'off', spellcheck: 'false' });
   const auth = h('input', { type: 'text', placeholder: 'e.g. Bearer abc123', autocapitalize: 'off', spellcheck: 'false' });
+  if (pre) { name.value = pre.name; url.value = pre.url; if (pre.auth_hint) auth.placeholder = pre.auth_hint; }
   const authLabel = h('label', {}, 'Authorization header (optional)', auth);
   const note = h('div.dim', { style: 'font-size:12.5px' });
   const go = h('button.primary', { text: 'Connect' });
@@ -1780,14 +1789,29 @@ async function openShortcut() {
     kids.push(h('div.dim', { style: 'font-size:13px', text: 'Address to POST to:' }), copy(S.api + '/api/shortcut'));
     kids.push(h('button.primary', { text: st.enabled ? 'Make a new token (old one stops working)' : 'Make a token', onclick: async (e) => { const b = e.currentTarget; b.disabled = true; try { const r = await api('/api/shortcut/token', { body: {} }); draw({ enabled: true, hint: '', uses: 0 }, r.token); } catch (er) { toast(er.message, true); b.disabled = false; } } }));
     if (st.enabled) kids.push(h('button.secondary', { text: 'Revoke', onclick: async () => { try { await api('/api/shortcut', { method: 'DELETE' }); draw({ enabled: false }); } catch (er) { toast(er.message, true); } } }));
-    kids.push(h('div.dim', { style: 'font-size:13px;font-weight:600;margin-top:6px', text: 'Set up the Shortcut' }));
+    const tk = token || 'YOUR_TOKEN';
+    const step = (n, t) => h('li', { text: t });
+    kids.push(h('div.dim', { style: 'font-size:13px;font-weight:600;margin-top:10px', text: 'Recipe 1 · Talk to it (voice, answer read aloud)' }));
     kids.push(h('ol.dim', { style: 'padding-left:20px;font-size:13.5px;line-height:1.6' },
-      h('li', { text: 'Open Shortcuts → + → new shortcut. Add "Take Screenshot".' }),
-      h('li', { text: 'Add "Get Contents of URL". URL: the address above. Method: POST. Request Body: File, and pick the screenshot.' }),
-      h('li', { text: 'Under Headers add Authorization with the value  Bearer YOUR_TOKEN.' }),
-      h('li', { text: 'Add "Get Dictionary Value" for the key  answer, then "Show Notification" (or "Show Result") with it.' }),
-      h('li', { text: 'Pick a trigger. Action Button (iPhone 15 Pro and newer): Settings → Action Button → Shortcut → choose it. Back Tap: Settings → Accessibility → Touch → Back Tap → Triple Tap. Side button: hold it to wake Siri and say the Shortcut\'s name (the side button itself can\'t be assigned to a Shortcut). Also: Control Center or Lock Screen control, or a Home Screen widget.' }),
-      h('li', { text: 'Optional: add ?text=your question to the address, e.g. ?text=translate%20this, for a dedicated shortcut.' })));
+      step(1, 'Open the Shortcuts app → tap + (top right) → name it "Jarvis".'),
+      step(2, 'Add action "Dictate Text" (search for it). Leave the defaults.'),
+      step(3, 'Add "Get Contents of URL". Tap URL and paste the address above.'),
+      step(4, 'Tap the arrow on that action to expand it: Method = POST. Headers → Add new header: key  Authorization  value  Bearer ' + tk + '  (the word Bearer, a space, then your token).'),
+      step(5, 'Request Body = JSON. Tap "Add new field" → Text. Key: text. Value: tap the field, then choose the magic variable "Dictated Text".'),
+      step(6, 'Add "Get Dictionary Value". Get: Value, Key: answer, from "Contents of URL".'),
+      step(7, 'Add "Speak Text" and give it the Dictionary Value. (Or "Show Notification" if you don\'t want it spoken.)'),
+      step(8, 'Test: run it from the Shortcuts app and say "ping". You should hear: Connected, your Shortcut can reach your agent. Ping costs no model call. Then say a real question.'),
+      step(9, 'Triggers: Action Button (iPhone 15 Pro+): Settings → Action Button → Shortcut → Jarvis. Any iPhone: Settings → Accessibility → Touch → Back Tap → Double Tap → Jarvis. Or say "Hey Siri, Jarvis".')));
+    kids.push(h('div.dim', { style: 'font-size:13px;font-weight:600;margin-top:10px', text: 'Recipe 2 · Show it your screen' }));
+    kids.push(h('ol.dim', { style: 'padding-left:20px;font-size:13.5px;line-height:1.6' },
+      step(1, 'New shortcut "Look". Add "Take Screenshot".'),
+      step(2, 'Add "Get Contents of URL": same address, Method POST, same Authorization header. Request Body = File, and choose the Screenshot.'),
+      step(3, 'Then "Get Dictionary Value" (key answer) → "Show Notification". Assign it to Back Tap → Triple Tap.')));
+    kids.push(h('div.dim', { style: 'font-size:13px;font-weight:600;margin-top:10px', text: 'Recipe 3 · Share anything to it' }));
+    kids.push(h('ol.dim', { style: 'padding-left:20px;font-size:13.5px;line-height:1.6' },
+      step(1, 'New shortcut "Ask agent". Tap the (i) button → turn on "Show in Share Sheet".'),
+      step(2, 'Add "Get Contents of URL": same address and header, Request Body = JSON, field Text named url (or text) set to "Shortcut Input".'),
+      step(3, 'Then notify as above. Now Share → Ask agent works from Safari, Notes, Messages.')));
     kids.push(h('div.dim', { style: 'font-size:12.5px', text: 'Nobody can tap Allow from a Shortcut, so it only uses actions that need no approval. Each use opens a chat called "Back-tap" you can read later. Up to 30 uses an hour.' }));
     body.replaceChildren(...kids);
   };
@@ -2069,13 +2093,17 @@ async function openUsage() {
 const MEM = { notes: [], max: 200 };
 async function openMemory() { $('#mempage').hidden = false; await memLoad(); }
 function closeMemory() { $('#mempage').hidden = true; }
-async function memLoad() { try { const r = await api('/api/memory'); MEM.notes = r.notes; MEM.max = r.max; } catch (e) { toast(e.message, true); } memDraw(); }
+async function memLoad() { try { const r = await api('/api/memory'); MEM.notes = r.notes; MEM.max = r.max; MEM.auto = (await api('/api/memory/auto')).on; } catch (e) { toast(e.message, true); } memDraw(); }
+function memAutoRow() {
+  return h('label.rvrow', {}, h('input', { type: 'checkbox', checked: MEM.auto !== false, onchange: async (e) => { try { MEM.auto = (await api('/api/memory/auto', { method: 'PUT', body: { on: e.target.checked } })).on; } catch (er) { toast(er.message, true); e.target.checked = !e.target.checked; } } }),
+    h('span', {}, h('b', { text: 'Remember on its own' }), h('div.dim', { style: 'font-size:12.5px', text: 'After your messages it files lasting facts you stated (never secrets) and reminds you of dates you mention. Everything shows up below, and you can edit or forget any of it.' })));
+}
 function memDraw() {
   const box = $('#membody');
   const actions = h('div.rtbtns', {}, h('button', { text: 'Import', onclick: memImport }), h('button', { text: 'Add a note', onclick: () => memEdit(null) }));
-  if (!MEM.notes.length) { box.replaceChildren(h('div.evhead', {}, h('div.big', { text: 'Nothing remembered yet' }), h('div.dim', { text: 'Tell the agent "remember that I…", add notes yourself, or import what another assistant already knows about you. Every chat sees these notes.' })), actions); return; }
-  box.replaceChildren(h('div.dim', { style: 'font-size:13px', text: `${MEM.notes.length} of ${MEM.max} notes. Tap one to edit.` }), actions,
-    ...MEM.notes.slice().reverse().map((n) => h('button.rtcard.memnote', { onclick: () => memEdit(n) }, h('div', { class: 'memtxt', text: n.text }), h('div.rtmeta', { text: (n.source === 'agent' ? 'saved by the agent' : n.source === 'import' ? 'imported' : 'added by you') + ' · ' + new Date(n.ts * 1000).toLocaleDateString() }))),
+  if (!MEM.notes.length) { box.replaceChildren(memAutoRow(), h('div.evhead', {}, h('div.big', { text: 'Nothing remembered yet' }), h('div.dim', { text: 'Tell the agent "remember that I…", add notes yourself, or import what another assistant already knows about you. Every chat sees these notes.' })), actions); return; }
+  box.replaceChildren(memAutoRow(), h('div.dim', { style: 'font-size:13px', text: `${MEM.notes.length} of ${MEM.max} notes. Tap one to edit.` }), actions,
+    ...MEM.notes.slice().reverse().map((n) => h('button.rtcard.memnote', { onclick: () => memEdit(n) }, h('div', { class: 'memtxt', text: n.text }), h('div.rtmeta', { text: (n.source === 'auto' ? 'remembered on its own' : n.source === 'agent' ? 'saved by the agent' : n.source === 'import' ? 'imported' : 'added by you') + ' · ' + new Date(n.ts * 1000).toLocaleDateString() }))),
     h('button.secondary', { text: 'Forget everything', onclick: async () => { if (!(await confirmSheet('Forget everything?', 'All saved notes are deleted. Chats keep working, they just stop knowing these facts.', 'Delete all', true))) return; try { MEM.notes = (await api('/api/memory', { method: 'DELETE' })).notes; memDraw(); closeSheet(); } catch (e) { toast(e.message, true); } } }));
 }
 function memEdit(n) {
@@ -2421,7 +2449,7 @@ function wire() {
   $('#cn-back').onclick = closeConnectors;
   $('#mem-back').onclick = closeMemory;
   $('#mem-new').onclick = () => memEdit(null);
-  $('#cn-new').onclick = cnAdd;
+  $('#cn-new').onclick = () => cnAdd();
   $('#pv-back').onclick = closePreview;
   $('#md-back').onclick = closeModel;
   $('#md-wire').onclick = toggleWire;

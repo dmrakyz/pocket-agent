@@ -24,7 +24,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from starlette.background import BackgroundTask
 
 from .browser import browser, BrowserError
-from . import agent, app_act, apps, backup, config, db, evals, forge, instagram, kv, llm, mcp_server, selftest, shortcut, mcp, memory, timectx, oauth, perms, push, routines, store, telegram, tools, usage, watchers, workspace, world
+from . import agent, app_act, autoremember, apps, backup, config, db, evals, forge, instagram, kv, llm, mcp_server, selftest, shortcut, mcp, memory, timectx, oauth, perms, push, routines, store, telegram, tools, usage, watchers, workspace, world
 
 mcp_client = mcp.MCP()
 agent.MCP = mcp_client
@@ -813,6 +813,11 @@ def _connector_view():
     return out
 
 
+@app.get("/api/connector-catalog", dependencies=[Depends(auth)])
+async def connector_catalog():
+    return {"apps": mcp.CATALOG}
+
+
 @app.get("/api/connectors", dependencies=[Depends(auth)])
 async def connectors_list():
     return {"connectors": _connector_view()}
@@ -881,6 +886,17 @@ async def connectors_refresh():
 @app.get("/api/memory", dependencies=[Depends(auth)])
 async def memory_list():
     return {"notes": memory.notes(), "max": memory.MAX_NOTES}
+
+
+@app.get("/api/memory/auto", dependencies=[Depends(auth)])
+async def memory_auto_get():
+    return {"on": autoremember.on(), "dates": kv.get("memory_dates", []) or []}
+
+
+@app.put("/api/memory/auto", dependencies=[Depends(auth)])
+async def memory_auto_set(body: dict):
+    await autoremember.set_on(bool(body.get("on")))
+    return {"on": autoremember.on()}
 
 
 @app.post("/api/memory", dependencies=[Depends(auth)])
@@ -1202,6 +1218,8 @@ async def shortcut_run(request: Request, text: str = "", url: str = "", t: str =
                 raise HTTPException(400, "bad image_b64")
     elif raw:
         image = raw
+    if image is None and not url and text.strip().lower() == "ping":
+        return {"status": "done", "answer": "Connected ✓ Your Shortcut can reach your agent and the token works.", "chat": ""}   # setup test: costs no model call
     try:
         return await shortcut.handle(text=text, url=url, image=image)
     except Exception as e:  # noqa: BLE001

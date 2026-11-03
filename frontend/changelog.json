@@ -8,7 +8,10 @@
    "Before every reply the system matches your request against its live tool list and puts the right tools in front of it, so it stops saying it can't",
    "Several NVIDIA keys rotate when one is rate-limited",
    "Watchers: \"tell me when X changes\" — it checks on a schedule and pings you only when it matters",
-   "State can live in a free Turso database; a running Capability check resumes after a redeploy"
+   "State can live in a free Turso database; a running Capability check resumes after a redeploy",
+   "Remembers on its own: files lasting facts you state, and reminds you of dates you mention (switch in Memory)",
+   "Connectors: one-tap Notion, Linear, Stripe, GitHub; the agent knows their official URLs",
+   "Back-tap / Action Button: new step-by-step recipes, including a voice one that talks back, and a free \"ping\" test"
   ]
  },
  {

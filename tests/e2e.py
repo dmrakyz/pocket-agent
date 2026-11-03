@@ -478,6 +478,12 @@ try:
     check("the hard suite runs all 12 tasks through the same pipeline (the scripted mock can't solve them)", evh["status"] == "done" and len(evh["results"]) == 12 and evh["suite"] == "hard" and evh["effort"] == "off" and not any(r["passed"] for r in evh["results"]), str(evh)[:300])
     check("every hard result says why it failed", all(r["note"] for r in evh["results"]), str([r["note"] for r in evh["results"]])[:200])
     check("history keeps both suites", {h["suite"] for h in c2.get("/api/eval-history").json()["history"]} >= {"standard", "hard"})
+    tk = c2.post("/api/shortcut/token", json={}).json()["token"]
+    pong = httpx.post(B + "/api/shortcut", json={"text": "ping"}, headers={"Authorization": "Bearer " + tk}, timeout=30)
+    check("shortcut ping works with the token and costs no model call", pong.status_code == 200 and "Connected" in pong.json()["answer"] and pong.json()["chat"] == "", pong.text[:200])
+    check("shortcut refuses a wrong token", httpx.post(B + "/api/shortcut", json={"text": "ping"}, headers={"Authorization": "Bearer nope"}, timeout=30).status_code == 401)
+    ask = httpx.post(B + "/api/shortcut", json={"text": "ECHOTASK what is up"}, headers={"Authorization": "Bearer " + tk}, timeout=60)
+    check("a spoken question goes through the agent and comes back as an answer", ask.status_code == 200 and ask.json()["status"] == "done" and "echo report" in ask.json()["answer"], ask.text[:200])
     cat = c2.get("/api/eval-tasks").json()["suites"]
     check("task catalog lists both suites", len(cat["standard"]) == 7 and len(cat["hard"]) == 12 and "Knows its own tools" in cat["standard"], str(cat)[:200])
     es = c2.post("/api/eval", json={"model": "mock:mock/ultra-550b", "effort": "off", "skip": ["Compile C++", "Build an app", "Explore codebase", "nonsense"]}).json()["id"]

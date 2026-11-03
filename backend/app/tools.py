@@ -278,6 +278,14 @@ BASE_TOOLS = [
     _fn("exit_plan_mode", "Plan mode only: present your finished plan to the user for approval.",
         {"plan": S}, ["plan"]),
 ]
+def _add_catalog_note():
+    from .mcp import CATALOG_NOTE
+    for t in BASE_TOOLS:
+        if t["function"]["name"] == "connector_add":
+            t["function"]["description"] += " " + CATALOG_NOTE
+
+
+_add_catalog_note()
 READONLY = {"watch_list", "capabilities", "repo_map", "find_symbol", "ask_user", "read", "glob", "grep", "web_fetch", "web_search", "image_search", "view_image", "models", "browser_read", "todo_write", "bash_output", "skill", "task", "share_file", "preview", "view_3d", "connector_search", "memory_save", "memory_list", "forge_list", "pack_list", "app_list", "app_read", "routine_list", "world_list", "world_read"}
 EDITS = {"write", "edit", "multiedit", "fetch_image", "annotate_image", "generate_image", "create_app", "world_say"}
 SUBAGENT_TOOLS = {"repo_map", "find_symbol", "read", "glob", "grep", "bash", "bash_output", "kill_bash", "web_fetch", "web_search"}

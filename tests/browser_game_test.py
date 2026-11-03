@@ -31,7 +31,10 @@ async def main():
     r = await T.t_browser_read(ctx, {"action": "open", "url": "http://127.0.0.1:9341/"})
     S = lambda: B.browser.evaluate("g1", "JSON.stringify(window.S)")
     await T.t_browser_act(ctx, {"action": "click", "x": 300, "y": 200})
-    st = json.loads(await S())
+    for _ in range(20):                      # requestPointerLock is asynchronous
+        st = json.loads(await S())
+        if st["locked"]: break
+        await asyncio.sleep(0.1)
     check("click on the canvas grabs the pointer", st["locked"] and st["clicks"] == 1, str(st))
     r = await T.t_browser_act(ctx, {"action": "hold", "keys": ["w", "Shift"], "ms": 600})
     st = json.loads(await S())

@@ -8,7 +8,7 @@ import time
 from pathlib import Path
 from typing import Optional
 
-from . import verify, timectx, denial, toolhint
+from . import verify, timectx, denial, toolhint, autoremember
 from . import apps, push, config, llm, perms, store, tools, usage, workspace
 
 runs: dict[str, "Run"] = {}
@@ -750,6 +750,8 @@ async def run_turn(s: dict, run: Run):
             store.touch(s)
             run.done = True
             await run.emit({"type": "done", "status": status})
+        if status == "done" and not s.get("_ephemeral"):
+            asyncio.create_task(autoremember.after_turn(s))
         if not s.get("_ephemeral") and status in ("done", "error") and time.time() - run.started > 15:
             last = next((m.get("content") or "" for m in reversed(s["messages"]) if m["role"] == "assistant" and m.get("content")), "")
             asyncio.create_task(push.notify(s["title"] if status == "done" else "Run failed", (last or "Finished.").replace("\n", " "), sid=s["id"], tag="done-" + s["id"]))

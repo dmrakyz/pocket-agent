@@ -10,6 +10,17 @@ from . import config, kv, oauth
 _transport = None   # tests inject a fake transport
 
 
+# Official remote MCP servers seen on public lists (not tested from here). Only streamable-HTTP ones: the client doesn't speak the old SSE transport.
+CATALOG = [
+    {"name": "notion", "title": "Notion", "url": "https://mcp.notion.com/mcp", "oauth": True, "about": "pages, databases, notes"},
+    {"name": "linear", "title": "Linear", "url": "https://mcp.linear.app/mcp", "oauth": True, "about": "issues and projects"},
+    {"name": "stripe", "title": "Stripe", "url": "https://mcp.stripe.com", "oauth": True, "about": "payments and customers (read carefully what you allow)"},
+    {"name": "github", "title": "GitHub", "url": "https://api.githubcopilot.com/mcp/", "oauth": False, "auth_hint": "Bearer <a GitHub personal access token>", "about": "repos, issues, PRs"},
+]
+CATALOG_NOTE = ("Known official servers: " + "; ".join(f"{c['title']} {c['url']}" + (" (OAuth)" if c["oauth"] else " (token)") for c in CATALOG) +
+                ". Google Calendar/Gmail have no official remote MCP server we could verify: say so instead of guessing a URL.")
+
+
 class NeedsSignIn(Exception):
     def __init__(self):
         super().__init__("this connector needs you to sign in again (Settings > Connectors)")

@@ -88,6 +88,8 @@ async def run_due(now: float | None = None):
                 await push.notify("👁 " + w["name"], note, tag="watch-" + w["id"], force=False)
     if changed:
         await kv.put(KEY, ws)
+    from . import autoremember
+    await autoremember.check_dates()
 
 
 async def loop():
