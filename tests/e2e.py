@@ -150,6 +150,18 @@ try:
     from datetime import datetime as _dt
     from zoneinfo import ZoneInfo as _Z
     stz = c.post("/api/sessions", json={"mode": "yolo"}).json()
+    sh = c.post("/api/sessions", json={"mode": "yolo"}).json()
+    def ask_hint(text):
+        c.post(f"/api/sessions/{sh['id']}/messages", json={"text": text})
+        for _ in range(100):
+            ss = c.get(f"/api/sessions/{sh['id']}").json()
+            if not ss["run"].get("running") and ss["session"]["messages"][-1]["role"] == "assistant":
+                return ss["session"]["messages"][-1]["content"]
+            time.sleep(0.2)
+    h1 = ask_hint("HINTCHECK can you add a Spotify connector for me?")
+    check("the harness puts the matching tool in front of the model for this request", "connector_add" in h1, h1)
+    h2 = ask_hint("HINTCHECK what is 2 plus 2")
+    check("and nothing extra when no special tool fits", h2 == "hint=none", h2)
     r_tz = c.post(f"/api/sessions/{stz['id']}/messages", json={"text": "TIMECHECK please", "tz": "Asia/Tokyo"})
     for _ in range(100):
         sess_tz = c.get(f"/api/sessions/{stz['id']}").json()

@@ -8,7 +8,7 @@ import time
 from pathlib import Path
 from typing import Optional
 
-from . import verify, timectx, denial
+from . import verify, timectx, denial, toolhint
 from . import apps, push, config, llm, perms, store, tools, usage, workspace
 
 runs: dict[str, "Run"] = {}
@@ -527,6 +527,15 @@ def _autoload_connectors(s: dict):
             return
 
 
+def _request_text(s: dict) -> str:
+    """What the user asked in this turn (their last real message, without the time stamp), for tool matching."""
+    for x in reversed(s["messages"]):
+        if x.get("role") == "user" and not x.get("_synthetic"):
+            t = _text_of(x)
+            return re.sub(r"^\[\d{4}-\d{2}-\d{2} [^\]]*\]\s*", "", t)[:1500]
+    return ""
+
+
 def _turn_start(msgs: list) -> int:
     for i in range(len(msgs) - 1, -1, -1):
         if msgs[i].get("role") == "user" and not msgs[i].get("_synthetic"):
@@ -618,7 +627,7 @@ async def run_turn(s: dict, run: Run):
             async def notify(t):
                 await run.emit({"type": "notice", "text": t})
 
-            resp = await llm.chat(s["model"], [{"role": "system", "content": build_system(s, ws)}] + timectx.apply(s, await vision_proxy(s, run, s["messages"])),
+            resp = await llm.chat(s["model"], [{"role": "system", "content": build_system(s, ws) + toolhint.section(_request_text(s), sch)}] + timectx.apply(s, await vision_proxy(s, run, s["messages"])),
                                   sch, on_text, on_reason, notify, thinking=s.get("thinking"), effort=s.get("effort"))
             m = resp["message"]
             if resp.get("usage"):

@@ -1,5 +1,15 @@
 [
  {
+  "id": 10,
+  "date": "2026-11-03",
+  "title": "It plays, and remembers what it can do",
+  "items": [
+   "Browser: hold keys, mouse look and drag for games and canvas pages; stays open 20 minutes",
+   "Before every reply the system matches your request against its live tool list and puts the right tools in front of it, so it stops saying it can't",
+   "Several NVIDIA keys rotate when one is rate-limited"
+  ]
+ },
+ {
   "id": 9,
   "date": "2026-11-03",
   "title": "Run servers, publish sites, upload anything",

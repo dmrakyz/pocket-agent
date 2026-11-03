@@ -1181,3 +1181,21 @@ def eval_tools_check_test():
     assert not ok("I can't do that"), "no line at all"
     print("PASS eval 'Knows its own tools' checker accepts bold/backtick formatting, rejects missing tools")
 eval_tools_check_test()
+
+
+def toolhint_test():
+    from app import toolhint as H
+    sp = T.schemas({}, None)
+    top = lambda q: [n for n, _ in H.match(q, sp)]
+    assert top("can you add Spotify to your connectors?")[0] == "connector_add"
+    assert top("remind me every morning at 8 to check my mail")[0] == "routine_create"
+    assert "skill_create" in top("save this as a skill so you always format reports my way")
+    assert top("host this site on github pages")[0] == "publish_pages"
+    assert "serve" in top("run a flask server so I can try it")
+    assert top("play the game in the browser with wasd and the mouse")[0] == "browser_act"
+    assert top("install numpy") == ["pack_enable"]
+    assert top("fix the failing test in stats.py") == [] and top("what is 2 plus 2") == [] and top("") == []
+    assert "send_email" not in top("email this to my boss"), "tools that aren't registered are never suggested"
+    assert "connector_add" in H.section("add a spotify connector", sp) and H.section("hello", sp) == ""
+    print("PASS tool hints: intents map to the right tools, plain coding requests add nothing, absent tools never suggested")
+toolhint_test()

@@ -92,6 +92,9 @@ def scenario(msgs, model):
             return "tools", [tool_call("bash", {"command": "ls"})]
         return "text", "subagent report: found files"
 
+    if "HINTCHECK" in prompt:       # reports which tools the harness put in front of the model for this request
+        m_ = re.search(r"TOOLS THAT FIT THIS REQUEST.*", sysmsg, re.S)
+        return "text", "hint=" + (",".join(re.findall(r"^- (\w+):", m_.group(0), re.M)) if m_ else "none")
     if "TIMECHECK" in prompt:       # reports what time information the model actually received
         import re as _re
         if k == 0:

@@ -308,3 +308,9 @@ If the model says "I can't / I don't have a way to…" and a tool in the live re
 
 ### More than one API key
 Set `NVIDIA_API_KEYS=key2,key3` (comma list; `NVIDIA_API_KEY` stays the first). Each key gets its own requests-per-minute window (`LLM_RPM`, default 35), a request goes to the key with the most headroom, and a key that answers 429 sits out for its `Retry-After` while another takes over immediately. `/api/info` shows only "key 1/2/3" cooldowns, never the keys. Check your provider's terms before using keys from several accounts. Test: `tests/keys_test.py`.
+
+### Tool retrieval (why it stops denying its tools)
+Telling a model "you have X" in a prompt is what weak models ignore. `backend/app/toolhint.py` does it from the harness instead: before every model call the user's request is matched (names, descriptions, an intent/synonym table) against the *live* tool registry, and the best matches are appended to the system prompt as "Tools that fit this request". Tools that aren't registered are never suggested. Safety nets: the `capabilities` tool (live list), the denial guard (`denial.py`), and the "Knows its own tools" check. Add synonyms in `toolhint.SYN` when a new tool needs plain-language triggers.
+
+### Browser for games
+`browser_act` has `hold{keys, ms}` (several keys at once), `mouse{kind: look|move|drag|down|up}` (relative look works under pointer lock) and the browser idles out after 20 minutes (`BROWSER_IDLE_SECONDS`). Each step is a model round trip, so slow games work and fast real-time ones don't. Test: `tests/browser_game_test.py`.

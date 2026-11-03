@@ -8,7 +8,7 @@ from urllib.parse import urlparse
 
 VIEW_W, VIEW_H = 1000, 760
 MAX_CTX = int(os.environ.get("BROWSER_MAX_CONTEXTS", "1"))     # each context costs RAM; Render free has 512 MB
-IDLE_SECONDS = int(os.environ.get("BROWSER_IDLE_SECONDS", "300"))
+IDLE_SECONDS = int(os.environ.get("BROWSER_IDLE_SECONDS", "1200"))
 ALLOW_LOCAL = os.environ.get("BROWSER_ALLOW_LOCAL") == "1"      # tests only
 
 SNAP_JS = """() => {
@@ -57,7 +57,7 @@ Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] });
 if (!window.chrome) window.chrome = { runtime: {} };
 """
 
-NO_PAGE = ("no page is open: the browser was closed, idled out (5 min) or the server restarted/redeployed, which wipes it. "
+NO_PAGE = ("no page is open: the browser was closed, idled out (20 min) or the server restarted/redeployed, which wipes it. "
            "Call browser_read with action 'open' and the url you want, then continue (logins and form text are gone).")
 
 
@@ -350,6 +350,75 @@ class Browser:
         except Exception as e:  # noqa: BLE001
             raise BrowserError(f"key failed: {str(e).splitlines()[0][:160]}")
         await self._settle(st["page"])
+
+    async def hold(self, sid: str, keys: list, ms: int):
+        """Keep one or more keys down together for ms milliseconds (walking, steering, charging...)."""
+        st = await self.state(sid, create=False)
+        if not st:
+            raise BrowserError(NO_PAGE)
+        keys = [str(k) for k in keys][:6]
+        if not keys:
+            raise BrowserError("hold needs keys, e.g. [\"w\"] or [\"w\", \"Shift\"]")
+        kb, down = st["page"].keyboard, []
+        try:
+            for k in keys:
+                await kb.down(k)
+                down.append(k)
+            await asyncio.sleep(max(0.05, min(int(ms), 10000)) / 1000)
+        except Exception as e:  # noqa: BLE001
+            raise BrowserError(f"hold failed: {str(e).splitlines()[0][:160]}")
+        finally:
+            for k in reversed(down):
+                try:
+                    await kb.up(k)
+                except Exception:  # noqa: BLE001
+                    pass
+
+    async def mouse(self, sid: str, kind: str, x=None, y=None, dx=0, dy=0, x2=None, y2=None, button: str = "left"):
+        """Raw mouse: move / look (relative movement, works under pointer lock) / drag / down / up."""
+        st = await self.state(sid, create=False)
+        if not st:
+            raise BrowserError(NO_PAGE)
+        page, m = st["page"], st["page"].mouse
+        button = button if button in ("left", "right", "middle") else "left"
+        cx, cy = st.get("mx", st["vw"] / 2), st.get("my", st["vh"] / 2)
+        try:
+            if kind == "move":
+                cx, cy = float(x), float(y)
+                await m.move(cx, cy, steps=4)
+            elif kind == "look":
+                dx, dy = max(-3000, min(3000, float(dx or 0))), max(-3000, min(3000, float(dy or 0)))
+                n = max(1, int(max(abs(dx), abs(dy)) // 40))
+                if await page.evaluate("!!document.pointerLockElement"):
+                    # Chromium ignores synthetic OS-level moves while the pointer is locked, so deliver the relative
+                    # movement the way pointer-lock games read it: mousemove events carrying movementX/Y.
+                    await page.evaluate("""([n, dx, dy]) => { const el = document.pointerLockElement || document;
+                        for (let i = 0; i < n; i++) el.dispatchEvent(new MouseEvent('mousemove', {bubbles: true, cancelable: true,
+                            movementX: dx / n, movementY: dy / n, clientX: innerWidth / 2, clientY: innerHeight / 2, view: window})); }""", [n, dx, dy])
+                    n = 0
+                for _ in range(n):               # (not locked) many small relative moves: games read movementX/Y per event
+                    cx = min(max(cx + dx / n, 2), st["vw"] - 2)
+                    cy = min(max(cy + dy / n, 2), st["vh"] - 2)
+                    await m.move(cx, cy)
+            elif kind == "drag":
+                await m.move(float(x), float(y))
+                await m.down(button=button)
+                await m.move(float(x2), float(y2), steps=12)
+                await m.up(button=button)
+                cx, cy = float(x2), float(y2)
+            elif kind in ("down", "up"):
+                if x is not None and y is not None:
+                    cx, cy = float(x), float(y)
+                    await m.move(cx, cy)
+                await (m.down if kind == "down" else m.up)(button=button)
+            else:
+                raise BrowserError("mouse kind must be move, look, drag, down or up")
+        except BrowserError:
+            raise
+        except Exception as e:  # noqa: BLE001
+            raise BrowserError(f"mouse {kind} failed: {str(e).splitlines()[0][:160]}")
+        st["mx"], st["my"] = cx, cy
+        await asyncio.sleep(0.15)
 
     async def scroll(self, sid: str, direction: str = "down", amount: int = 0):
         st = await self.state(sid, create=False)

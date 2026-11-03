@@ -253,9 +253,15 @@ BASE_TOOLS = [
          "index": {"type": "integer"}}, ["action"]),
     _fn("browser_act", "Interact with the page in the browser (asks the user first). Actions: click{ref} (ref = number from the latest snapshot, "
         "or x,y in viewport pixels), type{ref?, text, submit?} fills a field (submit presses Enter), press{key} e.g. 'Enter', 'Tab', 'Control+A', "
-        "eval{js} runs JavaScript in the page and returns the JSON result. Returns a fresh snapshot. Refs change whenever the page changes.",
-        {"action": {"type": "string", "enum": ["click", "type", "press", "eval"]}, "ref": {"type": "integer"}, "x": {"type": "number"}, "y": {"type": "number"},
-         "text": S, "submit": {"type": "boolean"}, "key": S, "js": S}, ["action"]),
+        "eval{js} runs JavaScript in the page and returns the JSON result. Returns a fresh snapshot. Refs change whenever the page changes. "
+        "GAMES / CANVAS PAGES (you DO have real keyboard and mouse): hold{keys:['w','Shift'], ms} keeps keys down together (walk, steer); "
+        "mouse{kind:'look', dx, dy} turns the camera (relative movement; click the canvas first so it grabs the pointer); "
+        "mouse{kind:'move'|'drag'|'down'|'up', x, y, x2, y2, button}. After acting, take a browser_read screenshot and view_image to see the result. "
+        "The loop is turn-based (each step takes seconds), so fast real-time play is rough; slow games, menus and puzzles work well.",
+        {"action": {"type": "string", "enum": ["click", "type", "press", "eval", "hold", "mouse"]}, "ref": {"type": "integer"}, "x": {"type": "number"}, "y": {"type": "number"},
+         "text": S, "submit": {"type": "boolean"}, "key": S, "js": S, "keys": {"type": "array", "items": {"type": "string"}}, "ms": {"type": "integer"},
+         "kind": {"type": "string", "enum": ["move", "look", "drag", "down", "up"]}, "dx": {"type": "number"}, "dy": {"type": "number"},
+         "x2": {"type": "number"}, "y2": {"type": "number"}, "button": {"type": "string", "enum": ["left", "right", "middle"]}}, ["action"]),
     _fn("skill", "Load the full instructions of a named skill listed in your system prompt.", {"name": S}, ["name"]),
     _fn("git_sync", "Commit all workspace changes and push them to the session's GitHub branch. "
         "Do this after finishing meaningful work.", {"message": S}, []),
@@ -1548,6 +1554,13 @@ async def t_browser_act(ctx: Ctx, a: dict):
                 await b.type(sid, str(a["text"]), a.get("ref"), bool(a.get("submit")))
             elif act == "press":
                 await b.press(sid, a.get("key") or "Enter")
+            elif act == "hold":
+                keys = a.get("keys") or ([a["key"]] if a.get("key") else [])
+                await b.hold(sid, keys, int(a.get("ms") or 500))
+                return {"text": f"held {'+'.join(map(str, keys))} for {int(a.get('ms') or 500)} ms. Take a screenshot (browser_read) and view_image to see what changed.\n\n" + await b.snapshot(sid), "browser": True}
+            elif act == "mouse":
+                await b.mouse(sid, str(a.get("kind") or "move"), a.get("x"), a.get("y"), a.get("dx") or 0, a.get("dy") or 0, a.get("x2"), a.get("y2"), str(a.get("button") or "left"))
+                return {"text": f"mouse {a.get('kind') or 'move'} done. Take a screenshot (browser_read) and view_image to see what changed.\n\n" + await b.snapshot(sid), "browser": True}
             elif act == "eval":
                 out = await b.evaluate(sid, a.get("js") or "")
                 return {"text": cap(json.dumps(out, default=str)[:20000]), "browser": True}
