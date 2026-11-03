@@ -43,6 +43,64 @@ def limiter(name: str) -> Limiter:
     return _limiters[name]
 
 
+class KeyPool:
+    """Several API keys for one provider. Every key has its own requests-per-minute window; a request goes to the
+    key with the most headroom, and a key that got a 429 sits out for a while (Retry-After, default 30 s)."""
+
+    def __init__(self, keys: list, rpm: int):
+        self.keys = list(keys)
+        self.lims = [Limiter(rpm) for _ in self.keys]
+        self.until = [0.0] * len(self.keys)
+
+    def usable(self) -> int:
+        now = time.monotonic()
+        return sum(1 for u in self.until if u <= now)
+
+    def cool(self, i: int, secs: float):
+        self.until[i] = time.monotonic() + max(1.0, min(float(secs), 300.0))
+
+    def _load(self, i: int) -> int:
+        now = time.monotonic()
+        return sum(1 for t in self.lims[i].times if now - t < self.lims[i].window)
+
+    async def acquire(self):
+        """-> (index, key) of a key that is allowed to take one more request right now."""
+        while True:
+            now = time.monotonic()
+            ok = [i for i in range(len(self.keys)) if self.until[i] <= now]
+            if ok:
+                if not self.lims[0].rpm:
+                    i = min(ok, key=lambda j: self._load(j))
+                    return i, self.keys[i]
+                free = [i for i in ok if self._load(i) < self.lims[i].rpm]
+                if free:
+                    i = min(free, key=lambda j: self._load(j))
+                    await self.lims[i].wait()
+                    return i, self.keys[i]
+                await asyncio.sleep(0.2)
+            else:
+                await asyncio.sleep(max(0.1, min(self.until) - now))
+
+    def status(self) -> list:
+        now = time.monotonic()
+        return [{"key": i + 1, "cooling": round(max(0, self.until[i] - now)), "recent": self._load(i)} for i in range(len(self.keys))]
+
+
+_pools: dict[tuple, KeyPool] = {}
+
+
+def pool(name: str) -> KeyPool:
+    prov = config.providers()[name]
+    keys = tuple(prov.get("api_keys") or [prov["api_key"]])
+    if (name, keys) not in _pools:
+        _pools[(name, keys)] = KeyPool(keys, int(config.rpm_limits().get(name, 0)))
+    return _pools[(name, keys)]
+
+
+def key_status() -> dict:
+    return {n: pool(n).status() for n in config.providers() if len(config.providers()[n].get("api_keys") or [1]) > 1}
+
+
 class LLMError(Exception):
     def __init__(self, msg: str, status: int = 0):
         super().__init__(msg)
@@ -61,8 +119,8 @@ def split_ref(ref: str):
     return provs[0], ref
 
 
-def _headers(prov: dict) -> dict:
-    return {"Authorization": f"Bearer {prov['api_key']}", "Content-Type": "application/json"}
+def _headers(prov: dict, key: str = "") -> dict:
+    return {"Authorization": f"Bearer {key or prov['api_key']}", "Content-Type": "application/json"}
 
 
 _models_cache: dict = {}
@@ -165,12 +223,19 @@ async def _stream_once(prov_name: str, model: str, messages, tools, on_text, on_
         body["chat_template_kwargs"] = kw
 
     content, reasoning, tcalls, finish, usage = [], [], {}, None, None
-    await limiter(prov_name).wait()
+    kp = pool(prov_name)
+    ki, key = await kp.acquire()
     url = prov["base_url"].rstrip("/") + "/chat/completions"
     async with httpx.AsyncClient(timeout=TIMEOUT) as c:
-        async with c.stream("POST", url, headers=_headers(prov), json=body) as r:
+        async with c.stream("POST", url, headers=_headers(prov, key), json=body) as r:
             if r.status_code >= 400:
                 text = (await r.aread()).decode("utf-8", "replace")[:600]
+                if r.status_code == 429:
+                    try:
+                        ra = float(r.headers.get("retry-after") or 30)
+                    except ValueError:
+                        ra = 30.0
+                    kp.cool(ki, ra)
                 raise LLMError(f"{prov_name} HTTP {r.status_code}: {text}", r.status_code)
             async for line in r.aiter_lines():
                 if not line.startswith("data:"):
@@ -256,6 +321,9 @@ async def chat(model_ref: str, messages: list[dict], tools: list[dict], on_text,
                 continue
             if e.status not in (408, 409, 425, 429, 500, 502, 503, 504) or attempt == len(delays):
                 break
+            if e.status == 429 and pool(prov).usable() > 0:        # another key is free: go again right now
+                await notify("one API key is rate-limited; switching to another")
+                continue
             if e.status in (429, 503) and attempt >= 1:     # overloaded/rate-limited: a second model beats a longer wait
                 break
             await notify(f"{e} — retrying in {delays[attempt]}s")

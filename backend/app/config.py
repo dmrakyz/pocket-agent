@@ -74,9 +74,10 @@ BRAVE_API_KEY = env("BRAVE_API_KEY")
 def providers() -> dict:
     """OpenAI-compatible providers. Anything with a key set shows up in the model picker."""
     p = {}
-    if env("NVIDIA_API_KEY"):
+    nkeys = list(dict.fromkeys([k.strip() for k in (env("NVIDIA_API_KEY") + "," + env("NVIDIA_API_KEYS")).split(",") if k.strip()]))
+    if nkeys:      # several keys rotate: each has its own rate limit (see llm.KeyPool)
         p["nvidia"] = {"base_url": env("NVIDIA_BASE_URL", "https://integrate.api.nvidia.com/v1"),
-                       "api_key": env("NVIDIA_API_KEY")}
+                       "api_key": nkeys[0], "api_keys": nkeys}
     if env("OPENROUTER_API_KEY"):
         p["openrouter"] = {"base_url": "https://openrouter.ai/api/v1", "api_key": env("OPENROUTER_API_KEY")}
     if env("OPENAI_API_KEY"):
@@ -110,7 +111,7 @@ def mcp_servers() -> list:
 
 
 SECRET_ENV_KEYS = {
-    "APP_PASSWORD", "APP_SECRET", "GITHUB_TOKEN", "NVIDIA_API_KEY", "OPENROUTER_API_KEY", "OPENAI_API_KEY",
+    "APP_PASSWORD", "APP_SECRET", "GITHUB_TOKEN", "NVIDIA_API_KEY", "NVIDIA_API_KEYS", "OPENROUTER_API_KEY", "OPENAI_API_KEY",
     "ANTHROPIC_API_KEY", "GEMINI_API_KEY", "PROVIDERS_JSON", "MCP_SERVERS", "TAVILY_API_KEY", "BRAVE_API_KEY",
     "TELEGRAM_BOT_TOKEN",
     "RESEND_API_KEY",

@@ -305,3 +305,6 @@ If the model says "I can't / I don't have a way to…" and a tool in the live re
 - `publish_pages` pushes a static folder (needs `index.html`) to the `gh-pages` branch of a public repo you own (created if missing), turns Pages on and returns the URL. It asks every time, in every mode.
 - Tests: `tests/serve_pages_test.py`.
 - The Capability check lists every task with a checkbox (All / None); unticked tasks are skipped and the run says how many were excluded. API: `skip` list on `POST /api/eval`, catalog at `GET /api/eval-tasks`.
+
+### More than one API key
+Set `NVIDIA_API_KEYS=key2,key3` (comma list; `NVIDIA_API_KEY` stays the first). Each key gets its own requests-per-minute window (`LLM_RPM`, default 35), a request goes to the key with the most headroom, and a key that answers 429 sits out for its `Retry-After` while another takes over immediately. `/api/info` shows only "key 1/2/3" cooldowns, never the keys. Check your provider's terms before using keys from several accounts. Test: `tests/keys_test.py`.

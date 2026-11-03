@@ -7,7 +7,8 @@
    "Live dev server: it can run a Flask/Node app and you use it right in the app (serve)",
    "One-tap publish to GitHub Pages (you approve every time)",
    "File picker fixed: any file type, several at once (iOS greyed out non-images)",
-   "Capability check: tick which tasks to run and which to exclude"
+   "Capability check: tick which tasks to run and which to exclude",
+   "Several NVIDIA API keys rotate automatically; a rate-limited key sits out and another takes over"
   ]
  },
  {
