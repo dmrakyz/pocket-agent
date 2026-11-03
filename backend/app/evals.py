@@ -55,6 +55,27 @@ def _check_pkg(root, final):
     return rc == 0 and rc2 == 0 and "OK" in out2, (out + out2)[-200:]
 
 
+def _app_hits():
+    from . import apps
+    return [a for a in apps.index().values() if "counter" in a["name"].lower()]
+
+
+def _check_app(root, final):
+    from . import apps
+    for a in _app_hits():
+        html = apps.html_of(a["id"]).lower()
+        if "<button" in html and "<script" in html and "http://" not in html and "https://" not in html:
+            return True, "app saved with a button and a script, no outside resources"
+        return False, "app exists but has no button/script, or loads outside resources"
+    return False, "no app named Counter was created"
+
+
+async def _cleanup_app():
+    from . import apps
+    for a in _app_hits():          # leave the user's drawer clean
+        await apps.delete(a["id"])
+
+
 TASKS = [
     {"name": "Write + run a function", "files": {},
      "prompt": "Create fizzbuzz.py with a function fizzbuzz(n) that returns a list of strings for 1..n using the "
@@ -76,6 +97,10 @@ TASKS = [
                "div(a,b), where div raises ValueError on division by zero. Write unit tests in test_calc.py using "
                "unittest and run them until they pass.",
      "check": _check_pkg},
+    {"name": "Build an app", "files": {},
+     "prompt": "Use the create_app tool to build a tiny app called Counter: a big number, a + button and a - button, and it must remember the number after the app is closed "
+               "(use localStorage). One self-contained HTML page, no external resources. Then say it is ready.",
+     "check": _check_app, "cleanup": _cleanup_app},
 ]
 
 
@@ -137,6 +162,11 @@ async def run_eval(eval_id: str, model: str):
             res["note"] = "timed out (300s)"
         except Exception as e:  # noqa: BLE001
             res["note"] = f"{type(e).__name__}: {e}"[:400]
+        if t.get("cleanup"):
+            try:
+                await t["cleanup"]()
+            except Exception:  # noqa: BLE001
+                pass
         res["seconds"] = round(time.time() - started, 1)
         ev["results"].append(res)
         workspace.drop_workspace(sid)

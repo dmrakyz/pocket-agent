@@ -1848,6 +1848,27 @@ function worldForm(w, done) {
   sheet(w ? 'Edit world' : 'New world', form);
 }
 
+/* ============================================================ platform check */
+async function openSelftest() {
+  const body = h('div', {});
+  sheet('Platform check', body);
+  const COL = { ok: 'var(--ok,#5cc98a)', warn: 'var(--warn,#e8b04a)', fail: 'var(--bad)', skip: 'var(--dim,#8a8f98)' }, SYM = { ok: '✓', warn: '!', fail: '✕', skip: '–' };
+  const draw = (r, busy) => {
+    const kids = [h('div.dim', { style: 'font-size:14px', text: 'Tests the server itself, no model tasks: saving, the model, apps, forging, MCP, worlds, routines, connectors, push, memory. Takes a few seconds. Run it after every update.' }),
+      h('button.primary', { text: busy ? 'Checking…' : r ? 'Run again' : 'Run the check', disabled: !!busy, onclick: run })];
+    if (r) {
+      const s = r.summary;
+      kids.push(h('div', { style: 'font-weight:600;margin:10px 0 4px', text: `${s.ok} ok · ${s.warn} look at · ${s.fail} broken · ${s.skip} not set up` }));
+      for (const x of r.results) kids.push(h('div', { style: 'display:flex;gap:10px;padding:6px 0;border-top:1px solid var(--line)' },
+        h('div', { style: `width:20px;font-weight:700;color:${COL[x.status]}`, text: SYM[x.status] }),
+        h('div', { style: 'flex:1;min-width:0' }, h('div', { style: 'font-weight:600', text: x.name }), h('div.dim', { style: 'font-size:13px;white-space:pre-wrap', text: x.detail }))));
+    }
+    body.replaceChildren(...kids);
+  };
+  async function run() { draw(null, true); try { draw(await api('/api/selftest', { body: {} })); } catch (e) { draw(null); toast(e.message, true); } }
+  draw(null);
+}
+
 /* ============================================================ usage */
 async function openUsage() {
   const body = h('div', {}, h('div.dim', { text: 'Loading…' }));
@@ -1957,6 +1978,7 @@ function drawSettings() {
       row('⇄', 'Agent as MCP server', openMcpServer),
       row('▤', 'Usage', openUsage),
       row('✓', 'Capability check', openEval),
+      row('🩺', 'Platform check', openSelftest),
       row('🔔', 'Push notifications', async () => { if (PUSH.state === 'on') await pushDisable(); else await pushEnable(); drawSettings(); },
         { on: 'On', off: 'Off', blocked: 'Blocked', unsupported: 'Not supported', 'server-off': 'Server off', unknown: '…' }[PUSH.state] || ''),
       PUSH.state === 'on' ? row('✉', 'Send a test notification', pushTest, `${PUSH.devices} device${PUSH.devices === 1 ? '' : 's'}`) : null,
@@ -2027,7 +2049,7 @@ function evDraw() {
   if (EV.err) parts.push(h('div.evwarn', { text: EV.err }));
   if (!ev) {
     parts.push(h('div.evhead', {}, h('div.big', { text: 'Not run yet' }),
-      h('div.dim', { text: `Runs 4 real tasks (write code, debug, explore a codebase, build a package) on ${shortModel(S.cur && S.cur.model || S.info && S.info.default_model)} and checks each result with code. Runs on the server, so you can close this screen and come back.` })),
+      h('div.dim', { text: `Runs 5 real tasks (write code, debug, explore a codebase, build a package, build an app) on ${shortModel(S.cur && S.cur.model || S.info && S.info.default_model)} and checks each result with code. Runs on the server, so you can close this screen and come back.` })),
       h('button.primary', { text: EV.busy ? 'Starting…' : 'Run check', disabled: EV.busy, onclick: evStart }));
     box.replaceChildren(...parts); return;
   }

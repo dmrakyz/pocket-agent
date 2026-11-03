@@ -136,6 +136,13 @@ def scenario(msgs, model):
         if k == 1:
             return "tools", [tool_call("annotate_image", {"path": "pics/a.png", "ops": [{"type": "rect", "x": 10, "y": 10, "w": 50, "h": 30}]})]
         return "text", "annotated"
+    if "called Counter" in prompt:
+        html = ("<!doctype html><html><head><meta name='viewport' content='width=device-width'><title>Counter</title></head><body><h1 id='n'>0</h1><button id='p'>+</button><button id='m'>-</button>"
+                "<script>var n=Number(localStorage.getItem('n')||0);function r(){document.getElementById('n').textContent=n;localStorage.setItem('n',n)}"
+                "document.getElementById('p').onclick=function(){n++;r()};document.getElementById('m').onclick=function(){n--;r()};r()</script></body></html>")
+        if k == 0:
+            return "tools", [tool_call("create_app", {"name": "Counter", "icon": "🔢", "html": html})]
+        return "text", "Counter is ready."
     if "MAKEACT" in prompt:
         html = ("<!doctype html><html><head><title>Quick</title></head><body><h1>Quick</h1><button id='b' onclick=\"agent.act('save this note: hi').then(function(r){document.title=r})\">save</button></body></html>")
         if k == 0:

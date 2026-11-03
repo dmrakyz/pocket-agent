@@ -247,3 +247,8 @@ Ask "connect my Linear" and the agent can call `connector_add` with the server's
 ## Managing itself from chat
 
 The agent has `routine_list / routine_create / routine_update` and `world_list / world_read / world_create / world_say`. "Every weekday at 8 summarise my mail" or "start a world with a ferry captain and a clerk" now works from chat, with no trip to Settings. Creating or changing a routine or world always asks you first (even in YOLO, never "always allow"). A routine it creates runs in Ask mode (or read-only) whatever it requests, it can only pause/resume or reschedule existing routines (never rewrite their prompt or permissions) and can't delete anything.
+
+## Platform check and Capability check
+
+- **Settings → Platform check** tests the server itself in a few seconds, with no model tasks: saving to the state repo, the default model, memory use, app drawer, tool forging, MCP server, worlds, routines, connectors, push, browser, and which optional features are set up. Each row is ✓ ok, ! look at, ✕ broken or – not set up. It leaves nothing behind. Run it after every update.
+- **Capability check** (drawer) is the model exam: five real tasks checked by code, now including building an app.

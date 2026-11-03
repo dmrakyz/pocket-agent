@@ -22,7 +22,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from starlette.background import BackgroundTask
 
 from .browser import browser, BrowserError
-from . import agent, app_act, apps, config, evals, forge, instagram, kv, llm, mcp_server, shortcut, mcp, memory, oauth, perms, push, routines, store, telegram, tools, usage, workspace, world
+from . import agent, app_act, apps, config, evals, forge, instagram, kv, llm, mcp_server, selftest, shortcut, mcp, memory, oauth, perms, push, routines, store, telegram, tools, usage, workspace, world
 
 mcp_client = mcp.MCP()
 agent.MCP = mcp_client
@@ -1111,6 +1111,12 @@ async def shortcut_token():
 async def shortcut_revoke():
     await shortcut.revoke()
     return {"enabled": False}
+
+
+# ------------------------------------------------------------------ platform check
+@app.post("/api/selftest", dependencies=[Depends(auth)])
+async def selftest_run():
+    return await selftest.run(mcp_client)
 
 
 # ------------------------------------------------------------------ world engine
