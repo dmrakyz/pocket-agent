@@ -306,7 +306,8 @@ async def approve(sid: str, body: dict):
     if not fut or fut.done():
         raise HTTPException(404, "no pending approval with that id")
     fut.set_result({"allow": bool(body.get("allow")), "always": bool(body.get("always")),
-                    "note": str(body.get("note") or "")[:500], "mode": body.get("mode")})
+                    "note": str(body.get("note") or "")[:500], "mode": body.get("mode"),
+                   "answers": body.get("answers") if isinstance(body.get("answers"), list) else None})
     return {"ok": True}
 
 

@@ -120,6 +120,8 @@ Languages and live pages:
 - bash runs Python 3, Node, g++/gcc/make out of the box. For scipy/pandas/sympy/sklearn/networkx, cmake/ninja/clang, or C/C++ to WebAssembly, call pack_enable \
 (py-science, cpp, emscripten) first; it asks the user, installs once and bash sees it from then on. Don't enable packs you don't need. Each bash command is killed above \
 about 300 MB of memory (the whole server has 512 MB), so stream or chunk big data and keep builds small.
+- `ask_user` pauses and asks the user 1-4 multiple-choice questions (they tap; they can type their own answer). Use it before building when the request is genuinely \
+ambiguous or a choice is expensive to undo; give your recommended option first. Don't use it for things you can decide, and never ask twice for the same thing.
 - `preview` opens an HTML file or a folder with index.html live in the app (static files; scripts and CDN libraries load). It cannot run Python or C++ on a server. \
 To make those interactive, ship them in the page: Python in the browser with Pyodide (get the current version with `npm view pyodide version`, then load `https://cdn.jsdelivr.net/pyodide/v<VERSION>/full/pyodide.js` \
 and check the URL answers with `curl -sI`; drop the v if it 404s; then `await loadPyodide()`, `pyodide.runPythonAsync(code)`, `loadPackage('numpy')`), and C/C++ compiled to .wasm/.js with emcc (pack emscripten) placed next to index.html. \
@@ -304,7 +306,9 @@ async def request_approval(run: Run, s: dict, call_id: str, name: str, args: dic
     await run.emit(ev)
     if not s.get("_ephemeral"):
         detail = (args.get("command") or args.get("path") or args.get("description") or "")[:100] if isinstance(args, dict) else ""
-        asyncio.create_task(push.notify("Needs your approval", f"{(label + ': ') if label else ''}{name} {detail}".strip(),
+        if name == "ask_user":
+            detail = str((args.get("questions") or [{}])[0].get("question", ""))[:100]
+        asyncio.create_task(push.notify("Question for you" if name == "ask_user" else "Needs your approval", f"{(label + ': ') if label else ''}{name} {detail}".strip(),
                                         sid=s["id"], tag="appr-" + call_id))
     try:
         return await fut
@@ -326,6 +330,16 @@ async def gated_execute(run: Run, s: dict, ctx: tools.Ctx, call: dict, allowed: 
                 "error": True}
     if allowed is not None and name not in allowed:
         return {"text": f"Error: tool {name!r} is not available here.", "error": True}
+    if name == "ask_user":
+        qs = tools.clean_questions(args)
+        if isinstance(qs, str):
+            return {"text": "Error: " + qs, "error": True}
+        ans = await request_approval(run, s, call["id"], "ask_user", {"questions": qs}, "Your agent has a question", label)
+        if not ans.get("allow"):
+            why = ans.get("note") or "nobody is available to answer"
+            return {"text": f"The question could not be answered ({why}). If you can go on sensibly, pick the most reasonable option, "
+                            f"say what you assumed in your final answer; otherwise ask it in plain text and end your turn.", "error": False}
+        return {"text": tools.format_answers(qs, ans.get("answers"))}
     verdict, reason = perms.decide(s, name, args)
     if verdict == "deny":
         return {"text": f"Denied: {reason}", "error": True}

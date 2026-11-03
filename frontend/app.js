@@ -401,7 +401,7 @@ function scrollDown(force) {
   if (force || S.stick) c.scrollTop = c.scrollHeight;
 }
 const ICONS = { read: '▤', write: '✎', edit: '✎', multiedit: '✎', bash: '$', bash_output: '$', kill_bash: '■', grep: '⌕', glob: '✱',
-  web_fetch: '◎', web_search: '◎', browser_read: '◫', browser_act: '◫', todo_write: '☑', task: '⋔', skill: '★', git_sync: '⎇', create_pr: '⎇', exit_plan_mode: '☰', share_file: '⬇', preview: '▶', view_3d: '◈', image_search: '⌕', fetch_image: '▣', view_image: '◉', annotate_image: '✐', generate_image: '✦', send_email: '✉', connector_add: '⚭', routine_list: '⏱', routine_create: '⏱', routine_update: '⏱', world_list: '🌍', world_read: '🌍', world_create: '🌍', world_say: '🌍', create_app: '▦', app_list: '▦', app_read: '▦', forge_tool: '⚒', forge_list: '⚒', pack_list: '⚙', pack_enable: '⚙', models: '⋔', connector_search: '⌕' };
+  web_fetch: '◎', web_search: '◎', browser_read: '◫', browser_act: '◫', todo_write: '☑', task: '⋔', skill: '★', git_sync: '⎇', create_pr: '⎇', exit_plan_mode: '☰', share_file: '⬇', preview: '▶', view_3d: '◈', image_search: '⌕', fetch_image: '▣', view_image: '◉', annotate_image: '✐', generate_image: '✦', send_email: '✉', connector_add: '⚭', routine_list: '⏱', routine_create: '⏱', routine_update: '⏱', world_list: '🌍', world_read: '🌍', world_create: '🌍', world_say: '🌍', create_app: '▦', app_list: '▦', app_read: '▦', forge_tool: '⚒', forge_list: '⚒', pack_list: '⚙', pack_enable: '⚙', ask_user: '?', models: '⋔', connector_search: '⌕' };
 function toolSummary(name, a) {
   a = a || {};
   switch (name) {
@@ -416,6 +416,7 @@ function toolSummary(name, a) {
     case 'app_read': return a.id || '';
     case 'routine_create': case 'world_create': return a.name || '';
     case 'pack_enable': return a.name || '';
+    case 'ask_user': return ((a.questions || [])[0] || {}).question || '';
     case 'routine_update': case 'world_say': case 'world_read': return a.id || '';
     case 'connector_add': return (a.name || '') + ' · ' + (a.url || '');
     case 'send_email': return ((a.to || []).join?.(', ') || a.to || '') + ' · ' + (a.subject || '').slice(0, 60);
@@ -494,7 +495,29 @@ function fillCard(card, call, result, approval) {
   if (result && result._model) body.append(h('div', { style: 'padding:10px 12px' }, h('button.primary.small', { text: '◈ Open 3D viewer', onclick: () => openModel(result._model) })));
   if (result && result._file) body.append(h('div', { style: 'padding:10px 12px' }, fileCardNode(result._file)));
   card.append(body);
-  if (approval) {
+  if (approval && name === 'ask_user') {
+    const qs = (approval.args && approval.args.questions) || [];
+    const picks = qs.map(() => new Set()), others = qs.map(() => ''), btns = qs.map(() => []);
+    const send = h('button.btn-allow', { text: 'Send answers', disabled: true, onclick: () => answer(call.id, { allow: true, answers: qs.map((q, i) => ({ choice: [...picks[i]], other: others[i] })) }, card) });
+    const refresh = () => {
+      qs.forEach((q, i) => btns[i].forEach(([b, lab]) => b.classList.toggle('on', picks[i].has(lab))));
+      send.disabled = !qs.every((q, i) => picks[i].size || others[i].trim());
+    };
+    const box = h('div.approve.asking', {}, h('div.q', { text: approval.reason || 'Your agent has a question' }));
+    qs.forEach((q, i) => {
+      box.append(h('div.qtext', {}, q.header ? h('span.qhead', { text: q.header }) : null, document.createTextNode(q.question)));
+      for (const o of q.options) {
+        const b = h('button.qopt', { type: 'button', onclick: () => {
+          if (q.multiSelect) { picks[i].has(o.label) ? picks[i].delete(o.label) : picks[i].add(o.label); } else { picks[i].clear(); picks[i].add(o.label); }
+          refresh();
+        } }, h('div', { style: 'font-weight:600', text: o.label }), o.description ? h('div.dim', { style: 'font-size:12.5px', text: o.description }) : null);
+        btns[i].push([b, o.label]); box.append(b);
+      }
+      box.append(h('input', { type: 'text', placeholder: 'Other: type your own answer', oninput: (e) => { others[i] = e.target.value; refresh(); } }));
+    });
+    box.append(h('div.row', {}, send, h('button.btn-deny', { text: 'Skip', onclick: () => answer(call.id, { allow: false, note: 'the user skipped the question' }, card) })));
+    card.append(box);
+  } else if (approval) {
     const note = h('input', { type: 'text', placeholder: name === 'exit_plan_mode' ? 'What should change? (optional)' : 'Note to the agent if you deny (optional)' });
     const row = h('div.row');
     if (name === 'exit_plan_mode') {
@@ -549,7 +572,7 @@ const KIND = { bash: ['Ran', 'command', 'commands'], bash_output: ['Ran', 'comma
   read: ['Read', 'file', 'files'], glob: ['Searched', 'folder', 'folders'], grep: ['Searched', 'code search', 'code searches'],
   write: ['Edited', 'file', 'files'], edit: ['Edited', 'file', 'files'], multiedit: ['Edited', 'file', 'files'], annotate_image: ['Edited', 'image', 'images'],
   web_fetch: ['Opened', 'page', 'pages'], web_search: ['Searched the web', 'time', 'times'], browser_read: ['Browsed', 'page', 'pages'], browser_act: ['Used the browser', 'time', 'times'], image_search: ['Searched images', 'time', 'times'],
-  fetch_image: ['Downloaded', 'image', 'images'], generate_image: ['Generated', 'image', 'images'], send_email: ['Sent', 'email', 'emails'], connector_add: ['Proposed', 'connector', 'connectors'], routine_list: ['Listed', 'routines', 'routine lists'], routine_create: ['Scheduled', 'routine', 'routines'], routine_update: ['Updated', 'routine', 'routines'], world_list: ['Listed', 'worlds', 'world lists'], world_read: ['Read', 'world', 'worlds'], world_create: ['Started', 'world', 'worlds'], world_say: ['Stepped into', 'world', 'worlds'], create_app: ['Built', 'app', 'apps'], app_list: ['Listed', 'app list', 'app lists'], app_read: ['Read', 'app', 'apps'], forge_tool: ['Forged', 'tool', 'tools'], forge_list: ['Listed', 'forged tools', 'forged tool lists'], pack_list: ['Listed', 'toolchain pack list', 'toolchain pack lists'], pack_enable: ['Installed', 'toolchain pack', 'toolchain packs'], view_image: ['Looked at', 'image', 'images'], task: ['Delegated', 'task', 'tasks'], git_sync: ['Synced', 'time', 'times'], todo_write: ['Updated', 'task list', 'task lists'], skill: ['Loaded', 'skill', 'skills'], models: ['Checked', 'model list', 'model lists'], connector_search: ['Looked up', 'connector tool', 'connector tools'], create_pr: ['Opened', 'pull request', 'pull requests'] };
+  fetch_image: ['Downloaded', 'image', 'images'], generate_image: ['Generated', 'image', 'images'], send_email: ['Sent', 'email', 'emails'], connector_add: ['Proposed', 'connector', 'connectors'], routine_list: ['Listed', 'routines', 'routine lists'], routine_create: ['Scheduled', 'routine', 'routines'], routine_update: ['Updated', 'routine', 'routines'], world_list: ['Listed', 'worlds', 'world lists'], world_read: ['Read', 'world', 'worlds'], world_create: ['Started', 'world', 'worlds'], world_say: ['Stepped into', 'world', 'worlds'], create_app: ['Built', 'app', 'apps'], app_list: ['Listed', 'app list', 'app lists'], app_read: ['Read', 'app', 'apps'], forge_tool: ['Forged', 'tool', 'tools'], forge_list: ['Listed', 'forged tools', 'forged tool lists'], ask_user: ['Asked', 'question', 'questions'], pack_list: ['Listed', 'toolchain pack list', 'toolchain pack lists'], pack_enable: ['Installed', 'toolchain pack', 'toolchain packs'], view_image: ['Looked at', 'image', 'images'], task: ['Delegated', 'task', 'tasks'], git_sync: ['Synced', 'time', 'times'], todo_write: ['Updated', 'task list', 'task lists'], skill: ['Loaded', 'skill', 'skills'], models: ['Checked', 'model list', 'model lists'], connector_search: ['Looked up', 'connector tool', 'connector tools'], create_pr: ['Opened', 'pull request', 'pull requests'] };
 const isPinned = (c) => { const r = S.results[c._call.id]; return !!(r && (r._file || r._preview || r._model || r._image || r._app)) || c._call.function.name === 'exit_plan_mode'; };
 const isDone = (c) => !!S.results[c._call.id] && !S.pending[c._call.id];
 function tgLabel(cards) {

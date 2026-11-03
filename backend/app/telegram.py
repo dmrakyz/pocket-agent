@@ -339,7 +339,11 @@ async def watch(chat: int, s: dict, run):
     errors = []
     try:
         async for ev in run.stream(0):
-            if ev.get("type") == "approval":
+            if ev.get("type") == "approval" and ev.get("tool") == "ask_user":
+                fut = run.approvals.get(ev["id"])
+                if fut and not fut.done():     # no tap UI here: the agent asks in plain text and you reply in the chat
+                    fut.set_result({"allow": False, "always": False, "mode": None, "note": "the user is on Telegram and cannot tap options. Ask the question in plain text (list the choices) and end your turn; they reply in the chat"})
+            elif ev.get("type") == "approval":
                 await ask_approval(chat, s["id"], ev)
             elif ev.get("type") == "error":
                 errors.append(ev.get("text", "error"))

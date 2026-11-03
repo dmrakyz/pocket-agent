@@ -146,6 +146,28 @@ try:
     check("plan approval switched mode", sess5["mode"] == "auto", sess5["mode"])
     check("write allowed after plan approval", os.path.exists(os.path.join(DATA, "ws", s5["id"], "a.txt")) and "planned" in open(os.path.join(DATA, "ws", s5["id"], "a.txt")).read())
 
+    # --- ask_user: the agent asks, taps come back, only offered options get through; plan mode may ask too
+    sq = c.post("/api/sessions", json={"mode": "plan"}).json()
+    seen = []
+
+    def tap(ev):
+        seen.append(ev)
+        return {"allow": True, "answers": [{"choice": ["SQLite (Recommended)", "HACKED"]}, {"choice": ["Auth", "Export", "Nope"], "other": "plus logging"}]}
+    run_turn(c, sq["id"], "ASKUSER please", approve=tap, timeout=60)
+    msgs_q = c.get(f"/api/sessions/{sq['id']}").json()["session"]["messages"]
+    tool_q = [m["content"] for m in msgs_q if m["role"] == "tool"]
+    check("ask_user raised one question event with both questions (plan mode allows it)", len(seen) == 1 and seen[0]["tool"] == "ask_user" and len(seen[0]["args"]["questions"]) == 2, str(seen)[:200])
+    check("single-select kept the offered pick and dropped made-up text", "Which database? → SQLite (Recommended)" in tool_q[0] and "HACKED" not in tool_q[0], tool_q[0])
+    check("multi-select keeps only offered labels, adds the typed Other", "Which extras? → Auth; Export; Other: plus logging" in tool_q[0] and "Nope" not in tool_q[0], tool_q[0])
+    sq2 = c.post("/api/sessions", json={"mode": "yolo"}).json()
+    run_turn(c, sq2["id"], "ASKUSER skip", approve=lambda ev: {"allow": False, "note": "the user skipped the question"}, timeout=60)
+    t_skip = [m["content"] for m in c.get(f"/api/sessions/{sq2['id']}").json()["session"]["messages"] if m["role"] == "tool"][0]
+    check("skipping tells the agent to assume a default or ask in text", "could not be answered" in t_skip and "most reasonable" in t_skip, t_skip)
+    sq3 = c.post("/api/sessions", json={"mode": "yolo"}).json()
+    run_turn(c, sq3["id"], "ASKBAD now", timeout=60)
+    t_bad = [m["content"] for m in c.get(f"/api/sessions/{sq3['id']}").json()["session"]["messages"] if m["role"] == "tool"][0]
+    check("a malformed question is bounced back to the model, never shown", "2 to 4 distinct options" in t_bad, t_bad)
+
     # --- rewind restores files
     msgs = c.get(f"/api/sessions/{s2['id']}").json()["session"]["messages"]
     r = c.post(f"/api/sessions/{s2['id']}/rewind", json={"index": 0}).json()

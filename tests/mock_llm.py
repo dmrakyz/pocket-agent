@@ -152,6 +152,16 @@ def scenario(msgs, model):
         if k == 0:
             return "tools", [tool_call("create_app", {"name": "Counter", "icon": "🔢", "html": html})]
         return "text", "Counter is ready."
+    if "ASKUSER" in prompt:
+        if k == 0:
+            return "tools", [tool_call("ask_user", {"questions": [
+                {"question": "Which database?", "header": "DB", "options": [{"label": "SQLite (Recommended)", "description": "no server"}, {"label": "Postgres"}]},
+                {"question": "Which extras?", "multiSelect": True, "options": [{"label": "Auth"}, {"label": "Dark mode"}, {"label": "Export"}]}]})]
+        return "text", "got: " + last_tool
+    if "ASKBAD" in prompt:
+        if k == 0:
+            return "tools", [tool_call("ask_user", {"questions": [{"question": "only one option?", "options": [{"label": "x"}]}]})]
+        return "text", "bad: " + last_tool[:80]
     if "MAKEACT" in prompt:
         html = ("<!doctype html><html><head><title>Quick</title></head><body><h1>Quick</h1><button id='b' onclick=\"agent.act('save this note: hi').then(function(r){document.title=r})\">save</button></body></html>")
         if k == 0:

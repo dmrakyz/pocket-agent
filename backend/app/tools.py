@@ -203,6 +203,16 @@ BASE_TOOLS = [
          "id": {"type": "string", "description": "existing app id to replace (omit to create)"}}, ["name", "html"]),
     _fn("app_list", "List the user's apps (id, name, description).", {}, []),
     _fn("app_read", "Read the HTML of one of the user's apps, so you can modify it.", {"id": {"type": "string"}}, ["id"]),
+    _fn("ask_user", "Ask the user 1-4 multiple-choice questions and wait for their taps. Use it when the request is ambiguous or a choice is costly to undo "
+        "(which design, which library, delete or keep, scope), BEFORE building the wrong thing. Not for trivia you can decide yourself, and don't ask the same thing twice. "
+        "Each question needs 2-4 distinct options; put your recommended one first and add '(Recommended)' to its label. The user can always type their own answer instead.",
+        {"questions": {"type": "array", "minItems": 1, "maxItems": 4, "items": {"type": "object", "properties": {
+            "question": {"type": "string", "description": "the full question, ends with a question mark"},
+            "header": {"type": "string", "description": "1-2 word label, e.g. Library"},
+            "multiSelect": {"type": "boolean", "description": "true if several options may be picked"},
+            "options": {"type": "array", "minItems": 2, "maxItems": 4, "items": {"type": "object", "properties": {
+                "label": {"type": "string"}, "description": {"type": "string", "description": "one short line on what this leads to"}}, "required": ["label"]}}},
+            "required": ["question", "options"]}}}, ["questions"]),
     _fn("pack_list", "List the optional toolchain packs (Python science stack, C/C++ toolchain, Emscripten) and whether each is installed.", {}, []),
     _fn("pack_enable", "Install an optional toolchain pack so bash can use it from the next call: py-science (scipy, pandas, sympy, scikit-learn, networkx), "
         "cpp (cmake, ninja, clang), emscripten (emcc/em++, C/C++ to WebAssembly). Only when the task needs it. Big downloads: it may answer 'still installing', then call it again.",
@@ -237,7 +247,7 @@ BASE_TOOLS = [
     _fn("exit_plan_mode", "Plan mode only: present your finished plan to the user for approval.",
         {"plan": S}, ["plan"]),
 ]
-READONLY = {"read", "glob", "grep", "web_fetch", "web_search", "image_search", "view_image", "models", "browser_read", "todo_write", "bash_output", "skill", "task", "share_file", "preview", "view_3d", "connector_search", "memory_save", "memory_list", "forge_list", "pack_list", "app_list", "app_read", "routine_list", "world_list", "world_read"}
+READONLY = {"ask_user", "read", "glob", "grep", "web_fetch", "web_search", "image_search", "view_image", "models", "browser_read", "todo_write", "bash_output", "skill", "task", "share_file", "preview", "view_3d", "connector_search", "memory_save", "memory_list", "forge_list", "pack_list", "app_list", "app_read", "routine_list", "world_list", "world_read"}
 EDITS = {"write", "edit", "multiedit", "fetch_image", "annotate_image", "generate_image", "create_app", "world_say"}
 SUBAGENT_TOOLS = {"read", "glob", "grep", "bash", "bash_output", "kill_bash", "web_fetch", "web_search"}
 SUBAGENT_EDIT_TOOLS = SUBAGENT_TOOLS | EDITS
@@ -825,6 +835,47 @@ async def t_app_read(ctx: Ctx, a: dict):
     return apps.html_of(a["id"])
 
 
+def clean_questions(args: dict):
+    """Validate ask_user input. Returns the cleaned list, or an error string for the model."""
+    qs = args.get("questions")
+    if not isinstance(qs, list) or not 1 <= len(qs) <= 4:
+        return "questions must be a list of 1 to 4 questions"
+    out = []
+    for q in qs:
+        if not isinstance(q, dict) or not str(q.get("question") or "").strip():
+            return "every question needs question text"
+        opts = []
+        for o in (q.get("options") or []):
+            lab = str((o.get("label") if isinstance(o, dict) else o) or "").strip()[:80]
+            if lab and lab.lower() not in [x["label"].lower() for x in opts]:
+                opts.append({"label": lab, "description": str((o.get("description") if isinstance(o, dict) else "") or "").strip()[:160]})
+        if not 2 <= len(opts) <= 4:
+            return f"question {str(q.get('question'))[:40]!r} needs 2 to 4 distinct options"
+        out.append({"question": str(q["question"]).strip()[:300], "header": str(q.get("header") or "").strip()[:20],
+                    "multiSelect": bool(q.get("multiSelect")), "options": opts})
+    return out
+
+
+def format_answers(qs: list, answers) -> str:
+    """Turn the user's taps into the tool result the model reads. Only offered labels (or typed text) get through."""
+    rows = []
+    ans = answers if isinstance(answers, list) else []
+    for i, q in enumerate(qs):
+        a = ans[i] if i < len(ans) and isinstance(ans[i], dict) else {}
+        offered = {o["label"] for o in q["options"]}
+        picked = [x for x in (a.get("choice") or []) if isinstance(x, str) and x in offered]
+        if not q["multiSelect"]:
+            picked = picked[:1]
+        other = str(a.get("other") or "").strip()[:400]
+        parts = picked + ([f"Other: {other}"] if other else [])
+        rows.append(f"{i + 1}. {q['question']} → " + ("; ".join(parts) if parts else "(no answer)"))
+    return "The user answered:\n" + "\n".join(rows)
+
+
+async def t_ask_user(ctx: Ctx, a: dict):
+    raise ToolError("ask_user can only be answered by the user in the app; it is not available in this run. Pick the most reasonable option yourself and say what you assumed.")
+
+
 async def t_pack_list(ctx: Ctx, a: dict):
     from . import packs
     rows = packs.status()
@@ -1349,7 +1400,7 @@ HANDLERS: dict[str, Callable[[Ctx, dict], Awaitable[Any]]] = {
     "image_search": t_image_search, "fetch_image": t_fetch_image, "view_image": t_view_image,
     "annotate_image": t_annotate_image, "models": t_models, "connector_search": t_connector_search, "connector_add": t_connector_add, "routine_list": t_routine_list, "routine_create": t_routine_create, "routine_update": t_routine_update,
     "world_list": t_world_list, "world_read": t_world_read, "world_create": t_world_create, "world_say": t_world_say,
-    "generate_image": t_generate_image, "send_email": t_send_email, "forge_tool": t_forge_tool, "forge_list": t_forge_list, "pack_list": t_pack_list, "pack_enable": t_pack_enable, "create_app": t_create_app, "app_list": t_app_list, "app_read": t_app_read, "memory_save": t_memory_save, "memory_forget": t_memory_forget, "memory_list": t_memory_list,
+    "generate_image": t_generate_image, "send_email": t_send_email, "forge_tool": t_forge_tool, "forge_list": t_forge_list, "ask_user": t_ask_user, "pack_list": t_pack_list, "pack_enable": t_pack_enable, "create_app": t_create_app, "app_list": t_app_list, "app_read": t_app_read, "memory_save": t_memory_save, "memory_forget": t_memory_forget, "memory_list": t_memory_list,
     "browser_read": t_browser_read, "browser_act": t_browser_act,
 }
 
