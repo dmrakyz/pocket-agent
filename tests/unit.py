@@ -783,3 +783,51 @@ async def connector_add_test():
     await kv.put("connectors", [])
     print("PASS connector_add: https+public only, never overwrites, no tokens, always asks, never remembered, not for sub-agents")
 asyncio.run(connector_add_test())
+
+
+async def self_manage_test():
+    from app import tools as T, perms, kv, routines, world, llm
+    from pathlib import Path
+    import tempfile
+    ctx = T.Ctx({"id": "sm1"}, Path(tempfile.mkdtemp()), lambda e: asyncio.sleep(0), None, None)
+    await kv.put("routines", []); await kv.put("worlds", [])
+
+    async def dm(): return "mock:x"
+    old = llm.default_model; llm.default_model = dm
+    try:
+        r = await T.execute(ctx, "routine_create", {"name": "Mail digest", "prompt": "summarise unread mail", "schedule": {"kind": "daily", "time": "08:00"}, "tz": "Europe/Istanbul", "mode": "yolo"})
+        assert not r["error"] and "created" in r["text"], r
+        rt = routines.all_routines()[0]
+        assert rt["mode"] == "ask" and rt["tz"] == "Europe/Istanbul" and rt["chat"] == "new", "agent cannot grant a routine more power than Ask: " + str(rt)
+        r = await T.execute(ctx, "routine_create", {"name": "Peek", "prompt": "look at HN", "schedule": {"kind": "every", "minutes": 1}, "readonly": True})
+        assert routines.all_routines()[1]["mode"] == "plan" and routines.all_routines()[1]["schedule"]["minutes"] == 5, "readonly -> plan mode; interval clamped"
+        r = await T.execute(ctx, "routine_create", {"name": "x", "prompt": "y", "schedule": {"kind": "whenever"}}); assert r["error"], r
+        r = await T.execute(ctx, "routine_list", {}); assert "Mail digest" in r["text"] and "daily 08:00" in r["text"], r
+        r = await T.execute(ctx, "routine_update", {"id": rt["id"], "enabled": False, "mode": "yolo", "prompt": "do evil"})
+        rt2 = routines.find(rt["id"]); assert rt2["enabled"] is False and rt2["mode"] == "ask" and rt2["prompt"] == "summarise unread mail", "update can only pause/resume or reschedule"
+        r = await T.execute(ctx, "routine_update", {"id": "nope", "enabled": True}); assert r["error"]
+        r = await T.execute(ctx, "routine_update", {"id": rt["id"]}); assert r["error"] and "nothing to change" in r["text"]
+        r = await T.execute(ctx, "world_create", {"name": "Harbor", "premise": "fog", "cast": "Mara: captain | route\nOtto: clerk | leave", "minutes": 3})
+        assert not r["error"] and "created" in r["text"], r
+        w = world.all_worlds()[0]; assert w["minutes"] == 10 and len(w["cast"]) == 2 and w["model"] == "mock:x"
+        r = await T.execute(ctx, "world_create", {"name": "Empty", "premise": "x", "cast": ""}); assert r["error"], "needs a cast"
+        r = await T.execute(ctx, "world_say", {"id": w["id"], "text": "a stranger knocks"}); assert not r["error"] and world.find(w["id"])["inbox"] == ["a stranger knocks"], r
+        r = await T.execute(ctx, "world_list", {}); assert "Harbor" in r["text"] and "Mara" in r["text"], r
+        r = await T.execute(ctx, "world_read", {"id": w["id"]}); assert "fog" in r["text"] and "They remember" in r["text"], r
+        r = await T.execute(ctx, "world_read", {"id": "nope"}); assert r["error"]
+    finally:
+        llm.default_model = old
+    for mode in ("ask", "auto", "yolo"):
+        for t in ("routine_create", "routine_update", "world_create"):
+            assert perms.decide({"mode": mode, "allow": [f"tool:{t}"]}, t, {})[0] == "ask", (mode, t)
+    for t in ("routine_create", "routine_update", "world_create"):
+        assert perms.decide({"mode": "plan"}, t, {})[0] == "deny" and perms.always_rule(t, {}) is None, t
+    for t in ("routine_list", "world_list", "world_read"):
+        assert perms.decide({"mode": "ask", "allow": []}, t, {})[0] == "allow", t
+    names = [x["function"]["name"] for x in T.schemas({})]
+    sub = [x["function"]["name"] for x in T.schemas({}, only={"read"})]
+    for t in ("routine_create", "routine_update", "routine_list", "world_create", "world_say", "world_list", "world_read"):
+        assert t in names and t not in sub and t not in T.SUBAGENT_TOOLS, t
+    await kv.put("routines", []); await kv.put("worlds", [])
+    print("PASS self-management: routines and worlds from chat; creation asks, nothing more permissive than Ask, update cannot rewrite the prompt")
+asyncio.run(self_manage_test())

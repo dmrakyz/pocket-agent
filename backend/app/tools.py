@@ -161,6 +161,24 @@ BASE_TOOLS = [
         "Sign in under Settings → Connectors. After it is added its tools can be found with connector_search straight away.",
         {"name": {"type": "string", "description": "short lowercase name, letters/digits/-/_"}, "url": {"type": "string", "description": "https:// MCP endpoint"},
          "oauth": {"type": "boolean", "description": "true if it needs a browser sign-in"}}, ["name", "url"]),
+    _fn("routine_list", "List the user's routines (scheduled or webhook-triggered agent runs): name, schedule, on/off, last result.", {}, []),
+    _fn("routine_create", "Schedule a recurring task for yourself, e.g. 'every weekday 08:00 summarise my unread mail'. The user is shown the whole routine and asked every time. "
+        "It runs unattended in its own chat in Ask mode (or read-only if readonly=true), so it stops and pings the user when it needs approval; you cannot make it more permissive. "
+        "Write the prompt so it works with no one around. Pass the user's IANA timezone in tz (e.g. Europe/Istanbul).",
+        {"name": {"type": "string"}, "prompt": {"type": "string", "description": "what to do on each run, self-contained"},
+         "schedule": {"type": "object", "description": "{kind:'every', minutes:N>=5} or {kind:'daily', time:'HH:MM'} or {kind:'weekly', time:'HH:MM', days:[0-6, Monday=0]}"},
+         "tz": {"type": "string"}, "readonly": {"type": "boolean", "description": "true = it can only look things up, never change anything"}}, ["name", "prompt", "schedule"]),
+    _fn("routine_update", "Pause/resume a routine, or change its schedule. The user is asked first. You cannot delete routines or change what they are allowed to do.",
+        {"id": {"type": "string"}, "enabled": {"type": "boolean"}, "schedule": {"type": "object", "description": "same shape as routine_create"}}, ["id"]),
+    _fn("world_list", "List the user's story worlds (characters that live on a schedule): name, cast, pace, muted, last events.", {}, []),
+    _fn("world_read", "Read the last events of one world, and what its characters remember.",
+        {"id": {"type": "string"}, "limit": {"type": "integer", "description": "events, default 12, max 40"}}, ["id"]),
+    _fn("world_create", "Start a new story world: a premise and 1-8 characters who act on their own goals every few minutes and remember what happened. The user is asked first. "
+        "cast is one character per line: 'Name: who they are | what they want'. The current default model is pinned to the world.",
+        {"name": {"type": "string"}, "premise": {"type": "string"}, "cast": {"type": "string"},
+         "minutes": {"type": "integer", "description": "minutes between beats, 10 or more (default 60)"}, "notify": {"type": "boolean", "description": "ping the user on each beat (default true)"}}, ["name", "premise", "cast"]),
+    _fn("world_say", "Step into a world as the user would: something happens there on the next beat (e.g. 'a stranger knocks'). Only when the user asked.",
+        {"id": {"type": "string"}, "text": {"type": "string"}}, ["id", "text"]),
     _fn("forge_tool", "Create a NEW reusable tool by writing Python, when a job keeps coming up and no existing tool does it (a parser, a unit converter, a calculator for the "
         "user's domain, a wrapper around a public API). The user is shown your code and asked first; it is tested in a sandbox before it is kept; then it appears as forged_<name> "
         "from your next step on. Rules: define `def run(args):` returning a string or JSON-able value; standard library plus numpy/pillow/matplotlib only; no secrets in code; "
@@ -214,8 +232,8 @@ BASE_TOOLS = [
     _fn("exit_plan_mode", "Plan mode only: present your finished plan to the user for approval.",
         {"plan": S}, ["plan"]),
 ]
-READONLY = {"read", "glob", "grep", "web_fetch", "web_search", "image_search", "view_image", "models", "browser_read", "todo_write", "bash_output", "skill", "task", "share_file", "preview", "view_3d", "connector_search", "memory_save", "memory_list", "forge_list", "app_list", "app_read"}
-EDITS = {"write", "edit", "multiedit", "fetch_image", "annotate_image", "generate_image", "create_app"}
+READONLY = {"read", "glob", "grep", "web_fetch", "web_search", "image_search", "view_image", "models", "browser_read", "todo_write", "bash_output", "skill", "task", "share_file", "preview", "view_3d", "connector_search", "memory_save", "memory_list", "forge_list", "app_list", "app_read", "routine_list", "world_list", "world_read"}
+EDITS = {"write", "edit", "multiedit", "fetch_image", "annotate_image", "generate_image", "create_app", "world_say"}
 SUBAGENT_TOOLS = {"read", "glob", "grep", "bash", "bash_output", "kill_bash", "web_fetch", "web_search"}
 SUBAGENT_EDIT_TOOLS = SUBAGENT_TOOLS | EDITS
 
@@ -1069,6 +1087,103 @@ async def t_connector_add(ctx: Ctx, a: dict):
     return f"Connector {name!r} added ({status}); {n} tool(s). Use connector_search to find and switch on what you need."
 
 
+async def t_routine_list(ctx: Ctx, a: dict):
+    from . import routines
+    rs = routines.all_routines()
+    if not rs:
+        return "No routines yet."
+    out = []
+    for r in rs:
+        p = routines.public(r); sch = r.get("schedule") or {}
+        when = {"every": f"every {sch.get('minutes')} min", "daily": f"daily {sch.get('time')}", "weekly": f"weekly {sch.get('time')} days {sch.get('days')}"}.get(sch.get("kind"), "manual/webhook")
+        out.append(f"- {r['id']} {r['name']} · {when} · {'on' if r.get('enabled') else 'paused'} · mode {r.get('mode')} · last: {r.get('last_status') or 'never'}"
+                   + (f" ({(r.get('last_text') or '')[:100]})" if r.get("last_text") else ""))
+    return "\n".join(out)
+
+
+async def t_routine_create(ctx: Ctx, a: dict):
+    from . import routines
+    if not str(a.get("prompt") or "").strip() or not str(a.get("name") or "").strip():
+        raise ToolError("name and prompt are required")
+    sch = a.get("schedule") if isinstance(a.get("schedule"), dict) else {}
+    if sch.get("kind") not in ("every", "daily", "weekly"):
+        raise ToolError("schedule.kind must be every, daily or weekly")
+    rs = routines.all_routines()
+    if len(rs) >= 20:
+        raise ToolError("there are already 20 routines; the user must remove one first")
+    r = routines.clean({"name": a["name"], "prompt": a["prompt"], "schedule": sch, "tz": a.get("tz") or "UTC", "mode": "plan" if a.get("readonly") else "ask", "chat": "new"})
+    rs.append(r)
+    await routines.save(rs)
+    nxt = routines.next_run(r, time.time())
+    when = time.strftime("%a %d %b %H:%M", time.gmtime(nxt)) + " UTC" if nxt else "n/a"
+    return f"Routine {r['name']!r} created (id {r['id']}, {r['mode']} mode). Next run: {when}. The user can edit or delete it under Settings → Routines."
+
+
+async def t_routine_update(ctx: Ctx, a: dict):
+    from . import routines
+    rs = routines.all_routines()
+    i = next((k for k, x in enumerate(rs) if x["id"] == str(a.get("id"))), -1)
+    if i < 0:
+        raise ToolError("no routine with that id (use routine_list)")
+    body = {}
+    if "enabled" in a:
+        body["enabled"] = bool(a["enabled"])
+    if isinstance(a.get("schedule"), dict):
+        if a["schedule"].get("kind") not in ("every", "daily", "weekly"):
+            raise ToolError("schedule.kind must be every, daily or weekly")
+        body["schedule"] = a["schedule"]
+    if not body:
+        raise ToolError("nothing to change: pass enabled and/or schedule")
+    rs[i] = routines.clean(body, rs[i])
+    await routines.save(rs)
+    return f"Routine {rs[i]['name']!r} updated ({'on' if rs[i].get('enabled') else 'paused'})."
+
+
+async def t_world_list(ctx: Ctx, a: dict):
+    from . import world
+    ws = world.all_worlds()
+    if not ws:
+        return "No worlds yet."
+    out = []
+    for w in ws:
+        last = w["log"][-1] if w["log"] else None
+        out.append(f"- {w['id']} {w['name']} · cast: {', '.join(c['name'] for c in w['cast'])} · every {w['minutes']} min · {'running' if w.get('enabled') else 'paused'}"
+                   + ("" if w.get("notify") else " · muted") + (f" · last: {last['who']}: {last['text'][:100]}" if last else ""))
+    return "\n".join(out)
+
+
+async def t_world_read(ctx: Ctx, a: dict):
+    from . import world
+    w = world.find(str(a.get("id")))
+    if not w:
+        raise ToolError("no world with that id (use world_list)")
+    n = max(1, min(int(a.get("limit") or 12), 40))
+    lines = [f"[{time.strftime('%a %H:%M', time.localtime(e['t']))}] {e['who']} ({e['kind']}): {e['text']}" for e in w["log"][-n:]]
+    mem = [f"{c['name']}: " + (" · ".join(c["memory"][-3:]) or "nothing yet") for c in w["cast"]]
+    return f"{w['name']} — {w['premise']}\n\n" + "\n".join(lines) + "\n\nThey remember:\n" + "\n".join(mem)
+
+
+async def t_world_create(ctx: Ctx, a: dict):
+    from . import world
+    if len(world.all_worlds()) >= 10:
+        raise ToolError("there are already 10 worlds; the user must delete one first")
+    try:
+        w = await world.create({"name": a.get("name"), "premise": a.get("premise"), "cast": a.get("cast"), "minutes": a.get("minutes") or 60,
+                               "notify": a.get("notify", True)})
+    except (ValueError, TypeError) as e:
+        raise ToolError(str(e))
+    return f"World {w['name']!r} created (id {w['id']}) with {', '.join(c['name'] for c in w['cast'])}; a beat every {w['minutes']} min on {w['model']}. The user can read it under Worlds."
+
+
+async def t_world_say(ctx: Ctx, a: dict):
+    from . import world
+    if not world.find(str(a.get("id"))):
+        raise ToolError("no world with that id (use world_list)")
+    if not await world.say(str(a["id"]), str(a.get("text") or "")):
+        raise ToolError("say something")
+    return "It will happen on the next beat."
+
+
 async def t_connector_search(ctx: Ctx, a: dict):
     if not ctx.mcp or not ctx.mcp.tools:
         return "No connectors are set up. The user can add some under Connectors."
@@ -1164,7 +1279,8 @@ HANDLERS: dict[str, Callable[[Ctx, dict], Awaitable[Any]]] = {
     "web_search": t_web_search, "todo_write": t_todo_write, "task": t_task, "skill": t_skill,
     "git_sync": t_git_sync, "create_pr": t_create_pr, "exit_plan_mode": t_exit_plan_mode, "share_file": t_share_file, "preview": t_preview, "view_3d": t_view_3d,
     "image_search": t_image_search, "fetch_image": t_fetch_image, "view_image": t_view_image,
-    "annotate_image": t_annotate_image, "models": t_models, "connector_search": t_connector_search, "connector_add": t_connector_add,
+    "annotate_image": t_annotate_image, "models": t_models, "connector_search": t_connector_search, "connector_add": t_connector_add, "routine_list": t_routine_list, "routine_create": t_routine_create, "routine_update": t_routine_update,
+    "world_list": t_world_list, "world_read": t_world_read, "world_create": t_world_create, "world_say": t_world_say,
     "generate_image": t_generate_image, "send_email": t_send_email, "forge_tool": t_forge_tool, "forge_list": t_forge_list, "create_app": t_create_app, "app_list": t_app_list, "app_read": t_app_read, "memory_save": t_memory_save, "memory_forget": t_memory_forget, "memory_list": t_memory_list,
     "browser_read": t_browser_read, "browser_act": t_browser_act,
 }

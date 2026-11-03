@@ -111,6 +111,10 @@ def decide(session: dict, tool: str, args: dict) -> tuple[str, str]:
         if mode == "yolo" or matches_rule(session.get("allow", []), tool, args):
             return "allow", ""
         return "ask", ""
+    if tool in ("routine_create", "routine_update", "world_create"):   # they set things running on their own: the user sees them first, every time
+        if mode == "plan":
+            return "deny", "Plan mode is read-only. Describe it in your plan instead."
+        return "ask", {"routine_create": "Schedule this routine?", "routine_update": "Change this routine?", "world_create": "Start this world?"}[tool]
     if tool == "connector_add":   # grants the agent new reach: the user sees the URL and decides every time, in any mode
         if mode == "plan":
             return "deny", "Plan mode is read-only. Propose the connector in your plan instead."

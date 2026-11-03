@@ -401,7 +401,7 @@ function scrollDown(force) {
   if (force || S.stick) c.scrollTop = c.scrollHeight;
 }
 const ICONS = { read: '▤', write: '✎', edit: '✎', multiedit: '✎', bash: '$', bash_output: '$', kill_bash: '■', grep: '⌕', glob: '✱',
-  web_fetch: '◎', web_search: '◎', browser_read: '◫', browser_act: '◫', todo_write: '☑', task: '⋔', skill: '★', git_sync: '⎇', create_pr: '⎇', exit_plan_mode: '☰', share_file: '⬇', preview: '▶', view_3d: '◈', image_search: '⌕', fetch_image: '▣', view_image: '◉', annotate_image: '✐', generate_image: '✦', send_email: '✉', connector_add: '⚭', create_app: '▦', app_list: '▦', app_read: '▦', forge_tool: '⚒', forge_list: '⚒', models: '⋔', connector_search: '⌕' };
+  web_fetch: '◎', web_search: '◎', browser_read: '◫', browser_act: '◫', todo_write: '☑', task: '⋔', skill: '★', git_sync: '⎇', create_pr: '⎇', exit_plan_mode: '☰', share_file: '⬇', preview: '▶', view_3d: '◈', image_search: '⌕', fetch_image: '▣', view_image: '◉', annotate_image: '✐', generate_image: '✦', send_email: '✉', connector_add: '⚭', routine_list: '⏱', routine_create: '⏱', routine_update: '⏱', world_list: '🌍', world_read: '🌍', world_create: '🌍', world_say: '🌍', create_app: '▦', app_list: '▦', app_read: '▦', forge_tool: '⚒', forge_list: '⚒', models: '⋔', connector_search: '⌕' };
 function toolSummary(name, a) {
   a = a || {};
   switch (name) {
@@ -414,6 +414,8 @@ function toolSummary(name, a) {
     case 'forge_tool': return (a.name || '') + (a.network ? ' (network)' : '') + ' · ' + (a.description || '').slice(0, 50);
     case 'create_app': return (a.icon || '') + ' ' + (a.name || '');
     case 'app_read': return a.id || '';
+    case 'routine_create': case 'world_create': return a.name || '';
+    case 'routine_update': case 'world_say': case 'world_read': return a.id || '';
     case 'connector_add': return (a.name || '') + ' · ' + (a.url || '');
     case 'send_email': return ((a.to || []).join?.(', ') || a.to || '') + ' · ' + (a.subject || '').slice(0, 60);
     case 'models': return 'list models';
@@ -546,7 +548,7 @@ const KIND = { bash: ['Ran', 'command', 'commands'], bash_output: ['Ran', 'comma
   read: ['Read', 'file', 'files'], glob: ['Searched', 'folder', 'folders'], grep: ['Searched', 'code search', 'code searches'],
   write: ['Edited', 'file', 'files'], edit: ['Edited', 'file', 'files'], multiedit: ['Edited', 'file', 'files'], annotate_image: ['Edited', 'image', 'images'],
   web_fetch: ['Opened', 'page', 'pages'], web_search: ['Searched the web', 'time', 'times'], browser_read: ['Browsed', 'page', 'pages'], browser_act: ['Used the browser', 'time', 'times'], image_search: ['Searched images', 'time', 'times'],
-  fetch_image: ['Downloaded', 'image', 'images'], generate_image: ['Generated', 'image', 'images'], send_email: ['Sent', 'email', 'emails'], connector_add: ['Proposed', 'connector', 'connectors'], create_app: ['Built', 'app', 'apps'], app_list: ['Listed', 'app list', 'app lists'], app_read: ['Read', 'app', 'apps'], forge_tool: ['Forged', 'tool', 'tools'], forge_list: ['Listed', 'forged tools', 'forged tool lists'], view_image: ['Looked at', 'image', 'images'], task: ['Delegated', 'task', 'tasks'], git_sync: ['Synced', 'time', 'times'], todo_write: ['Updated', 'task list', 'task lists'], skill: ['Loaded', 'skill', 'skills'], models: ['Checked', 'model list', 'model lists'], connector_search: ['Looked up', 'connector tool', 'connector tools'], create_pr: ['Opened', 'pull request', 'pull requests'] };
+  fetch_image: ['Downloaded', 'image', 'images'], generate_image: ['Generated', 'image', 'images'], send_email: ['Sent', 'email', 'emails'], connector_add: ['Proposed', 'connector', 'connectors'], routine_list: ['Listed', 'routines', 'routine lists'], routine_create: ['Scheduled', 'routine', 'routines'], routine_update: ['Updated', 'routine', 'routines'], world_list: ['Listed', 'worlds', 'world lists'], world_read: ['Read', 'world', 'worlds'], world_create: ['Started', 'world', 'worlds'], world_say: ['Stepped into', 'world', 'worlds'], create_app: ['Built', 'app', 'apps'], app_list: ['Listed', 'app list', 'app lists'], app_read: ['Read', 'app', 'apps'], forge_tool: ['Forged', 'tool', 'tools'], forge_list: ['Listed', 'forged tools', 'forged tool lists'], view_image: ['Looked at', 'image', 'images'], task: ['Delegated', 'task', 'tasks'], git_sync: ['Synced', 'time', 'times'], todo_write: ['Updated', 'task list', 'task lists'], skill: ['Loaded', 'skill', 'skills'], models: ['Checked', 'model list', 'model lists'], connector_search: ['Looked up', 'connector tool', 'connector tools'], create_pr: ['Opened', 'pull request', 'pull requests'] };
 const isPinned = (c) => { const r = S.results[c._call.id]; return !!(r && (r._file || r._preview || r._model || r._image || r._app)) || c._call.function.name === 'exit_plan_mode'; };
 const isDone = (c) => !!S.results[c._call.id] && !S.pending[c._call.id];
 function tgLabel(cards) {

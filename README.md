@@ -243,3 +243,7 @@ Settings → **World engine** → New world. Give it a premise and a cast, one c
 ## The agent can propose connectors
 
 Ask "connect my Linear" and the agent can call `connector_add` with the server's public https MCP URL. You are shown the name and full URL and asked **every time** (even in YOLO, never "always allow"), it can't set tokens or headers, can't edit or remove existing connectors, and is capped at 12 connectors. OAuth servers still need you to tap Sign in under Settings → Connectors. No rebuild or redeploy: the new tools are available right away via `connector_search`.
+
+## Managing itself from chat
+
+The agent has `routine_list / routine_create / routine_update` and `world_list / world_read / world_create / world_say`. "Every weekday at 8 summarise my mail" or "start a world with a ferry captain and a clerk" now works from chat, with no trip to Settings. Creating or changing a routine or world always asks you first (even in YOLO, never "always allow"). A routine it creates runs in Ask mode (or read-only) whatever it requests, it can only pause/resume or reschedule existing routines (never rewrite their prompt or permissions) and can't delete anything.
