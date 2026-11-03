@@ -11,7 +11,8 @@
    "State can live in a free Turso database; a running Capability check resumes after a redeploy",
    "Remembers on its own: files lasting facts you state, and reminds you of dates you mention (switch in Memory)",
    "Connectors: one-tap Notion, Linear, Stripe, GitHub; the agent knows their official URLs",
-   "Back-tap / Action Button: new step-by-step recipes, including a voice one that talks back, and a free \"ping\" test"
+   "Back-tap / Action Button: new step-by-step recipes, including a voice one that talks back, and a free \"ping\" test",
+   "Settings → Skills → Install from GitHub: pull skill bundles (like frontend design) from a repo, read them first, tick what you want"
   ]
  },
  {

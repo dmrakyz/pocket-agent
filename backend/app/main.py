@@ -1122,9 +1122,69 @@ async def app_data_del(app_id: str, key: str):
 @app.get("/api/skills", dependencies=[Depends(auth)])
 async def skills_list():
     items = kv.get("skills", {}) or {}
-    return {"skills": [{"name": n, "description": v.get("description", ""), "instructions": v.get("instructions", ""), "updated": v.get("updated", 0)}
+    return {"skills": [{"name": n, "description": v.get("description", ""), "instructions": v.get("instructions", ""), "updated": v.get("updated", 0),
+                        "source": v.get("source", ""), "files": sorted((v.get("files") or {}).keys())}
                        for n, v in sorted(items.items(), key=lambda kv_: -kv_[1].get("updated", 0))],
             "builtin": [{"name": n, "description": tools.skill_description(p)} for n, p in sorted(tools.find_skills(Path("/nonexistent")).items()) if tools.BUILTIN_SKILLS in p.parents]}
+
+
+@app.post("/api/skills/discover", dependencies=[Depends(auth)])
+async def skills_discover(req: Request):
+    from . import skills_install as si
+    b = await req.json()
+    try:
+        d = await si.discover(str(b.get("source") or ""))
+    except si.InstallError as e:
+        raise HTTPException(400, str(e))
+    except httpx.HTTPError as e:
+        raise HTTPException(502, f"could not reach GitHub: {e}")
+    have = kv.get("skills", {}) or {}
+    for s in d["skills"]:
+        try:
+            s["clean_name"] = tools.skill_clean(s["name"], s["description"] or "x", s["instructions"], 40000)[0]
+            s["problem"] = ""
+        except tools.ToolError as e:
+            s["clean_name"], s["problem"] = "", str(e)
+        s["installed"] = s["clean_name"] in have
+        s["files_list"] = sorted(s["files"].keys())
+    return d
+
+
+@app.post("/api/skills/install", dependencies=[Depends(auth)])
+async def skills_install(req: Request):
+    """Re-fetches from the pinned commit (never trusts text from the browser), then saves only the ticked paths."""
+    from . import skills_install as si
+    b = await req.json()
+    paths = b.get("paths")
+    sha = str(b.get("sha") or "")
+    if not isinstance(paths, list) or not paths or not re.fullmatch(r"[0-9a-f]{40}", sha):
+        raise HTTPException(400, "pick at least one skill")
+    try:
+        d = await si.discover(str(b.get("source") or ""), sha)
+    except si.InstallError as e:
+        raise HTTPException(400, str(e))
+    except httpx.HTTPError as e:
+        raise HTTPException(502, f"could not reach GitHub: {e}")
+    have = kv.get("skills", {}) or {}
+    saved, skipped = [], []
+    for s in d["skills"]:
+        if s["path"] not in paths:
+            continue
+        try:
+            n, desc, body = tools.skill_clean(s["name"], s["description"] or s["name"], s["instructions"], 40000)
+        except tools.ToolError as e:
+            skipped.append(f"{s['name']}: {e}")
+            continue
+        if n not in have and len(have) >= tools.MAX_USER_SKILLS:
+            skipped.append(f"{n}: limit of {tools.MAX_USER_SKILLS} skills reached")
+            continue
+        have[n] = {"description": desc, "instructions": body, "updated": time.time(), "files": si.clean_files(s["files"]),
+                   "source": f"{d['owner']}/{d['repo']}@{sha[:10]}:{s['path'] or '.'}"}
+        saved.append(n)
+    if saved:
+        await kv.put("skills", have)
+        tools._materialize_user_skills()
+    return {"saved": saved, "skipped": skipped}
 
 
 @app.delete("/api/skills/{name}", dependencies=[Depends(auth)])

@@ -1968,11 +1968,13 @@ async function openSkills() {
   sheet('Skills', body);
   const draw = (d) => {
     const kids = [h('div.dim', { style: 'font-size:14px', text: 'Reusable instructions the agent can load in any chat. Ask it to "save this as a skill" and you approve the text first. Built-in skills ship with the app.' })];
+    kids.push(h('button.secondary', { style: 'margin-top:10px', text: 'Install from GitHub', onclick: () => installSkills() }));
     kids.push(h('div.sec', { text: 'Yours' }));
     if (!d.skills.length) kids.push(h('div.dim', { style: 'padding:6px 0', text: 'None yet.' }));
     for (const s of d.skills) {
       kids.push(h('details', { style: 'padding:8px 0;border-top:1px solid var(--line)' },
-        h('summary', { style: 'cursor:pointer' }, h('b', { text: s.name }), h('div.dim', { style: 'font-size:13px', text: s.description })),
+        h('summary', { style: 'cursor:pointer' }, h('b', { text: s.name }), h('div.dim', { style: 'font-size:13px', text: s.description }),
+          s.source ? h('div.dim', { style: 'font-size:12px', text: 'from ' + s.source + (s.files.length ? ' · ' + s.files.length + ' bundled file(s)' : '') }) : ''),
         h('pre', { style: 'white-space:pre-wrap;font-size:12.5px;max-height:240px;overflow:auto;margin:8px 0', text: s.instructions }),
         h('button.secondary.danger', { text: 'Delete', onclick: async (e) => {
           const btn = e.currentTarget;
@@ -1988,6 +1990,50 @@ async function openSkills() {
   };
   async function load() { try { draw(await api('/api/skills')); } catch (e) { toast(e.message, true); } }
   load();
+}
+
+function installSkills() {
+  const input = h('input', { placeholder: 'owner/repo or a github.com link to a folder', style: 'width:100%', autocapitalize: 'off', autocorrect: 'off' });
+  const out = h('div', {});
+  const body = h('div', {},
+    h('div.dim', { style: 'font-size:14px', text: 'Finds every SKILL.md in a public GitHub repo. You see the full text and any warnings before anything is saved. Only the skill part of a plugin carries over; hooks, slash commands and sub-agents do not.' }),
+    input, h('button', { style: 'margin-top:8px', text: 'Look', onclick: look }), out);
+  sheet('Install skills', body);
+  let found = null;
+  async function look(e) {
+    const btn = e.currentTarget; btn.disabled = true; out.replaceChildren(h('div.dim', { text: 'Reading the repo…' }));
+    try { found = await api('/api/skills/discover', { body: { source: input.value } }); draw(); }
+    catch (er) { out.replaceChildren(h('div.dim', { style: 'color:var(--bad,#c33)', text: er.message })); }
+    btn.disabled = false;
+  }
+  function draw() {
+    const kids = [h('div.dim', { style: 'padding:8px 0', text: found.owner + '/' + found.repo + ' @ ' + found.sha.slice(0, 10) + ' · ' + found.skills.length + ' skill(s)' + (found.note ? ' · ' + found.note : '') })];
+    const boxes = [];
+    for (const s of found.skills) {
+      const ok = !s.problem;
+      const cb = h('input', { type: 'checkbox', disabled: !ok, checked: ok && !s.warnings.length && !s.installed });
+      boxes.push([cb, s]);
+      kids.push(h('details', { style: 'padding:8px 0;border-top:1px solid var(--line)' },
+        h('summary', { style: 'cursor:pointer' }, cb, ' ', h('b', { text: s.clean_name || s.name }),
+          s.installed ? h('span.dim', { text: ' · already installed, will be replaced' }) : '',
+          h('div.dim', { style: 'font-size:13px', text: s.description }),
+          s.problem ? h('div', { style: 'color:var(--bad,#c33);font-size:13px', text: 'Cannot install: ' + s.problem }) : '',
+          ...s.warnings.map((w) => h('div', { style: 'color:#c80;font-size:13px', text: '⚠ ' + w })),
+          s.files_list.length ? h('div.dim', { style: 'font-size:12px', text: 'bundled: ' + s.files_list.join(', ') }) : ''),
+        h('pre', { style: 'white-space:pre-wrap;font-size:12.5px;max-height:260px;overflow:auto;margin:8px 0', text: s.instructions })));
+    }
+    if (found.skills.length) kids.push(h('button', { style: 'margin-top:10px', text: 'Install ticked', onclick: async (e) => {
+      const paths = boxes.filter(([cb]) => cb.checked).map(([, s]) => s.path);
+      if (!paths.length) return toast('Tick at least one', true);
+      e.currentTarget.disabled = true;
+      try {
+        const r = await api('/api/skills/install', { body: { source: input.value, sha: found.sha, paths } });
+        toast('Installed ' + r.saved.length + (r.skipped.length ? ' · skipped ' + r.skipped.length + ': ' + r.skipped[0] : ''), !!r.skipped.length && !r.saved.length);
+        openSkills();
+      } catch (er) { toast(er.message, true); e.currentTarget.disabled = false; }
+    } }));
+    out.replaceChildren(...kids);
+  }
 }
 
 /* ============================================================ toolchain packs */

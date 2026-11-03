@@ -198,11 +198,16 @@ async def restore(raw: bytes, overwrite: bool = False) -> dict:
         if not isinstance(spec, dict) or name in have_sk or len(have_sk) >= _tools.MAX_USER_SKILLS:
             continue
         try:
-            n2, d2, b2 = _tools.skill_clean(name, spec.get("description"), spec.get("instructions"))
+            n2, d2, b2 = _tools.skill_clean(name, spec.get("description"), spec.get("instructions"), 40000)
         except _tools.ToolError:
             skipped.append(f"skill {name}: refused")
             continue
         have_sk[n2] = {"description": d2, "instructions": b2, "updated": time.time()}
+        from . import skills_install as _si
+        if spec.get("files"):
+            have_sk[n2]["files"] = _si.clean_files(spec.get("files"))
+        if isinstance(spec.get("source"), str):
+            have_sk[n2]["source"] = spec["source"][:200]
         done["skills"] += 1
     if done["skills"]:
         await kv.put("skills", have_sk)

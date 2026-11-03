@@ -269,7 +269,7 @@ BASE_TOOLS = [
          "text": S, "submit": {"type": "boolean"}, "key": S, "js": S, "keys": {"type": "array", "items": {"type": "string"}}, "ms": {"type": "integer"},
          "kind": {"type": "string", "enum": ["move", "look", "drag", "down", "up"]}, "dx": {"type": "number"}, "dy": {"type": "number"},
          "x2": {"type": "number"}, "y2": {"type": "number"}, "button": {"type": "string", "enum": ["left", "right", "middle"]}}, ["action"]),
-    _fn("skill", "Load the full instructions of a named skill listed in your system prompt.", {"name": S}, ["name"]),
+    _fn("skill", "Load the full instructions of a named skill listed in your system prompt. Some skills ship extra files (templates, references); pass file=<relative path> to read one.", {"name": S, "file": S}, ["name"]),
     _fn("git_sync", "Commit all workspace changes and push them to the session's GitHub branch. "
         "Do this after finishing meaningful work.", {"message": S}, []),
     _fn("create_pr", "Open a GitHub pull request from this session's branch (repo sessions only).",
@@ -711,6 +711,20 @@ def _materialize_user_skills():
             if not f.exists() or f.read_text("utf-8") != text:
                 f.parent.mkdir(parents=True, exist_ok=True)
                 f.write_text(text, "utf-8")
+            want = {}
+            for rel, txt in (sk.get("files") or {}).items():
+                if ".." in rel.split("/") or rel.startswith("/"):
+                    continue
+                want[(f.parent / rel).resolve()] = txt
+            for p, txt in want.items():
+                if f.parent.resolve() not in p.parents:
+                    continue
+                if not p.exists() or p.read_text("utf-8", "replace") != txt:
+                    p.parent.mkdir(parents=True, exist_ok=True)
+                    p.write_text(txt, "utf-8")
+            for p in list(f.parent.rglob("*")):
+                if p.is_file() and p != f and p.resolve() not in want:
+                    p.unlink()
         except OSError:
             pass
     if USER_SKILLS.is_dir():
@@ -748,7 +762,16 @@ async def t_skill(ctx: Ctx, a: dict):
     sk = find_skills(ctx.root)
     if a["name"] not in sk:
         raise ToolError(f"no skill named {a['name']!r}. Available: {', '.join(sk) or 'none'}")
-    return cap(sk[a["name"]].read_text("utf-8", "replace"))
+    path = sk[a["name"]]
+    rel = str(a.get("file") or "").strip()
+    if not rel:
+        extra = sorted(str(p.relative_to(path.parent)) for p in path.parent.rglob("*") if p.is_file() and p != path) if USER_SKILLS in path.parents else []
+        tail = ("\n\n[This skill also ships files; read one with skill(name=%r, file=<path>): %s]" % (a["name"], ", ".join(extra[:40]))) if extra else ""
+        return cap(path.read_text("utf-8", "replace") + tail)
+    target = (path.parent / rel).resolve()
+    if path.parent.resolve() not in target.parents or not target.is_file():
+        raise ToolError(f"no file {rel!r} in skill {a['name']!r}")
+    return cap(target.read_text("utf-8", "replace"))
 
 
 async def t_git_sync(ctx: Ctx, a: dict):
@@ -1429,14 +1452,14 @@ async def t_connector_add(ctx: Ctx, a: dict):
     return f"Connector {name!r} added ({status}); {n} tool(s). Use connector_search to find and switch on what you need."
 
 
-def skill_clean(name, desc, body) -> tuple[str, str, str]:
+def skill_clean(name, desc, body, max_body=20000) -> tuple[str, str, str]:
     name = re.sub(r"[^a-z0-9-]", "", str(name or "").lower().replace("_", "-").replace(" ", "-"))[:40].strip("-")
     desc = " ".join(str(desc or "").split())[:300]
     body = str(body or "").strip()
     if not name or not desc or len(body) < 20:
         raise ToolError("a skill needs a name, a one-line description and real instructions")
-    if len(body) > 20000:
-        raise ToolError("instructions are over 20,000 characters; split it into smaller skills")
+    if len(body) > max_body:
+        raise ToolError(f"instructions are over {max_body:,} characters; split it into smaller skills")
     if (BUILTIN_SKILLS / name / "SKILL.md").is_file():
         raise ToolError(f"{name!r} is a built-in skill and cannot be replaced; pick another name")
     if re.search(r"(?i)(api[_-]?key|secret|password|token)\s*[:=]\s*\S{8,}|sk-[a-z0-9]{20,}|ghp_[a-z0-9]{20,}|nvapi-\S{10,}", body):
