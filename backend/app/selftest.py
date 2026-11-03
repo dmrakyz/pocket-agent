@@ -139,6 +139,17 @@ def _toolchains():
     return ("fail" if miss else "ok"), detail
 
 
+async def _turso():
+    from . import db
+    if not db.enabled():
+        return "skip", "not set (TURSO_URL + TURSO_TOKEN): state lives in the GitHub state repo only and in-flight data is lost on redeploy"
+    try:
+        n = (await db.run([("SELECT COUNT(*) AS n FROM kv", [])]))[0][0]["n"]
+    except Exception as e:  # noqa: BLE001
+        return "fail", f"Turso is configured but not answering: {str(e)[:160]}"
+    return "ok", f"connected; {n} state documents stored"
+
+
 def _optional():
     out = []
     for name, on, hint in (("send_email", bool(config.RESEND_API_KEY), "RESEND_API_KEY"), ("Telegram", bool(config.TELEGRAM_BOT_TOKEN), "TELEGRAM_BOT_TOKEN"),
@@ -171,6 +182,7 @@ async def run(mcp_client) -> dict:
     await one("Push notifications", _push())
     await one("Browser", _browser())
     await one("Compilers & packs", _toolchains())
+    await one("Database (Turso)", _turso())
     for name, st, detail in _optional():
         results.append({"name": name, "status": st, "detail": detail, "ms": 0})
     count = {k: sum(1 for r in results if r["status"] == k) for k in ("ok", "warn", "fail", "skip")}

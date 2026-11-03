@@ -231,6 +231,13 @@ BASE_TOOLS = [
     _fn("serve_stop", "Stop this chat's dev server.", {}, []),
     _fn("publish_pages", "Publish a folder of static files (must contain index.html) to GitHub Pages on a repo the user owns (branch gh-pages). The user approves every time and it becomes PUBLIC on the internet. Returns the live URL.",
         {"folder": {"type": "string", "description": "workspace folder, default '.'"}, "repo": {"type": "string", "description": "owner/name; created (public) if missing. Default: the user's `pages-<chat title>` style repo you pick, ask via ask_user if unsure"}}, ["repo"]),
+    _fn("watch_create", "Keep watching something and tell the user ONLY when it matters (they get a push notification). kind='url': checks a public web page on a schedule with no model cost; "
+        "condition 'change' (any change), 'contains:<text>' (notify when the text appears) or 'absent:<text>' (when it disappears). kind='prompt': you run `prompt` on a schedule "
+        "(e.g. check a connected app, search for news) and answer exactly NOTHING when there is no news. The user approves every time.",
+        {"kind": {"type": "string", "enum": ["url", "prompt"]}, "name": S, "url": S, "condition": S, "prompt": S,
+         "every_minutes": {"type": "integer", "description": "5+ for url, 15+ for prompt; default 30"}}, ["kind", "name"]),
+    _fn("watch_list", "List the watchers (url and prompt) that are running, with their last status.", {}, []),
+    _fn("watch_remove", "Stop and delete a watcher by id (from watch_list).", {"id": S}, ["id"]),
     _fn("pack_list", "List the optional toolchain packs (Python science stack, C/C++ toolchain, Emscripten) and whether each is installed.", {}, []),
     _fn("pack_enable", "Install an optional toolchain pack so bash can use it from the next call: py-science (scipy, pandas, sympy, scikit-learn, networkx), "
         "cpp (cmake, ninja, clang), emscripten (emcc/em++, C/C++ to WebAssembly). Only when the task needs it. Big downloads: it may answer 'still installing', then call it again.",
@@ -271,7 +278,7 @@ BASE_TOOLS = [
     _fn("exit_plan_mode", "Plan mode only: present your finished plan to the user for approval.",
         {"plan": S}, ["plan"]),
 ]
-READONLY = {"capabilities", "repo_map", "find_symbol", "ask_user", "read", "glob", "grep", "web_fetch", "web_search", "image_search", "view_image", "models", "browser_read", "todo_write", "bash_output", "skill", "task", "share_file", "preview", "view_3d", "connector_search", "memory_save", "memory_list", "forge_list", "pack_list", "app_list", "app_read", "routine_list", "world_list", "world_read"}
+READONLY = {"watch_list", "capabilities", "repo_map", "find_symbol", "ask_user", "read", "glob", "grep", "web_fetch", "web_search", "image_search", "view_image", "models", "browser_read", "todo_write", "bash_output", "skill", "task", "share_file", "preview", "view_3d", "connector_search", "memory_save", "memory_list", "forge_list", "pack_list", "app_list", "app_read", "routine_list", "world_list", "world_read"}
 EDITS = {"write", "edit", "multiedit", "fetch_image", "annotate_image", "generate_image", "create_app", "world_say"}
 SUBAGENT_TOOLS = {"repo_map", "find_symbol", "read", "glob", "grep", "bash", "bash_output", "kill_bash", "web_fetch", "web_search"}
 SUBAGENT_EDIT_TOOLS = SUBAGENT_TOOLS | EDITS
@@ -1030,6 +1037,60 @@ async def t_publish_pages(ctx: Ctx, a: dict):
     return await pages.publish(folder, str(a.get("repo") or ""))
 
 
+async def t_watch_create(ctx: Ctx, a: dict):
+    from . import routines, watchers
+    kind = a.get("kind")
+    every = int(a.get("every_minutes") or 30)
+    if kind == "url":
+        ws = watchers.all_watchers()
+        if len([w for w in ws if w.get("kind") == "url"]) >= watchers.MAX:
+            raise ToolError(f"there are already {watchers.MAX} url watchers; remove one first")
+        try:
+            w = watchers.clean({"name": a.get("name"), "url": a.get("url"), "condition": a.get("condition"), "every_minutes": every})
+        except ValueError as e:
+            raise ToolError(str(e))
+        try:
+            _check_public(w["url"])
+        except ToolError as e:
+            raise ToolError(f"cannot watch that address: {e}")
+        ws.append(w)
+        await watchers.kv.put(watchers.KEY, ws)
+        return f"Watching {w['url']} every {w['every']} min (id {w['id']}, condition: {w['condition']}). The first check sets the baseline; the user is notified only on a match."
+    if kind == "prompt":
+        if not str(a.get("prompt") or "").strip():
+            raise ToolError("prompt is required for kind='prompt'")
+        rs = routines.all_routines()
+        if len(rs) >= 20:
+            raise ToolError("there are already 20 routines; the user must remove one first")
+        r = routines.clean({"name": str(a.get("name"))[:60], "prompt": a["prompt"], "schedule": {"kind": "every", "minutes": max(15, every)},
+                            "mode": "plan", "chat": "same", "quiet": True})
+        rs.append(r)
+        await routines.save(rs)
+        return f"Quiet watcher {r['name']!r} created as a routine (id {r['id']}, every {max(15, every)} min, read-only). You will say NOTHING when there is no news."
+    raise ToolError("kind must be 'url' or 'prompt'")
+
+
+async def t_watch_list(ctx: Ctx, a: dict):
+    from . import routines, watchers
+    rows = [f"- [url {w['id']}] {w['name']}: {w['url']} · {w['condition']} · every {w['every']} min · {w.get('last_status', 'not checked yet')} · {w.get('hits', 0)} alerts" for w in watchers.all_watchers()]
+    rows += [f"- [prompt {r['id']}] {r['name']} · every {(r.get('schedule') or {}).get('minutes', '?')} min · last: {r.get('last_status', 'never run')}" for r in routines.all_routines() if r.get("quiet")]
+    return "\n".join(rows) or "No watchers yet."
+
+
+async def t_watch_remove(ctx: Ctx, a: dict):
+    from . import routines, watchers
+    wid = str(a.get("id") or "")
+    ws = watchers.all_watchers()
+    if any(w["id"] == wid for w in ws):
+        await watchers.kv.put(watchers.KEY, [w for w in ws if w["id"] != wid])
+        return "watcher removed"
+    rs = routines.all_routines()
+    if any(r["id"] == wid and r.get("quiet") for r in rs):
+        await routines.save([r for r in rs if r["id"] != wid])
+        return "quiet watcher removed"
+    raise ToolError("no watcher with that id (use watch_list)")
+
+
 async def t_pack_list(ctx: Ctx, a: dict):
     from . import packs
     rows = packs.status()
@@ -1588,7 +1649,7 @@ HANDLERS: dict[str, Callable[[Ctx, dict], Awaitable[Any]]] = {
     "image_search": t_image_search, "fetch_image": t_fetch_image, "view_image": t_view_image,
     "annotate_image": t_annotate_image, "models": t_models, "connector_search": t_connector_search, "connector_add": t_connector_add, "skill_create": t_skill_create, "routine_list": t_routine_list, "routine_create": t_routine_create, "routine_update": t_routine_update,
     "world_list": t_world_list, "world_read": t_world_read, "world_create": t_world_create, "world_say": t_world_say,
-    "generate_image": t_generate_image, "send_email": t_send_email, "forge_tool": t_forge_tool, "forge_list": t_forge_list, "ask_user": t_ask_user, "repo_map": t_repo_map, "find_symbol": t_find_symbol, "pack_list": t_pack_list, "serve": t_serve, "serve_stop": t_serve_stop, "publish_pages": t_publish_pages, "capabilities": t_capabilities, "pack_enable": t_pack_enable, "create_app": t_create_app, "app_list": t_app_list, "app_read": t_app_read, "memory_save": t_memory_save, "memory_forget": t_memory_forget, "memory_list": t_memory_list,
+    "generate_image": t_generate_image, "send_email": t_send_email, "forge_tool": t_forge_tool, "forge_list": t_forge_list, "ask_user": t_ask_user, "repo_map": t_repo_map, "find_symbol": t_find_symbol, "pack_list": t_pack_list, "watch_create": t_watch_create, "watch_list": t_watch_list, "watch_remove": t_watch_remove, "serve": t_serve, "serve_stop": t_serve_stop, "publish_pages": t_publish_pages, "capabilities": t_capabilities, "pack_enable": t_pack_enable, "create_app": t_create_app, "app_list": t_app_list, "app_read": t_app_read, "memory_save": t_memory_save, "memory_forget": t_memory_forget, "memory_list": t_memory_list,
     "browser_read": t_browser_read, "browser_act": t_browser_act,
 }
 

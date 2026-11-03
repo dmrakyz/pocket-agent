@@ -41,6 +41,9 @@ SYN = {
     "create_pr": "pull request pr review merge",
     "share_file": "send file download give file deliver export",
     "models": "model switch compare llm",
+    "watch_create": "watch monitor track notify tell me when alert let me know keep an eye price stock restock available drops changes updates news deadline",
+    "watch_list": "watchers watching monitors what are you watching",
+    "watch_remove": "stop watching unwatch remove watcher",
 }
 _idf: dict = {}
 

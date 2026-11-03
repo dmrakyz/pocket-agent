@@ -24,7 +24,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from starlette.background import BackgroundTask
 
 from .browser import browser, BrowserError
-from . import agent, app_act, apps, backup, config, evals, forge, instagram, kv, llm, mcp_server, selftest, shortcut, mcp, memory, timectx, oauth, perms, push, routines, store, telegram, tools, usage, workspace, world
+from . import agent, app_act, apps, backup, config, db, evals, forge, instagram, kv, llm, mcp_server, selftest, shortcut, mcp, memory, timectx, oauth, perms, push, routines, store, telegram, tools, usage, watchers, workspace, world
 
 mcp_client = mcp.MCP()
 agent.MCP = mcp_client
@@ -37,6 +37,10 @@ async def lifespan(app: FastAPI):
     await kv.init()
     await push.init()
     routines.start_loop()
+    evals.resume()
+    watchers.start_loop()
+    if db.enabled():
+        asyncio.create_task(db.keepalive_loop())
     world.start_loop()
     asyncio.create_task(mcp_client.refresh())
     asyncio.create_task(telegram.init())

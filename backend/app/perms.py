@@ -27,7 +27,7 @@ NEVER_ALWAYS = {"rm", "sudo", "dd", "chmod", "chown", "bash", "sh", "eval", "cur
                 "kill", "pkill", "mv", "env", "xargs", "python", "python3", "node", "perl", "ruby", "git"}
 
 
-ALWAYS_ASK = {"publish_pages", "connector_add", "routine_create", "routine_update", "world_create", "send_email", "forge_tool", "skill_create"}
+ALWAYS_ASK = {"watch_create", "watch_remove", "publish_pages", "connector_add", "routine_create", "routine_update", "world_create", "send_email", "forge_tool", "skill_create"}
 
 
 def _segments(cmd: str) -> list[str] | None:
@@ -118,6 +118,10 @@ def decide(session: dict, tool: str, args: dict) -> tuple[str, str]:
         if mode == "plan":
             return "deny", "Plan mode is read-only. Describe it in your plan instead."
         return "ask", {"routine_create": "Schedule this routine?", "routine_update": "Change this routine?", "world_create": "Start this world?"}[tool]
+    if tool in ("watch_create", "watch_remove"):   # sets something running on its own: the user sees it first, every time
+        if mode == "plan":
+            return "deny", "Plan mode is read-only. Describe the watcher in your plan instead."
+        return "ask", "Start this watcher?" if tool == "watch_create" else "Remove this watcher?"
     if tool == "publish_pages":   # puts files on the public internet: the user sees repo + folder and decides every time, in any mode
         if mode == "plan":
             return "deny", "Plan mode is read-only. Describe what you would publish in your plan instead."

@@ -314,3 +314,9 @@ Telling a model "you have X" in a prompt is what weak models ignore. `backend/ap
 
 ### Browser for games
 `browser_act` has `hold{keys, ms}` (several keys at once), `mouse{kind: look|move|drag|down|up}` (relative look works under pointer lock) and the browser idles out after 20 minutes (`BROWSER_IDLE_SECONDS`). Each step is a model round trip, so slow games work and fast real-time ones don't. Test: `tests/browser_game_test.py`.
+
+### Turso (durable state) and watchers
+- `TURSO_URL` + `TURSO_TOKEN` (Render env) switch on a free Turso database (libSQL over HTTP, no extra dependency). Every small JSON document (routines, skills, connectors, eval history…) is written there first (no git commit per write) and mirrored to the GitHub state repo; at boot Turso wins, and a first run seeds it from the git copy. If Turso is down, writes still land locally and on GitHub. Platform check shows its status.
+- A tiny keepalive write goes to Turso once a day so the free database is never archived for inactivity.
+- A Capability check in progress is checkpointed after each task and **resumes after a redeploy** (max 3 resumes).
+- **Watchers**: `watch_create` (asks every time). `kind=url` fetches a public page on a schedule with no model cost and pushes on `change`, `contains:<text>` or `absent:<text>`; `kind=prompt` is a read-only *quiet routine* that answers `NOTHING` when there is no news (no notification). `watch_list`, `watch_remove`. Tests: `tests/turso_test.py`, `tests/watchers_test.py`.

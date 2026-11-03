@@ -160,6 +160,8 @@ async def run_eval(eval_id: str, model: str):
     for idx, t in enumerate(ev["_tasks"]):
         if ev.get("cancel"):
             break
+        if idx < len(ev["results"]):
+            continue                      # finished before a restart: resumed runs pick up where they stopped
         sid = "eval-" + uuid.uuid4().hex[:8]
         s = {"id": sid, "title": t["name"], "model": model, "mode": "yolo", "thinking": effort != "off", "effort": effort, "review": bool(ev.get("review")), "repo": None,
              "messages": [], "todos": [], "allow": [], "usage": {"in": 0, "out": 0}, "_ephemeral": True}
@@ -199,10 +201,42 @@ async def run_eval(eval_id: str, model: str):
         res["seconds"] = round(time.time() - started, 1)
         ev["results"].append(res)
         workspace.drop_workspace(sid)
+        await _checkpoint(ev)
     ev["live"] = None
     ev["_run"] = None
     ev["status"] = "stopped" if ev.get("cancel") else "done"
     await _remember(ev)
+    await _checkpoint(ev)
+
+
+ACTIVE_KEY = "eval_active"
+
+
+async def _checkpoint(ev: dict):
+    """Keep the running eval in the state store so a redeploy doesn't lose it; cleared when it finishes."""
+    from . import kv
+    try:
+        await kv.put(ACTIVE_KEY, {k: v for k, v in ev.items() if not k.startswith("_") and k != "live"} if ev["status"] == "running" else None)
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def resume():
+    """Called at boot: if a run was in progress when the server went down, carry on with the tasks that are left."""
+    from . import kv
+    a = kv.get(ACTIVE_KEY)
+    if not a or a.get("status") != "running" or a.get("id") in EVALS:
+        return None
+    if a.get("resumed", 0) >= 3:
+        return None                       # it keeps dying mid-run: don't loop forever
+    by_name = {t["name"]: t for t in tasks_for("all")}
+    tasks = [by_name[n] for n in a.get("tasks", []) if n in by_name]
+    if not tasks or len(a.get("results", [])) >= len(tasks):
+        return None
+    a.update(resumed=a.get("resumed", 0) + 1, live=None, _tasks=tasks)
+    EVALS[a["id"]] = a
+    asyncio.create_task(run_eval(a["id"], a["model"]))
+    return a["id"]
 
 
 HISTORY_KEY = "eval_history"
@@ -263,5 +297,6 @@ def start_eval(model: str, effort: str = "high", suite: str = "standard", review
     eid = uuid.uuid4().hex[:8]
     EVALS[eid] = {"id": eid, "model": model, "effort": effort, "suite": suite, "review": bool(review), "skipped": sorted(skip & {t["name"] for t in tasks_for(suite)}), "status": "running", "total": len(tasks), "results": [],
                   "tasks": [t["name"] for t in tasks], "_tasks": tasks, "started": time.time(), "live": None}
+    asyncio.create_task(_checkpoint(EVALS[eid]))
     asyncio.create_task(run_eval(eid, model))
     return eid
