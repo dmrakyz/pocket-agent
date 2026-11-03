@@ -1585,7 +1585,7 @@ async function openTelegram() {
     const kids = [h('div.dim', { style: 'font-size:14px', text: `Bot @${t.bot || '…'} · ${t.paired} paired chat${t.paired === 1 ? '' : 's'}${t.webhook ? ' · connected' : ' · not connected yet'}` })];
     if (t.error) kids.push(h('div.dim', { style: 'color:var(--bad);font-size:13px', text: t.error }));
     if (code) kids.push(h('div.paircode', { text: code }), h('div.dim', { style: 'font-size:14px', text: `Open the bot in Telegram${t.bot ? ' (t.me/' + t.bot + ')' : ''} and send:  /pair ${code}   The code works once, for 10 minutes.` }));
-    kids.push(h('button.primary', { text: code ? 'New code' : (t.paired ? 'Pair another account' : 'Connect and get a pairing code'), onclick: async (e) => { e.currentTarget.disabled = true; try { const r = await api('/api/telegram/connect', { body: { base: S.api } }); draw(r, r.code); } catch (er) { toast(er.message, true); e.currentTarget.disabled = false; } } }));
+    kids.push(h('button.primary', { text: code ? 'New code' : (t.paired ? 'Pair another account' : 'Connect and get a pairing code'), onclick: async (e) => { const b = e.currentTarget; b.disabled = true; try { const r = await api('/api/telegram/connect', { body: { base: S.api } }); draw(r, r.code); } catch (er) { toast(er.message, true); b.disabled = false; } } }));
     if (t.paired) kids.push(h('button.secondary', { text: 'Unpair everything', onclick: async () => { try { draw(await api('/api/telegram/paired', { method: 'DELETE' })); } catch (er) { toast(er.message, true); } } }));
     kids.push(h('div.dim', { style: 'font-size:12.5px', text: 'Only chats you pair can use the agent. In Telegram: /new, /stop, /mode ask|auto|yolo, /status, /unpair.' }));
     body.replaceChildren(...kids);
@@ -1604,7 +1604,7 @@ async function openInstagram() {
     if (t.error) kids.push(h('div.dim', { style: 'color:var(--bad);font-size:13px', text: t.error }));
     if (t.callback) kids.push(h('div.dim', { style: 'font-size:13px', text: 'Webhook callback URL (paste in the Meta dashboard):' }), copy(t.callback), h('div.dim', { style: 'font-size:13px', text: 'Verify token:' }), copy(t.verify_token));
     if (code) kids.push(h('div.paircode', { text: code }), h('div.dim', { style: 'font-size:14px', text: `From the account you want to control it with, DM your professional account:  pair ${code}   The code works once, for 10 minutes.` }));
-    kids.push(h('button.primary', { text: code ? 'New code' : 'Check connection and get a pairing code', onclick: async (e) => { e.currentTarget.disabled = true; try { const r = await api('/api/instagram/connect', { body: { base: S.api } }); draw(r, r.code); } catch (er) { toast(er.message, true); e.currentTarget.disabled = false; } } }));
+    kids.push(h('button.primary', { text: code ? 'New code' : 'Check connection and get a pairing code', onclick: async (e) => { const b = e.currentTarget; b.disabled = true; try { const r = await api('/api/instagram/connect', { body: { base: S.api } }); draw(r, r.code); } catch (er) { toast(er.message, true); b.disabled = false; } } }));
     if (t.paired) kids.push(h('button.secondary', { text: 'Unpair everything', onclick: async () => { try { draw(await api('/api/instagram/paired', { method: 'DELETE' })); } catch (er) { toast(er.message, true); } } }));
     kids.push(h('div.dim', { style: 'font-size:12.5px', text: 'In the DM: /new, /stop, /mode ask|auto|yolo, /status, /unpair. Approvals: reply YES or NO. Only paired accounts can use the agent.' }));
     body.replaceChildren(...kids);
@@ -1712,7 +1712,7 @@ async function openShortcut() {
     if (token) kids.push(h('div.dim', { style: 'font-size:13px;color:var(--warn,#e8b04a)', text: 'Your token (shown once, copy it now):' }), copy(token));
     else if (st.enabled) kids.push(h('div.dim', { style: 'font-size:13px', text: `Token ${st.hint} · used ${st.uses} time${st.uses === 1 ? '' : 's'}` }));
     kids.push(h('div.dim', { style: 'font-size:13px', text: 'Address to POST to:' }), copy(S.api + '/api/shortcut'));
-    kids.push(h('button.primary', { text: st.enabled ? 'Make a new token (old one stops working)' : 'Make a token', onclick: async (e) => { e.currentTarget.disabled = true; try { const r = await api('/api/shortcut/token', { body: {} }); draw({ enabled: true, hint: '', uses: 0 }, r.token); } catch (er) { toast(er.message, true); e.currentTarget.disabled = false; } } }));
+    kids.push(h('button.primary', { text: st.enabled ? 'Make a new token (old one stops working)' : 'Make a token', onclick: async (e) => { const b = e.currentTarget; b.disabled = true; try { const r = await api('/api/shortcut/token', { body: {} }); draw({ enabled: true, hint: '', uses: 0 }, r.token); } catch (er) { toast(er.message, true); b.disabled = false; } } }));
     if (st.enabled) kids.push(h('button.secondary', { text: 'Revoke', onclick: async () => { try { await api('/api/shortcut', { method: 'DELETE' }); draw({ enabled: false }); } catch (er) { toast(er.message, true); } } }));
     kids.push(h('div.dim', { style: 'font-size:13px;font-weight:600;margin-top:6px', text: 'Set up the Shortcut' }));
     kids.push(h('ol.dim', { style: 'padding-left:20px;font-size:13.5px;line-height:1.6' },
@@ -1737,7 +1737,7 @@ async function openMcpServer() {
     const kids = [h('div.dim', { style: 'font-size:14px', text: 'Lets other apps (Claude Desktop, Cursor, another agent) use this agent as a tool. They get ask_agent, list_chats and read_chat. Each call opens a chat called "MCP" you can read later.' })];
     if (token) kids.push(h('div.dim', { style: 'font-size:13px;color:var(--warn,#e8b04a)', text: 'Your server address contains the token. It is shown once, copy it now:' }), copy(url));
     else if (st.enabled) kids.push(h('div.dim', { style: 'font-size:13px', text: `Token ${st.hint} · used ${st.uses} time${st.uses === 1 ? '' : 's'}. The address is ${S.api}/mcp/YOUR_TOKEN` }));
-    kids.push(h('button.primary', { text: st.enabled ? 'Make a new token (old one stops working)' : 'Make a token', onclick: async (e) => { e.currentTarget.disabled = true; try { const r = await api('/api/mcp-server/token', { body: {} }); draw({ enabled: true, hint: '', uses: 0 }, r.token); } catch (er) { toast(er.message, true); e.currentTarget.disabled = false; } } }));
+    kids.push(h('button.primary', { text: st.enabled ? 'Make a new token (old one stops working)' : 'Make a token', onclick: async (e) => { const b = e.currentTarget; b.disabled = true; try { const r = await api('/api/mcp-server/token', { body: {} }); draw({ enabled: true, hint: '', uses: 0 }, r.token); } catch (er) { toast(er.message, true); b.disabled = false; } } }));
     if (st.enabled) kids.push(h('button.secondary', { text: 'Revoke', onclick: async () => { try { await api('/api/mcp-server', { method: 'DELETE' }); draw({ enabled: false }); } catch (er) { toast(er.message, true); } } }));
     kids.push(h('div.dim', { style: 'font-size:13px;font-weight:600;margin-top:6px', text: 'Add it to a client' }));
     kids.push(h('ol.dim', { style: 'padding-left:20px;font-size:13.5px;line-height:1.6' },
@@ -1838,12 +1838,12 @@ function worldForm(w, done) {
     h('label', { style: 'display:flex;align-items:center;gap:8px;margin:6px 0;font-size:14px' }, ntf, h('span', { text: 'Notify me when something happens' })),
     h('div.dim', { style: 'font-size:12.5px', text: w ? 'Editing the cast keeps the memories of anyone who stays.' : 'The current default model gets pinned to this world. If it fails, the world pauses instead of quietly switching to another model.' }),
     h('button.primary', { text: w ? 'Save' : 'Create', onclick: async (e) => {
-      e.currentTarget.disabled = true;
+      const btn = e.currentTarget; btn.disabled = true;
       try {
         const b = { name: name.value, premise: prem.value, cast: cast.value, minutes: Number(mins.value) || 60, notify: ntf.checked };
         if (w) await api('/api/worlds/' + w.id, { method: 'PATCH', body: b }); else await api('/api/worlds', { body: b });
         closeSheet(); done();
-      } catch (er) { toast(er.message, true); e.currentTarget.disabled = false; }
+      } catch (er) { toast(er.message, true); btn.disabled = false; }
     } }));
   sheet(w ? 'Edit world' : 'New world', form);
 }
@@ -1866,6 +1866,62 @@ async function openSelftest() {
     body.replaceChildren(...kids);
   };
   async function run() { draw(null, true); try { draw(await api('/api/selftest', { body: {} })); } catch (e) { draw(null); toast(e.message, true); } }
+  draw(null);
+}
+
+/* ============================================================ backup & restore */
+async function rawPost(path, buf) {
+  let r;
+  try { r = await fetch(S.api + path, { method: 'POST', headers: { Authorization: 'Bearer ' + S.token, 'Content-Type': 'application/zip' }, body: buf }); } catch { throw new Error('Cannot reach the server.'); }
+  let d = null; try { d = await r.json(); } catch { /* empty */ }
+  if (!r.ok) throw new Error((d && d.detail) || 'HTTP ' + r.status);
+  return d;
+}
+function openBackup() {
+  const body = h('div', {});
+  sheet('Backup & restore', body);
+  const when = (t) => t ? new Date(t * 1000).toLocaleString() : '?';
+  const draw = (state) => {
+    const kids = [h('div.dim', { style: 'font-size:14px', text: 'One zip with your chats, apps and their data, routines, worlds, forged tools, memory and the connector list. No passwords, tokens, sign-ins or connector keys go in, so the file is safe to keep around (still, it contains your chats).' }),
+      h('button.primary', { text: 'Download backup', onclick: async (e) => {
+        const btn = e.currentTarget; btn.disabled = true; btn.textContent = 'Packing…';
+        try {
+          const r = await fetch(S.api + '/api/backup', { headers: { Authorization: 'Bearer ' + S.token } });
+          if (!r.ok) throw new Error('HTTP ' + r.status);
+          const blob = await r.blob();
+          const a = h('a', { href: URL.createObjectURL(blob), download: `pocket-agent-backup-${new Date().toISOString().slice(0, 10)}.zip` });
+          document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 15000);
+          toast('Backup downloaded');
+        } catch (er) { toast(er.message, true); }
+        btn.disabled = false; btn.textContent = 'Download backup';
+      } }),
+      h('div.dim', { style: 'font-size:13px;font-weight:600;margin-top:10px', text: 'Restore' })];
+    const file = h('input', { type: 'file', accept: '.zip,application/zip', style: 'width:100%' });
+    file.onchange = async () => {
+      const f = file.files[0]; if (!f) return;
+      try { const buf = await f.arrayBuffer(); const info = await rawPost('/api/backup/inspect', buf); draw({ buf, info, name: f.name }); } catch (er) { toast(er.message, true); }
+    };
+    if (!state || (!state.info && !state.done)) kids.push(file);
+    if (state && state.info) {
+      const c = state.info.counts || {};
+      kids.push(h('div', { style: 'font-weight:600', text: state.name }), h('div.dim', { style: 'font-size:13px', text: `Made ${when(state.info.created)}: ` + Object.entries(c).map(([k, v]) => `${v} ${k}`).join(', ') + `.\n${state.info.chats_already_here} chat(s) and ${state.info.apps_already_here} app(s) in it already exist here.` }));
+      const ow = h('input', { type: 'checkbox', style: 'width:auto' });
+      kids.push(h('label', { style: 'display:flex;align-items:center;gap:8px;margin:6px 0;font-size:14px' }, ow, h('span', { text: 'Replace items that already exist (otherwise they are kept as they are)' })),
+        h('div.dim', { style: 'font-size:12.5px', text: 'Restored routines and worlds come back paused, forged tools come back switched off (after being re-tested), chats come back in Ask mode, and saved "always allow" rules do not travel. Turn things back on yourself.' }),
+        h('button.primary', { text: 'Restore now', onclick: async (e) => {
+          const btn = e.currentTarget; btn.disabled = true; btn.textContent = 'Restoring…';
+          try { const r = await rawPost('/api/backup/restore?overwrite=' + (ow.checked ? 1 : 0), state.buf); draw({ done: r }); loadSessions().catch(() => {}); } catch (er) { toast(er.message, true); draw(state); }
+        } }),
+        h('button.secondary', { text: 'Cancel', onclick: () => draw(null) }));
+    }
+    if (state && state.done) {
+      const r = state.done;
+      kids.push(h('div', { style: 'font-weight:600;margin-top:8px', text: 'Restored: ' + (Object.entries(r.restored).filter(([, v]) => v).map(([k, v]) => `${v} ${k}`).join(', ') || 'nothing new (it was all here already)') }));
+      if (r.skipped.length) kids.push(h('div.dim', { style: 'font-size:13px;white-space:pre-wrap', text: 'Skipped:\n' + r.skipped.join('\n') }));
+      kids.push(h('button.secondary', { text: 'Done', onclick: closeSheet }));
+    }
+    body.replaceChildren(...kids);
+  };
   draw(null);
 }
 
@@ -1979,6 +2035,7 @@ function drawSettings() {
       row('▤', 'Usage', openUsage),
       row('✓', 'Capability check', openEval),
       row('🩺', 'Platform check', openSelftest),
+      row('💾', 'Backup & restore', openBackup),
       row('🔔', 'Push notifications', async () => { if (PUSH.state === 'on') await pushDisable(); else await pushEnable(); drawSettings(); },
         { on: 'On', off: 'Off', blocked: 'Blocked', unsupported: 'Not supported', 'server-off': 'Server off', unknown: '…' }[PUSH.state] || ''),
       PUSH.state === 'on' ? row('✉', 'Send a test notification', pushTest, `${PUSH.devices} device${PUSH.devices === 1 ? '' : 's'}`) : null,

@@ -70,7 +70,7 @@ def with_sdk(html: str, app_id: str = "") -> str:
     return (html[:m.end()] + sdk + html[m.end():]) if m else (sdk + html)
 
 
-async def save(spec: dict) -> dict:
+async def save(spec: dict, restore: bool = False) -> dict:
     name = str(spec.get("name") or "").strip()[:40]
     html = str(spec.get("html") or "")
     if not name:
@@ -81,14 +81,15 @@ async def save(spec: dict) -> dict:
         raise AppError(f"html is over {MAX_HTML // 1000} KB; make it smaller")
     d = index()
     app_id = str(spec.get("id") or "").strip()
-    if app_id and app_id not in d:
+    if app_id and app_id not in d and not (restore and re.fullmatch(r"[a-z0-9-]{1,40}", app_id)):
         raise AppError(f"no app with id {app_id!r}; omit id to create a new one")
-    if not app_id:
+    if not app_id or app_id not in d:
         if len(d) >= MAX_APPS:
             raise AppError(f"you already have {MAX_APPS} apps; delete one first")
-        app_id = slug(name)
-        while app_id in d:
-            app_id = slug(name) + "-" + secrets.token_hex(2)
+        if not app_id:
+            app_id = slug(name)
+            while app_id in d:
+                app_id = slug(name) + "-" + secrets.token_hex(2)
     old = d.get(app_id) or {}
     same = bool(old) and (kv.get("app_" + app_id, {}) or {}).get("html") == html
     d[app_id] = {"id": app_id, "name": name, "icon": (str(spec.get("icon") or old.get("icon") or "▦").strip() or "▦")[:4],

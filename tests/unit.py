@@ -831,3 +831,86 @@ async def self_manage_test():
     await kv.put("routines", []); await kv.put("worlds", [])
     print("PASS self-management: routines and worlds from chat; creation asks, nothing more permissive than Ask, update cannot rewrite the prompt")
 asyncio.run(self_manage_test())
+
+
+async def backup_test():
+    import io, json, zipfile
+    from app import backup, store, apps, kv, routines, world, forge, memory, tools as T
+    real = T._check_public; T._check_public = lambda u: None
+    try:
+        # ---- arrange
+        s = store.new_session("Chat A", None, "mock:x", "yolo"); s["messages"].append({"role": "user", "content": "hello backup"}); s["allow"] = ["tool:bash"]; s["_running"] = False
+        sid = s["id"]
+        a = await apps.save({"name": "Tally", "icon": "🔢", "description": "counts", "html": "<!doctype html><html><head><title>t</title></head><body><script>agent.act('x')</script></body></html>"})
+        await apps.data_set(a["id"], "n", 7); await apps.grant(a["id"], True)
+        await kv.put("routines", [{"id": "r1", "name": "Digest", "prompt": "do the thing", "enabled": True, "mode": "yolo", "hook": "SECRETHOOK", "schedule": {"kind": "daily", "time": "08:00", "days": []}, "tz": "Europe/Istanbul", "created": 1}])
+        async def dm(): return "mock:x"
+        old_dm = world.llm.default_model; world.llm.default_model = dm
+        w = await world.create({"name": "Harbor", "premise": "fog", "cast": "Mara: captain | route\nOtto: clerk | leave", "model": "mock:x"}); world.llm.default_model = old_dm
+        ws = world.all_worlds(); ws[0]["cast"][0]["memory"] = ["remembers the fog"]; await world.save(ws)
+        await forge.add({"name": "doubler", "description": "Doubles a number you give it", "code": "def run(a):\n    return a['x'] * 2", "parameters": {"x": {"type": "number", "description": "n"}}, "required": ["x"], "tests": [{"args": {"x": 4}, "expect": "8"}]})
+        await memory.save(["prefers short answers"])
+        await kv.put("connectors", [{"name": "linear", "url": "https://mcp.linear.example/mcp", "headers": {"Authorization": "Bearer SUPERSECRET"}, "oauth": True}])
+        await kv.put("oauth", {"linear": {"access_token": "OAUTHSECRET"}}); await kv.put("push_subs", {"e": {"sub": "PUSHSECRET"}}); await kv.put("shortcut", {"hash": "SHORTCUTHASH"})
+        # ---- export
+        raw, counts = backup.export_zip()
+        z = zipfile.ZipFile(io.BytesIO(raw)); blob = b"".join(z.read(n) for n in z.namelist())
+        for secret in (b"SUPERSECRET", b"OAUTHSECRET", b"PUSHSECRET", b"SHORTCUTHASH", b"SECRETHOOK"):
+            assert secret not in blob, f"{secret!r} leaked into the backup"
+        assert not any(("oauth" in n or "push" in n or "vapid" in n or "shortcut" in n or "telegram" in n or "instagram" in n or "mcp_server" in n) for n in z.namelist()), z.namelist()
+        assert counts["chats"] >= 1 and counts["apps"] == 1 and counts["routines"] == 1 and counts["worlds"] == 1 and counts["forged tools"] == 1 and counts["memory notes"] == 1 and counts["connectors"] == 1, counts
+        info = backup.inspect(raw); assert info["chats_already_here"] >= 1 and info["apps_already_here"] == 1, info
+        # ---- wipe, restore
+        store.sessions.pop(sid); await apps.delete(a["id"]); await kv.put("routines", []); await kv.put("worlds", []); await kv.put("forged_tools", {}); await kv.put("memory", []); await kv.put("connectors", [])
+        r = await backup.restore(raw)
+        assert r["restored"]["chats"] >= 1 and r["restored"]["apps"] == 1 and r["restored"]["routines"] == 1 and r["restored"]["worlds"] == 1 and r["restored"]["forged tools"] == 1 and r["restored"]["memory notes"] == 1 and r["restored"]["connectors"] == 1, r
+        rs = store.sessions[sid]; assert rs["messages"][0]["content"] == "hello backup" and rs["mode"] == "ask" and rs["allow"] == [], "chats come back in Ask mode with no saved always-allow rules"
+        ra = apps.get(a["id"]); assert ra and ra["name"] == "Tally" and "agent.act" in apps.html_of(a["id"]) and apps.data(a["id"]) == {"n": 7} and ra["granted"] is False, ra
+        rr = routines.all_routines()[0]; assert rr["enabled"] is False and rr["mode"] == "ask" and rr["hook"] != "SECRETHOOK" and rr["tz"] == "Europe/Istanbul", "routines return paused, never YOLO, with a fresh webhook key"
+        rw = world.all_worlds()[0]; assert rw["enabled"] is False and rw["cast"][0]["memory"] == ["remembers the fog"] and len(rw["log"]) >= 1, "worlds return paused with their story and memories"
+        rf = forge.get("doubler"); assert rf and rf["enabled"] is False, "forged tools return re-tested but switched OFF"
+        assert [n["text"] for n in memory.notes()] == ["prefers short answers"]
+        assert kv.get("connectors") == [{"name": "linear", "url": "https://mcp.linear.example/mcp", "oauth": True}], kv.get("connectors")
+        # ---- idempotent
+        r2 = await backup.restore(raw)
+        assert r2["restored"] == {"chats": 0, "apps": 0, "routines": 0, "worlds": 0, "forged tools": 0, "memory notes": 0, "connectors": 0}, r2
+        # ---- hostile zips
+        def mk(files, manifest=True):
+            b = io.BytesIO()
+            with zipfile.ZipFile(b, "w") as zz:
+                if manifest: zz.writestr("manifest.json", json.dumps({"app": "pocket-agent", "version": 1}))
+                for n, c in files.items(): zz.writestr(n, c if isinstance(c, str) else json.dumps(c))
+            return b.getvalue()
+        before = (kv.get("oauth"), kv.get("vapid"), kv.get("push_subs"))
+        await backup.restore(mk({"kv/oauth.json": {"x": 1}, "kv/vapid.json": {"pem": "evil"}, "kv/push_subs.json": {"evil": 1}, "../../etc/cron.d/x": "x", "kv/../../x.json": "{}", "sessions/../../evil.json": "{}", "kv/shortcut.json": {"hash": "evil"}}))
+        assert (kv.get("oauth"), kv.get("vapid"), kv.get("push_subs")) == before and (kv.get("shortcut") or {}).get("hash") != "evil", "unknown/secret files in a zip must be ignored"
+        for bad, why in ((b"not a zip", "not a zip"), (mk({}, manifest=False), "not a Pocket Agent backup"), (mk({"kv/apps.json": "{nope"}), "damaged")):
+            try:
+                await backup.restore(bad); assert False, why
+            except backup.BackupError as e:
+                assert why in str(e), (why, str(e))
+        sid2 = "a" * 16
+        r3 = await backup.restore(mk({f"sessions/{sid2}.json": {"id": sid2, "title": "evil", "mode": "yolo", "allow": ["tool:bash"], "_running": True, "messages": [{"role": "user", "content": "x"}]},
+                                       "sessions/" + "b" * 16 + ".json": {"id": "c" * 16, "messages": []},
+                                       "kv/memory.json": [{"text": "my api key is sk-abcdefghijklmnopqrstuvwxyz123456"}, {"text": "likes tea"}],
+                                       "kv/connectors.json": [{"name": "bad", "url": "http://insecure.example/mcp"}]}))
+        assert store.sessions[sid2]["mode"] == "ask" and store.sessions[sid2]["allow"] == [] and "_running" not in store.sessions[sid2], "yolo and always-allow do not survive a restore"
+        assert ("b" * 16) not in store.sessions and ("c" * 16) not in store.sessions, "a chat whose id does not match its file is refused"
+        assert "likes tea" in [n["text"] for n in memory.notes()] and not any("sk-abc" in n["text"] for n in memory.notes()), "secrets are filtered out of restored memory"
+        assert not any(c["name"] == "bad" for c in kv.get("connectors")), "insecure connector refused"
+        big = io.BytesIO()
+        with zipfile.ZipFile(big, "w", zipfile.ZIP_DEFLATED) as zz:
+            zz.writestr("manifest.json", json.dumps({"app": "pocket-agent", "version": 1})); zz.writestr("kv/memory.json", "[" + "0," * 12_000_000 + "0]")
+        try:
+            await backup.restore(big.getvalue()); assert False, "zip bomb"
+        except backup.BackupError as e:
+            assert "too large" in str(e), str(e)
+    finally:
+        T._check_public = real
+        for n in ("oauth", "push_subs", "shortcut"): await kv.put(n, {})
+        for fn in forge.all_tools(): await forge.remove(fn)
+        await kv.put("routines", []); await kv.put("worlds", []); await kv.put("memory", []); await kv.put("connectors", [])
+        for ap in list(apps.index()): await apps.delete(ap)
+        for k in list(store.sessions): store.sessions.pop(k)
+    print("PASS backup: secrets never exported, full round trip, restores come back safe (Ask mode, paused, re-tested), idempotent, hostile zips ignored or refused")
+asyncio.run(backup_test())

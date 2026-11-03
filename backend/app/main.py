@@ -22,7 +22,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from starlette.background import BackgroundTask
 
 from .browser import browser, BrowserError
-from . import agent, app_act, apps, config, evals, forge, instagram, kv, llm, mcp_server, selftest, shortcut, mcp, memory, oauth, perms, push, routines, store, telegram, tools, usage, workspace, world
+from . import agent, app_act, apps, backup, config, evals, forge, instagram, kv, llm, mcp_server, selftest, shortcut, mcp, memory, oauth, perms, push, routines, store, telegram, tools, usage, workspace, world
 
 mcp_client = mcp.MCP()
 agent.MCP = mcp_client
@@ -1111,6 +1111,30 @@ async def shortcut_token():
 async def shortcut_revoke():
     await shortcut.revoke()
     return {"enabled": False}
+
+
+# ------------------------------------------------------------------ backup / restore
+@app.get("/api/backup", dependencies=[Depends(auth)])
+async def backup_download():
+    data, counts = await asyncio.to_thread(backup.export_zip)
+    return Response(data, media_type="application/zip", headers={
+        "Content-Disposition": f'attachment; filename="pocket-agent-backup-{time.strftime("%Y-%m-%d")}.zip"', "X-Backup-Counts": json.dumps(counts), "Cache-Control": "no-store"})
+
+
+@app.post("/api/backup/inspect", dependencies=[Depends(auth)])
+async def backup_inspect(request: Request):
+    try:
+        return await asyncio.to_thread(backup.inspect, await request.body())
+    except backup.BackupError as e:
+        raise HTTPException(400, str(e))
+
+
+@app.post("/api/backup/restore", dependencies=[Depends(auth)])
+async def backup_restore(request: Request, overwrite: int = 0):
+    try:
+        return await backup.restore(await request.body(), bool(overwrite))
+    except backup.BackupError as e:
+        raise HTTPException(400, str(e))
 
 
 # ------------------------------------------------------------------ platform check

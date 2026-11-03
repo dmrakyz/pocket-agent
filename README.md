@@ -252,3 +252,7 @@ The agent has `routine_list / routine_create / routine_update` and `world_list /
 
 - **Settings → Platform check** tests the server itself in a few seconds, with no model tasks: saving to the state repo, the default model, memory use, app drawer, tool forging, MCP server, worlds, routines, connectors, push, browser, and which optional features are set up. Each row is ✓ ok, ! look at, ✕ broken or – not set up. It leaves nothing behind. Run it after every update.
 - **Capability check** (drawer) is the model exam: five real tasks checked by code, now including building an app.
+
+## Backup & restore
+
+Settings → **Backup & restore** downloads one zip: chats, apps and their data, routines, worlds, forged tools, memory and the connector list. It never contains passwords, tokens, OAuth sign-ins, push subscriptions, Telegram/Instagram pairings, Shortcut/MCP tokens or connector keys, so it is safe to store. Restore shows what is in a file first, keeps what already exists (unless you tick replace), and brings things back **safe**: chats in Ask mode with no saved "always allow", routines and worlds paused, forged tools re-tested then switched off, connectors without keys (OAuth ones need signing in again), memory through the normal secret filter. Zips are validated strictly: unknown file names are ignored and oversized ones refused.
