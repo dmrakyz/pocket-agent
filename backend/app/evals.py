@@ -247,12 +247,19 @@ def stop_eval(eid: str):
         run.task.cancel()
 
 
-def start_eval(model: str, effort: str = "high", suite: str = "standard", review: bool = False) -> str:
+def catalog() -> dict:
+    return {s: [t["name"] for t in tasks_for(s) if s != "all"] for s in ("standard", "hard")}
+
+
+def start_eval(model: str, effort: str = "high", suite: str = "standard", review: bool = False, skip: list | None = None) -> str:
     effort = effort if effort in EFFORTS else "high"
     suite = suite if suite in SUITES else "standard"
-    tasks = tasks_for(suite)
+    skip = {str(x) for x in (skip or [])}
+    tasks = [t for t in tasks_for(suite) if t["name"] not in skip]
+    if not tasks:
+        raise ValueError("every task is excluded; tick at least one")
     eid = uuid.uuid4().hex[:8]
-    EVALS[eid] = {"id": eid, "model": model, "effort": effort, "suite": suite, "review": bool(review), "status": "running", "total": len(tasks), "results": [],
+    EVALS[eid] = {"id": eid, "model": model, "effort": effort, "suite": suite, "review": bool(review), "skipped": sorted(skip & {t["name"] for t in tasks_for(suite)}), "status": "running", "total": len(tasks), "results": [],
                   "tasks": [t["name"] for t in tasks], "_tasks": tasks, "started": time.time(), "live": None}
     asyncio.create_task(run_eval(eid, model))
     return eid

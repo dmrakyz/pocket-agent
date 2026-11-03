@@ -466,6 +466,16 @@ try:
     check("the hard suite runs all 12 tasks through the same pipeline (the scripted mock can't solve them)", evh["status"] == "done" and len(evh["results"]) == 12 and evh["suite"] == "hard" and evh["effort"] == "off" and not any(r["passed"] for r in evh["results"]), str(evh)[:300])
     check("every hard result says why it failed", all(r["note"] for r in evh["results"]), str([r["note"] for r in evh["results"]])[:200])
     check("history keeps both suites", {h["suite"] for h in c2.get("/api/eval-history").json()["history"]} >= {"standard", "hard"})
+    cat = c2.get("/api/eval-tasks").json()["suites"]
+    check("task catalog lists both suites", len(cat["standard"]) == 7 and len(cat["hard"]) == 12 and "Knows its own tools" in cat["standard"], str(cat)[:200])
+    es = c2.post("/api/eval", json={"model": "mock:mock/ultra-550b", "effort": "off", "skip": ["Compile C++", "Build an app", "Explore codebase", "nonsense"]}).json()["id"]
+    for _ in range(120):
+        evs = c2.get(f"/api/eval/{es}").json()
+        if evs["status"] != "running":
+            break
+        time.sleep(0.5)
+    check("excluded tasks are not run", evs["status"] == "done" and evs["total"] == 4 and len(evs["results"]) == 4 and "Compile C++" not in evs["tasks"] and sorted(evs["skipped"]) == ["Build an app", "Compile C++", "Explore codebase"], str(evs)[:300])
+    check("an eval with every task excluded is refused", c2.post("/api/eval", json={"model": "mock:mock/ultra-550b", "skip": cat["standard"]}).status_code == 400)
     eid2 = c2.post("/api/eval", json={"model": "mock:mock/ultra-550b", "effort": "turbo"}).json()["id"]
     check("eval stop accepted", c2.post(f"/api/eval/{eid2}/stop").status_code == 200)
     for _ in range(40):

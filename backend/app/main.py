@@ -145,7 +145,16 @@ async def test_model(body: dict):
 
 @app.post("/api/eval", dependencies=[Depends(auth)])
 async def eval_start(body: dict):
-    return {"id": evals.start_eval(body.get("model") or await llm.default_model(), str(body.get("effort") or "high"), str(body.get("suite") or "standard"), bool(body.get("review")))}
+    skip = body.get("skip") if isinstance(body.get("skip"), list) else []
+    try:
+        return {"id": evals.start_eval(body.get("model") or await llm.default_model(), str(body.get("effort") or "high"), str(body.get("suite") or "standard"), bool(body.get("review")), skip)}
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+@app.get("/api/eval-tasks", dependencies=[Depends(auth)])
+async def eval_tasks():
+    return {"suites": evals.catalog()}
 
 
 @app.get("/api/eval-history", dependencies=[Depends(auth)])

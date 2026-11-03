@@ -304,3 +304,4 @@ If the model says "I can't / I don't have a way to…" and a tool in the live re
 - `serve` starts a dev server (Flask, Express, `http.server`…) on a free port (`$PORT`, 127.0.0.1 only) and the app opens it live through a token-guarded reverse proxy (`/live/…`, sandboxed like static previews). Pages must use relative URLs. One server per chat, killed with `serve_stop`.
 - `publish_pages` pushes a static folder (needs `index.html`) to the `gh-pages` branch of a public repo you own (created if missing), turns Pages on and returns the URL. It asks every time, in every mode.
 - Tests: `tests/serve_pages_test.py`.
+- The Capability check lists every task with a checkbox (All / None); unticked tasks are skipped and the run says how many were excluded. API: `skip` list on `POST /api/eval`, catalog at `GET /api/eval-tasks`.

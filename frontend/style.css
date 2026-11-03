@@ -475,3 +475,10 @@ label.memrow { flex-direction: row; gap: 12px; align-items: flex-start; }
 .unverified { margin: 6px 0 2px; font-size: 12.5px; color: var(--warn, #e8b04a); }
 .rvrow { display: flex; gap: 12px; align-items: flex-start; margin: 10px 0 4px; font-size: 15px; }
 .rvrow input { width: 22px; height: 22px; margin-top: 2px; flex: none; accent-color: var(--accent); }
+
+.evsel { margin: 8px 0 4px; padding: 6px 12px 8px; border: 1px solid var(--line, #2a2a33); border-radius: 12px; }
+.evselhead { display: flex; align-items: center; gap: 4px; }
+.evselhead .sec { margin: 6px 0; }
+.evsel1 { margin: 6px 0 !important; font-size: 14.5px; align-items: center; }
+.evsel1 input { width: 20px; height: 20px; margin-top: 0; }
+.linkbtn { background: none; border: 0; color: var(--accent); font-size: 14px; padding: 6px 8px; }
