@@ -189,6 +189,11 @@ def build_system(s: dict, root: Path, sub: bool = False, can_edit: bool = False)
     if sk and not sub:
         parts.append("\nSkills available (load with the `skill` tool when relevant):\n" + "\n".join(
             f"- {n}: {tools.skill_description(p)}" for n, p in sk.items()))
+    if not sub:
+        from . import kv as _kv
+        ags = _kv.get("agents", {}) or {}
+        if ags:
+            parts.append("\nNamed agents (delegate with `task` and agent=<name>):\n" + "\n".join(f"- {n}: {v.get('description', '')[:200]}" for n, v in ags.items()))
     if s.get("todos") and not sub:
         parts.append("\nCurrent todo list:\n" + "\n".join(f"- [{t['status']}] {t['content']}" for t in s["todos"]))
     return "\n".join(parts)
@@ -201,6 +206,9 @@ def list_commands(root: Path) -> dict[str, Path]:
         if base.is_dir():
             for f in sorted(base.glob("*.md")):
                 out.setdefault(f.stem, f)
+    tools._materialize_user_commands()                 # commands installed from plugins / GitHub; a project command of the same name wins
+    for f in sorted(tools.USER_COMMANDS.glob("*.md")):
+        out.setdefault(f.stem, f)
     return out
 
 
@@ -212,8 +220,16 @@ def expand_command(root: Path, text: str) -> str:
     if m.group(1) not in cmds:
         return text
     body = cmds[m.group(1)].read_text("utf-8", "replace")
-    body = re.sub(r"^---.*?---\s*", "", body, flags=re.S)
-    return body.replace("$ARGUMENTS", m.group(2)) if "$ARGUMENTS" in body else f"{body}\n\n{m.group(2)}".strip()
+    body = re.sub(r"^---.*?---\s*", "", body, flags=re.S).strip()
+    argtxt = m.group(2)
+    words = argtxt.split()
+    positional = bool(re.search(r"\$[1-9]", body))
+    body = re.sub(r"\$([1-9])", lambda x: words[int(x.group(1)) - 1] if int(x.group(1)) <= len(words) else "", body)
+    if "$ARGUMENTS" in body:
+        return body.replace("$ARGUMENTS", argtxt)
+    if positional:
+        return body
+    return f"{body}\n\n{argtxt}".strip()
 
 
 # ------------------------------------------------------------------ history hygiene
@@ -290,6 +306,33 @@ async def compact(s: dict, run: Run, force: bool = False) -> bool:
 
 # ------------------------------------------------------------------ hooks
 async def run_hooks(root: Path, event: str, name: str, args: dict, extra_env: Optional[dict] = None):
+    r = await _run_ws_hooks(root, event, name, args, extra_env)
+    if r:
+        return r
+    return await _run_plugin_hooks(root, event, name, args, extra_env)
+
+
+async def _run_plugin_hooks(root: Path, event: str, name: str, args: dict, extra_env: Optional[dict] = None):
+    """Hooks installed from a plugin and switched on by the user. Claude Code conventions: JSON on stdin, exit code 2 blocks."""
+    from . import kv, plugin_extras as px
+    for h in kv.get("hooks", []) or []:
+        if not h.get("enabled") or h.get("event") != event or not h.get("regex") or not re.fullmatch(h["regex"], name):
+            continue
+        payload = json.dumps({"hook_event_name": event, "tool_name": px.CLAUDE_NAME.get(name, name), "tool_input": args, "cwd": str(root)})[:60000]
+        env = workspace.clean_env() | {"TOOL_NAME": name, "TOOL_INPUT": json.dumps(args)[:8000], "CLAUDE_PROJECT_DIR": str(root), **(extra_env or {})}
+        p = await asyncio.create_subprocess_shell(h["command"], cwd=str(root), env=env, executable="/bin/bash", stdin=asyncio.subprocess.PIPE,
+                                                  stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT)
+        try:
+            out, _ = await asyncio.wait_for(p.communicate(payload.encode()), timeout=60)
+        except asyncio.TimeoutError:
+            p.kill()
+            continue
+        if p.returncode == 2:
+            return out.decode("utf-8", "replace")[:2000] or "blocked by an installed hook"
+    return None
+
+
+async def _run_ws_hooks(root: Path, event: str, name: str, args: dict, extra_env: Optional[dict] = None):
     f = root / ".agent" / "hooks.json"
     if not f.is_file():
         return None

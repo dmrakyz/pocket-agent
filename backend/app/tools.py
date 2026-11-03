@@ -111,7 +111,7 @@ BASE_TOOLS = [
         "(e.g. 'lightning') for easy work, or a stronger/different one (see the models tool) when you are stuck. Sub-agents are read-only unless can_edit is true (then give parallel "
         "agents disjoint files).",
         {"description": S, "prompt": S, "model": {"type": "string", "description": "optional, e.g. 'lightning' or provider:model-id"},
-         "can_edit": {"type": "boolean"}}, ["description", "prompt"]),
+         "can_edit": {"type": "boolean"}, "agent": {"type": "string", "description": "optional: name of an installed named agent (listed in your instructions) whose role the sub-agent takes on"}}, ["description", "prompt"]),
     _fn("share_file", "Offer a workspace file or folder to the user as a download (folders are zipped).",
         {"path": S, "description": S}, ["path"]),
     _fn("preview", "Show the user a web page you built (an HTML file, or a folder with index.html) in a live preview "
@@ -733,6 +733,26 @@ def _materialize_user_skills():
                 shutil.rmtree(d, ignore_errors=True)
 
 
+USER_COMMANDS = Path(config.DATA_DIR) / "usercommands"
+
+
+def _materialize_user_commands():
+    from . import kv
+    items = kv.get("commands", {}) or {}
+    USER_COMMANDS.mkdir(parents=True, exist_ok=True)
+    for name, c in items.items():
+        f = USER_COMMANDS / f"{name}.md"
+        text = f"---\ndescription: {c.get('description', '')}\n---\n\n{c.get('body', '')}\n"
+        try:
+            if not f.exists() or f.read_text("utf-8") != text:
+                f.write_text(text, "utf-8")
+        except OSError:
+            pass
+    for f in USER_COMMANDS.glob("*.md"):
+        if f.stem not in items:
+            f.unlink(missing_ok=True)
+
+
 def find_skills(root: Path) -> dict[str, Path]:
     out = {}
     for d in (".agent/skills", ".claude/skills"):
@@ -802,7 +822,15 @@ async def t_create_pr(ctx: Ctx, a: dict):
 async def t_task(ctx: Ctx, a: dict):
     if not ctx.subagent:
         raise ToolError("sub-agents are not available here")
-    return await ctx.subagent(a["description"], a["prompt"], a.get("model"), bool(a.get("can_edit")))
+    prompt, can_edit = a["prompt"], bool(a.get("can_edit"))
+    if a.get("agent"):
+        from . import kv
+        ag = (kv.get("agents", {}) or {}).get(str(a["agent"]).lower())
+        if not ag:
+            raise ToolError(f"no installed agent named {a['agent']!r}. Installed: {', '.join((kv.get('agents', {}) or {})) or 'none'}")
+        prompt = f"You are acting as the '{a['agent'].lower()}' agent. Follow this role description:\n\n{ag['prompt']}\n\n---\nYour task:\n{prompt}"
+        can_edit = can_edit or bool(ag.get("can_edit"))
+    return await ctx.subagent(a["description"], prompt, a.get("model"), can_edit)
 
 
 async def t_share_file(ctx: Ctx, a: dict):

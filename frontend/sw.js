@@ -1,5 +1,5 @@
 // Offline shell only. API calls (cross-origin) are never touched.
-const CACHE = "pocket-agent-v8";
+const CACHE = "pocket-agent-v9";
 const SHELL = ["./", "index.html", "app.js", "style.css", "config.js", "manifest.webmanifest", "icon-192.png"];
 
 self.addEventListener("install", (e) => {

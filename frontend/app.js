@@ -1984,9 +1984,12 @@ async function openSkills() {
           load();
         } })));
     }
+    kids.push(h('div', { id: 'extras-slot' }));
     kids.push(h('div.sec', { style: 'margin-top:14px', text: 'Built in' }));
     for (const s of d.builtin) kids.push(h('div', { style: 'padding:6px 0;border-top:1px solid var(--line)' }, h('b', { text: s.name }), h('div.dim', { style: 'font-size:13px', text: s.description })));
     body.replaceChildren(...kids);
+    const slot = body.querySelector('#extras-slot'); const ek = [];
+    extrasSection(ek, load).then(() => slot && slot.replaceChildren(...ek));
   };
   async function load() { try { draw(await api('/api/skills')); } catch (e) { toast(e.message, true); } }
   load();
@@ -1996,9 +1999,9 @@ function installSkills() {
   const input = h('input', { placeholder: 'owner/repo or a github.com link to a folder', style: 'width:100%', autocapitalize: 'off', autocorrect: 'off' });
   const out = h('div', {});
   const body = h('div', {},
-    h('div.dim', { style: 'font-size:14px', text: 'Finds every SKILL.md in a public GitHub repo. You see the full text and any warnings before anything is saved. Only the skill part of a plugin carries over; hooks, slash commands and sub-agents do not.' }),
+    h('div.dim', { style: 'font-size:14px', text: 'Reads a public GitHub repo (a Claude plugin works) and lists what it ships: skills, slash commands, sub-agents, hooks and MCP servers. You see the full text and any warnings first; only what you tick is saved, pinned to the commit you saw. Hooks arrive switched off.' }),
     input, h('button', { style: 'margin-top:8px', text: 'Look', onclick: look }), out);
-  sheet('Install skills', body);
+  sheet('Install from GitHub', body);
   let found = null;
   async function look(e) {
     const btn = e.currentTarget; btn.disabled = true; out.replaceChildren(h('div.dim', { text: 'Reading the repo…' }));
@@ -2006,33 +2009,72 @@ function installSkills() {
     catch (er) { out.replaceChildren(h('div.dim', { style: 'color:var(--bad,#c33)', text: er.message })); }
     btn.disabled = false;
   }
+  function row(boxes, it, o) {
+    const ok = !it.problem;
+    const cb = h('input', { type: 'checkbox', disabled: !ok, checked: ok && !(it.warnings || []).length && !it.installed });
+    boxes.push([cb, o.key(it)]);
+    return h('details', { style: 'padding:8px 0;border-top:1px solid var(--line)' },
+      h('summary', { style: 'cursor:pointer' }, cb, ' ', h('b', { text: o.title(it) }),
+        it.installed ? h('span.dim', { text: ' · already installed, will be replaced' }) : '',
+        o.sub(it) ? h('div.dim', { style: 'font-size:13px', text: o.sub(it) }) : '',
+        it.problem ? h('div', { style: 'color:var(--bad,#c33);font-size:13px', text: 'Cannot install: ' + it.problem }) : '',
+        ...(it.warnings || []).map((w) => h('div', { style: 'color:#c80;font-size:13px', text: '⚠ ' + w })),
+        ...(it.notes || []).map((w) => h('div.dim', { style: 'font-size:12px', text: 'note: ' + w })),
+        o.extra ? o.extra(it) : ''),
+      h('pre', { style: 'white-space:pre-wrap;font-size:12.5px;max-height:260px;overflow:auto;margin:8px 0', text: o.text(it) }));
+  }
   function draw() {
-    const kids = [h('div.dim', { style: 'padding:8px 0', text: found.owner + '/' + found.repo + ' @ ' + found.sha.slice(0, 10) + ' · ' + found.skills.length + ' skill(s)' + (found.note ? ' · ' + found.note : '') })];
-    const boxes = [];
-    for (const s of found.skills) {
-      const ok = !s.problem;
-      const cb = h('input', { type: 'checkbox', disabled: !ok, checked: ok && !s.warnings.length && !s.installed });
-      boxes.push([cb, s]);
-      kids.push(h('details', { style: 'padding:8px 0;border-top:1px solid var(--line)' },
-        h('summary', { style: 'cursor:pointer' }, cb, ' ', h('b', { text: s.clean_name || s.name }),
-          s.installed ? h('span.dim', { text: ' · already installed, will be replaced' }) : '',
-          h('div.dim', { style: 'font-size:13px', text: s.description }),
-          s.problem ? h('div', { style: 'color:var(--bad,#c33);font-size:13px', text: 'Cannot install: ' + s.problem }) : '',
-          ...s.warnings.map((w) => h('div', { style: 'color:#c80;font-size:13px', text: '⚠ ' + w })),
-          s.files_list.length ? h('div.dim', { style: 'font-size:12px', text: 'bundled: ' + s.files_list.join(', ') }) : ''),
-        h('pre', { style: 'white-space:pre-wrap;font-size:12.5px;max-height:260px;overflow:auto;margin:8px 0', text: s.instructions })));
-    }
-    if (found.skills.length) kids.push(h('button', { style: 'margin-top:10px', text: 'Install ticked', onclick: async (e) => {
-      const paths = boxes.filter(([cb]) => cb.checked).map(([, s]) => s.path);
-      if (!paths.length) return toast('Tick at least one', true);
+    const total = found.skills.length + found.commands.length + found.agents.length + found.hooks.length + found.mcp.length;
+    const kids = [h('div.dim', { style: 'padding:8px 0', text: found.owner + '/' + found.repo + ' @ ' + found.sha.slice(0, 10) + ' · ' + total + ' item(s)' + (found.note ? ' · ' + found.note : '') })];
+    const groups = { skills: [], commands: [], agents: [], hooks: [], mcp: [] };
+    const sect = (label, arr, key, o) => { if (!arr.length) return; kids.push(h('div.sec', { style: 'margin-top:12px', text: label })); for (const it of arr) kids.push(row(groups[key], it, o)); };
+    sect('Skills', found.skills.map((x) => ({ ...x, problem: x.problem })), 'skills', {
+      key: (it) => it.path, title: (it) => it.clean_name || it.name, sub: (it) => it.description, text: (it) => it.instructions,
+      extra: (it) => it.files_list.length ? h('div.dim', { style: 'font-size:12px', text: 'bundled: ' + it.files_list.join(', ') }) : '' });
+    sect('Slash commands', found.commands, 'commands', { key: (it) => it.path, title: (it) => '/' + it.name, sub: (it) => it.description, text: (it) => it.body });
+    sect('Sub-agents', found.agents, 'agents', { key: (it) => it.path, title: (it) => it.name, sub: (it) => it.description, text: (it) => it.prompt });
+    sect('Hooks (installed switched off)', found.hooks, 'hooks', { key: (it) => it.id, title: (it) => it.event + ' · ' + it.matcher, sub: () => '', text: (it) => it.command });
+    sect('MCP servers → Connectors', found.mcp, 'mcp', { key: (it) => it.name, title: (it) => it.name, sub: (it) => it.url || it.command, text: (it) => it.url || it.command });
+    if (total) kids.push(h('button', { style: 'margin-top:12px', text: 'Install ticked', onclick: async (e) => {
+      const pick = (k) => groups[k].filter(([cb]) => cb.checked).map(([, v]) => v);
+      const bodyj = { source: input.value, sha: found.sha, paths: pick('skills'), commands: pick('commands'), agents: pick('agents'), hooks: pick('hooks'), mcp: pick('mcp') };
+      if (!Object.values(bodyj).slice(2).some((v) => v.length)) return toast('Tick at least one', true);
       e.currentTarget.disabled = true;
       try {
-        const r = await api('/api/skills/install', { body: { source: input.value, sha: found.sha, paths } });
+        const r = await api('/api/skills/install', { body: bodyj });
         toast('Installed ' + r.saved.length + (r.skipped.length ? ' · skipped ' + r.skipped.length + ': ' + r.skipped[0] : ''), !!r.skipped.length && !r.saved.length);
         openSkills();
       } catch (er) { toast(er.message, true); e.currentTarget.disabled = false; }
     } }));
     out.replaceChildren(...kids);
+  }
+}
+
+async function extrasSection(kids, reload) {
+  let x;
+  try { x = await api('/api/extras'); } catch (e) { return; }
+  const del = (kind, key, label) => h('button.secondary.danger', { text: 'Delete', onclick: async () => {
+    if (!(await confirmSheet('Delete ' + label + '?', '', 'Delete', true))) return;
+    try { await api('/api/extras/' + kind + '/' + encodeURIComponent(key), { method: 'DELETE' }); } catch (er) { toast(er.message, true); }
+    reload();
+  } });
+  if (x.commands.length) kids.push(h('div.sec', { style: 'margin-top:14px', text: 'Slash commands' }));
+  for (const c of x.commands) kids.push(h('details', { style: 'padding:8px 0;border-top:1px solid var(--line)' },
+    h('summary', { style: 'cursor:pointer' }, h('b', { text: '/' + c.name }), h('div.dim', { style: 'font-size:13px', text: c.description }), c.source ? h('div.dim', { style: 'font-size:12px', text: 'from ' + c.source }) : ''),
+    h('pre', { style: 'white-space:pre-wrap;font-size:12.5px;max-height:220px;overflow:auto;margin:8px 0', text: c.body }), del('commands', c.name, '/' + c.name)));
+  if (x.agents.length) kids.push(h('div.sec', { style: 'margin-top:14px', text: 'Sub-agents' }));
+  for (const a of x.agents) kids.push(h('details', { style: 'padding:8px 0;border-top:1px solid var(--line)' },
+    h('summary', { style: 'cursor:pointer' }, h('b', { text: a.name }), h('div.dim', { style: 'font-size:13px', text: a.description }), a.source ? h('div.dim', { style: 'font-size:12px', text: 'from ' + a.source + (a.can_edit ? ' · can edit' : '') }) : ''),
+    h('pre', { style: 'white-space:pre-wrap;font-size:12.5px;max-height:220px;overflow:auto;margin:8px 0', text: a.prompt }), del('agents', a.name, a.name)));
+  if (x.hooks.length) kids.push(h('div.sec', { style: 'margin-top:14px', text: 'Hooks (run shell commands around tool calls)' }));
+  for (const k of x.hooks) {
+    const sw = h('input', { type: 'checkbox', checked: !!k.enabled, onchange: async (e) => {
+      const want = e.currentTarget.checked;
+      if (want && !(await confirmSheet('Switch this hook on?', 'It will run this shell command around ' + k.event + ' calls matching ' + k.matcher + ':\n\n' + k.command, 'Switch on'))) { e.currentTarget.checked = false; return; }
+      try { await api('/api/extras/hooks/' + k.id, { body: { enabled: want } }); } catch (er) { toast(er.message, true); }
+    } });
+    kids.push(h('div', { style: 'padding:8px 0;border-top:1px solid var(--line)' }, h('label', {}, sw, ' ', h('b', { text: k.event + ' · ' + k.matcher })),
+      h('pre', { style: 'white-space:pre-wrap;font-size:12.5px;margin:6px 0', text: k.command }), del('hooks', k.id, 'this hook')));
   }
 }
 

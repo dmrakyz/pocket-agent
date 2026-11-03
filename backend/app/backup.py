@@ -21,7 +21,7 @@ MAX_FILES = 3000
 SID = re.compile(r"^[a-f0-9]{16}$")
 APPID = re.compile(r"^[a-z0-9-]{1,40}$")
 NAME_OK = re.compile(
-    r"^(manifest\.json|sessions/[a-f0-9]{16}\.json|kv/(apps|routines|worlds|forged_tools|skills|memory|connectors|connector_perms)\.json|kv/(app|appdata)_[a-z0-9-]{1,40}\.json)$")
+    r"^(manifest\.json|sessions/[a-f0-9]{16}\.json|kv/(apps|routines|worlds|forged_tools|skills|commands|agents|memory|connectors|connector_perms)\.json|kv/(app|appdata)_[a-z0-9-]{1,40}\.json)$")
 
 
 class BackupError(Exception):
@@ -55,6 +55,8 @@ def export_zip() -> tuple[bytes, dict]:
         z.writestr("kv/forged_tools.json", _j(ft)); counts["forged tools"] = len(ft)
         sk = kv.get("skills", {}) or {}
         z.writestr("kv/skills.json", _j(sk)); counts["skills"] = len(sk)
+        z.writestr("kv/commands.json", _j(kv.get("commands", {}) or {}))
+        z.writestr("kv/agents.json", _j(kv.get("agents", {}) or {}))        # hooks are deliberately not exported: they run code
         mem = kv.get("memory", []) or []
         z.writestr("kv/memory.json", _j(mem)); counts["memory notes"] = len(mem)
         cons = [{"name": c["name"], "url": c["url"], **({"oauth": True} if c.get("oauth") else {})} for c in (kv.get("connectors", []) or []) if c.get("name") and c.get("url")]
@@ -211,6 +213,24 @@ async def restore(raw: bytes, overwrite: bool = False) -> dict:
         done["skills"] += 1
     if done["skills"]:
         await kv.put("skills", have_sk)
+
+    # plugin commands and agents: plain text, capped, never overwriting what you have
+    from . import plugin_extras as _px
+    for kind, cap_, fields in (("commands", _px.MAX_COMMANDS, ("description", "body")), ("agents", _px.MAX_AGENTS, ("description", "prompt", "can_edit"))):
+        have, inc = kv.get(kind, {}) or {}, data.get(f"kv/{kind}.json") or {}
+        added = 0
+        for nm, spec in (inc.items() if isinstance(inc, dict) else []):
+            nm = _px.clean_name(nm)
+            if not nm or not isinstance(spec, dict) or nm in have or len(have) >= cap_ or (kind == "commands" and nm in _px.RESERVED_COMMANDS):
+                continue
+            if any(len(str(spec.get(f, ""))) > 20000 for f in fields):
+                continue
+            have[nm] = {f: spec.get(f, "") for f in fields} | {"source": str(spec.get("source", ""))[:200], "updated": time.time()}
+            added += 1
+        if added:
+            await kv.put(kind, have)
+            if kind == "commands":
+                _tools._materialize_user_commands()
 
     # forged tools: re-tested in the sandbox, then left switched OFF
     ft = data.get("kv/forged_tools.json") or {}

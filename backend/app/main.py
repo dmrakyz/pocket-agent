@@ -1147,6 +1147,16 @@ async def skills_discover(req: Request):
             s["clean_name"], s["problem"] = "", str(e)
         s["installed"] = s["clean_name"] in have
         s["files_list"] = sorted(s["files"].keys())
+    havec, havea, haveh = kv.get("commands", {}) or {}, kv.get("agents", {}) or {}, {h.get("id") for h in (kv.get("hooks", []) or [])}
+    havem = {c.get("name") for c in (kv.get("connectors", []) or [])}
+    for it in d["commands"]:
+        it["installed"] = it["name"] in havec
+    for it in d["agents"]:
+        it["installed"] = it["name"] in havea
+    for it in d["hooks"]:
+        it["installed"] = it["id"] in haveh
+    for it in d["mcp"]:
+        it["installed"] = it["name"] in havem
     return d
 
 
@@ -1155,10 +1165,11 @@ async def skills_install(req: Request):
     """Re-fetches from the pinned commit (never trusts text from the browser), then saves only the ticked paths."""
     from . import skills_install as si
     b = await req.json()
-    paths = b.get("paths")
+    paths = b.get("paths") if isinstance(b.get("paths"), list) else []
+    pick = {k: (b.get(k) if isinstance(b.get(k), list) else []) for k in ("commands", "agents", "hooks", "mcp")}
     sha = str(b.get("sha") or "")
-    if not isinstance(paths, list) or not paths or not re.fullmatch(r"[0-9a-f]{40}", sha):
-        raise HTTPException(400, "pick at least one skill")
+    if not (paths or any(pick.values())) or not re.fullmatch(r"[0-9a-f]{40}", sha):
+        raise HTTPException(400, "pick at least one thing to install")
     try:
         d = await si.discover(str(b.get("source") or ""), sha)
     except si.InstallError as e:
@@ -1184,7 +1195,100 @@ async def skills_install(req: Request):
     if saved:
         await kv.put("skills", have)
         tools._materialize_user_skills()
+    src = f"{d['owner']}/{d['repo']}@{sha[:10]}"
+    from . import plugin_extras as px
+    cm = kv.get("commands", {}) or {}
+    for it in d["commands"]:
+        if it["path"] in pick["commands"]:
+            if it["problem"] or (it["name"] not in cm and len(cm) >= px.MAX_COMMANDS):
+                skipped.append(f"/{it['name']}: {it['problem'] or 'command limit reached'}")
+                continue
+            cm[it["name"]] = {"description": it["description"][:200], "body": it["body"], "source": f"{src}:{it['path']}", "updated": time.time()}
+            saved.append("/" + it["name"])
+    if any(x.startswith("/") for x in saved):
+        await kv.put("commands", cm)
+        tools._materialize_user_commands()
+    ag = kv.get("agents", {}) or {}
+    n0 = len(saved)
+    for it in d["agents"]:
+        if it["path"] in pick["agents"]:
+            if it["problem"] or (it["name"] not in ag and len(ag) >= px.MAX_AGENTS):
+                skipped.append(f"agent {it['name']}: {it['problem'] or 'agent limit reached'}")
+                continue
+            ag[it["name"]] = {"description": it["description"], "prompt": it["prompt"], "can_edit": it["can_edit"], "source": f"{src}:{it['path']}", "updated": time.time()}
+            saved.append("agent " + it["name"])
+    if len(saved) > n0:
+        await kv.put("agents", ag)
+    hk = kv.get("hooks", []) or []
+    n0 = len(saved)
+    for it in d["hooks"]:
+        if it["id"] in pick["hooks"]:
+            if it["problem"] or len(hk) >= px.MAX_HOOKS:
+                skipped.append(f"hook {it['event']} {it['matcher']}: {it['problem'] or 'hook limit reached'}")
+                continue
+            hk = [h for h in hk if h.get("id") != it["id"]] + [{"id": it["id"], "event": it["event"], "matcher": it["matcher"], "regex": it["regex"],
+                                                                "command": it["command"], "enabled": False, "source": f"{src}:{it['path']}"}]
+            saved.append(f"hook {it['event']} (off)")
+    if len(saved) > n0:
+        await kv.put("hooks", hk)
+    cons = kv.get("connectors", []) or []
+    n0 = len(saved)
+    for it in d["mcp"]:
+        if it["name"] in pick["mcp"]:
+            if it["problem"]:
+                skipped.append(f"connector {it['name']}: {it['problem']}")
+                continue
+            try:
+                tools._check_public(it["url"])
+            except tools.ToolError as e:
+                skipped.append(f"connector {it['name']}: {e}")
+                continue
+            if any(c.get("name") == it["name"] for c in cons) or len(cons) >= tools.MAX_CONNECTORS:
+                skipped.append(f"connector {it['name']}: name already exists or connector limit reached")
+                continue
+            cons.append({"name": it["name"], "url": it["url"]})
+            saved.append("connector " + it["name"])
+    if len(saved) > n0:
+        await kv.put("connectors", cons)
+        await mcp_client.refresh()
     return {"saved": saved, "skipped": skipped}
+
+
+@app.get("/api/extras", dependencies=[Depends(auth)])
+async def extras_list():
+    c, a, h = kv.get("commands", {}) or {}, kv.get("agents", {}) or {}, kv.get("hooks", []) or []
+    return {"commands": [{"name": n, "description": v.get("description", ""), "body": v.get("body", ""), "source": v.get("source", "")} for n, v in sorted(c.items())],
+            "agents": [{"name": n, "description": v.get("description", ""), "prompt": v.get("prompt", ""), "can_edit": bool(v.get("can_edit")), "source": v.get("source", "")} for n, v in sorted(a.items())],
+            "hooks": [{k: x.get(k) for k in ("id", "event", "matcher", "command", "enabled", "source")} for x in h]}
+
+
+@app.delete("/api/extras/{kind}/{name}", dependencies=[Depends(auth)])
+async def extras_delete(kind: str, name: str):
+    if kind in ("commands", "agents"):
+        items = kv.get(kind, {}) or {}
+        if name not in items:
+            raise HTTPException(404, "no such item")
+        items.pop(name)
+        await kv.put(kind, items)
+        if kind == "commands":
+            tools._materialize_user_commands()
+    elif kind == "hooks":
+        items = kv.get("hooks", []) or []
+        await kv.put("hooks", [x for x in items if x.get("id") != name])
+    else:
+        raise HTTPException(404, "unknown kind")
+    return {"ok": True}
+
+
+@app.post("/api/extras/hooks/{hid}", dependencies=[Depends(auth)])
+async def extras_hook_toggle(hid: str, body: dict):
+    items = kv.get("hooks", []) or []
+    hit = [x for x in items if x.get("id") == hid]
+    if not hit:
+        raise HTTPException(404, "no such hook")
+    hit[0]["enabled"] = bool(body.get("enabled"))
+    await kv.put("hooks", items)
+    return {"ok": True, "enabled": hit[0]["enabled"]}
 
 
 @app.delete("/api/skills/{name}", dependencies=[Depends(auth)])

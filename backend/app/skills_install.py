@@ -181,8 +181,43 @@ async def discover(source: str, sha: str | None = None) -> dict:
             return {"path": d, "name": name, "description": desc, "instructions": body, "files": fcont, "warnings": warns}
 
         found = [x for x in await asyncio.gather(*[one(d) for d in dirs]) if x]
-    return {"owner": owner, "repo": repo, "ref": ref, "sha": sha, "subpath": sub, "skills": found,
-            "note": "" if found else "No SKILL.md found there. Plugins that only ship commands, hooks or agents have nothing this app can use."}
+        extras = await _extras(c, owner, repo, sha, entries, sem)
+    nothing = not found and not any(extras.values())
+    return {"owner": owner, "repo": repo, "ref": ref, "sha": sha, "subpath": sub, "skills": found, **extras,
+            "note": "Nothing installable found there (no SKILL.md, commands, agents, hooks or MCP servers)." if nothing else ""}
+
+
+async def _extras(c, owner, repo, sha, entries, sem) -> dict:
+    from . import plugin_extras as px
+    paths = [e["path"] for e in entries if e.get("size", 0) <= MAX_FILE]
+    cm = [p for p in paths if re.search(r"(^|/)commands/[^/]+\.md$", p)][:60]
+    ag = [p for p in paths if re.search(r"(^|/)agents/[^/]+\.md$", p)][:40]
+    hk = [p for p in paths if re.search(r"(^|/)hooks/hooks\.json$|(^|/)hooks\.json$", p)][:5]
+    mc = [p for p in paths if re.search(r"(^|/)\.mcp\.json$", p)][:5]
+
+    async def get(p):
+        async with sem:
+            return p, await _raw(c, owner, repo, sha, p)
+    got = dict(await asyncio.gather(*[get(p) for p in cm + ag + hk + mc]))
+    out = {"commands": [], "agents": [], "hooks": [], "mcp": []}
+    for p in cm:
+        if got.get(p):
+            out["commands"].append(px.command_item(p, got[p]))
+    for p in ag:
+        if got.get(p):
+            out["agents"].append(px.agent_item(p, got[p]))
+    for p in hk:
+        if got.get(p):
+            out["hooks"] += px.hook_items(got[p], p)
+    for p in mc:
+        if got.get(p):
+            out["mcp"] += px.mcp_items(got[p], p)
+    for key, field in (("commands", "body"), ("agents", "prompt"), ("hooks", "command")):
+        for it in out[key]:
+            it["warnings"] = warnings_for([it[field]])
+    for it in out["mcp"]:
+        it["warnings"] = []
+    return out
 
 
 def clean_files(files: dict) -> dict:
