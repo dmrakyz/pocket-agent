@@ -282,3 +282,11 @@ A turn that changed code files may not end on "done" until a real check ran afte
 
 Before a run you pick the **effort level** (Off / Medium / High reasoning) and the **suite** (Standard, Hard, or Both). Every finished run is kept in "Past runs" (model, effort, suite, score, failed tasks) so you can compare models and effort levels side by side.
 
+## Repo map and symbol search
+
+`repo_map` returns a compact map of the workspace: every source file with its classes and functions (line numbers, signatures), the most-used files first, with a folder argument to zoom in. `find_symbol` shows where a name is defined and where it is used. Python is parsed exactly; JS/TS, Go, Rust, Java/Kotlin, C/C++, Ruby and PHP use light patterns (good, not perfect). Both are read-only (also in plan mode and for sub-agents) and the index rebuilds only when files change.
+
+## Hard suite
+
+The Capability check's "Hard" suite has 12 realistic tasks (bugs across files, implement-from-spec with a performance bar, project-wide rename with a decoy, CLI flags, import cycle, a big-codebase needle, C++ compiled and timed, SQL report, JavaScript with `node --test`, security holes, a broken Makefile). The agent never sees the checkers; test files are hash-locked so editing them to pass fails. `tests/hard_suite_test.py` proves every checker fails on the starting files and passes on a reference solution, so a score means something. Tasks get 10 minutes each.
+

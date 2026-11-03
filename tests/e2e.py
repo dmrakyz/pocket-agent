@@ -420,6 +420,15 @@ try:
     hist = c2.get("/api/eval-history").json()["history"]
     check("finished run is kept in the comparison history", hist and hist[0]["id"] == eid and hist[0]["effort"] == "medium" and hist[0]["passed"] >= 2 and hist[0]["total"] == 6, str(hist[:1]))
     check("eval-latest returns it", c2.get("/api/eval-latest").json()["eval"]["id"] == eid)
+    eh = c2.post("/api/eval", json={"model": "mock:mock/ultra-550b", "suite": "hard", "effort": "off"}).json()["id"]
+    for _ in range(240):
+        evh = c2.get(f"/api/eval/{eh}").json()
+        if evh["status"] != "running":
+            break
+        time.sleep(0.5)
+    check("the hard suite runs all 12 tasks through the same pipeline (the scripted mock can't solve them)", evh["status"] == "done" and len(evh["results"]) == 12 and evh["suite"] == "hard" and evh["effort"] == "off" and not any(r["passed"] for r in evh["results"]), str(evh)[:300])
+    check("every hard result says why it failed", all(r["note"] for r in evh["results"]), str([r["note"] for r in evh["results"]])[:200])
+    check("history keeps both suites", {h["suite"] for h in c2.get("/api/eval-history").json()["history"]} >= {"standard", "hard"})
     eid2 = c2.post("/api/eval", json={"model": "mock:mock/ultra-550b", "effort": "turbo"}).json()["id"]
     check("eval stop accepted", c2.post(f"/api/eval/{eid2}/stop").status_code == 200)
     for _ in range(40):

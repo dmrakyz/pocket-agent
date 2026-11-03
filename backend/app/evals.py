@@ -157,7 +157,7 @@ async def run_eval(eval_id: str, model: str):
             run = agent.start(s, t["prompt"])
             ev["_run"] = run
             while not run.task.done():
-                if time.time() - started > 300:
+                if time.time() - started > t.get("timeout", 300):
                     run.task.cancel()
                     raise asyncio.TimeoutError()
                 await asyncio.wait({run.task}, timeout=1)
@@ -174,7 +174,7 @@ async def run_eval(eval_id: str, model: str):
                 else:
                     res["passed"], res["note"] = t["check"](root, final)
         except asyncio.TimeoutError:
-            res["note"] = "timed out (300s)"
+            res["note"] = f"timed out ({t.get('timeout', 300)}s)"
         except Exception as e:  # noqa: BLE001
             res["note"] = f"{type(e).__name__}: {e}"[:400]
         if t.get("cleanup"):

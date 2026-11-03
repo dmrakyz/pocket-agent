@@ -213,6 +213,11 @@ BASE_TOOLS = [
             "options": {"type": "array", "minItems": 2, "maxItems": 4, "items": {"type": "object", "properties": {
                 "label": {"type": "string"}, "description": {"type": "string", "description": "one short line on what this leads to"}}, "required": ["label"]}}},
             "required": ["question", "options"]}}}, ["questions"]),
+    _fn("repo_map", "A compact map of the workspace's source code: files with their classes/functions and line numbers, most-used files first. Start here in an "
+        "unfamiliar or large repo instead of reading many files. Pass a folder to zoom in. Python is exact; JS/TS, Go, Rust, Java/Kotlin, C/C++, Ruby, PHP are best-effort.",
+        {"path": {"type": "string", "description": "optional sub-folder, e.g. src/api"}}, []),
+    _fn("find_symbol", "Find where a function/class/constant is defined (file:line + signature) and where it is used. Faster and more precise than grep for code navigation. "
+        "Exact name first, falls back to similar names.", {"name": {"type": "string", "description": "e.g. compute_tax or Invoice.total"}}, ["name"]),
     _fn("pack_list", "List the optional toolchain packs (Python science stack, C/C++ toolchain, Emscripten) and whether each is installed.", {}, []),
     _fn("pack_enable", "Install an optional toolchain pack so bash can use it from the next call: py-science (scipy, pandas, sympy, scikit-learn, networkx), "
         "cpp (cmake, ninja, clang), emscripten (emcc/em++, C/C++ to WebAssembly). Only when the task needs it. Big downloads: it may answer 'still installing', then call it again.",
@@ -247,9 +252,9 @@ BASE_TOOLS = [
     _fn("exit_plan_mode", "Plan mode only: present your finished plan to the user for approval.",
         {"plan": S}, ["plan"]),
 ]
-READONLY = {"ask_user", "read", "glob", "grep", "web_fetch", "web_search", "image_search", "view_image", "models", "browser_read", "todo_write", "bash_output", "skill", "task", "share_file", "preview", "view_3d", "connector_search", "memory_save", "memory_list", "forge_list", "pack_list", "app_list", "app_read", "routine_list", "world_list", "world_read"}
+READONLY = {"repo_map", "find_symbol", "ask_user", "read", "glob", "grep", "web_fetch", "web_search", "image_search", "view_image", "models", "browser_read", "todo_write", "bash_output", "skill", "task", "share_file", "preview", "view_3d", "connector_search", "memory_save", "memory_list", "forge_list", "pack_list", "app_list", "app_read", "routine_list", "world_list", "world_read"}
 EDITS = {"write", "edit", "multiedit", "fetch_image", "annotate_image", "generate_image", "create_app", "world_say"}
-SUBAGENT_TOOLS = {"read", "glob", "grep", "bash", "bash_output", "kill_bash", "web_fetch", "web_search"}
+SUBAGENT_TOOLS = {"repo_map", "find_symbol", "read", "glob", "grep", "bash", "bash_output", "kill_bash", "web_fetch", "web_search"}
 SUBAGENT_EDIT_TOOLS = SUBAGENT_TOOLS | EDITS
 
 
@@ -876,6 +881,19 @@ async def t_ask_user(ctx: Ctx, a: dict):
     raise ToolError("ask_user can only be answered by the user in the app; it is not available in this run. Pick the most reasonable option yourself and say what you assumed.")
 
 
+async def t_repo_map(ctx: Ctx, a: dict):
+    from . import repomap
+    sub = str(a.get("path") or "")
+    if sub:
+        ctx.resolve(sub, must_exist=True)
+    return cap(await asyncio.to_thread(repomap.repo_map, ctx.root, sub))
+
+
+async def t_find_symbol(ctx: Ctx, a: dict):
+    from . import repomap
+    return cap(await asyncio.to_thread(repomap.find_symbol, ctx.root, str(a.get("name") or "")))
+
+
 async def t_pack_list(ctx: Ctx, a: dict):
     from . import packs
     rows = packs.status()
@@ -1400,7 +1418,7 @@ HANDLERS: dict[str, Callable[[Ctx, dict], Awaitable[Any]]] = {
     "image_search": t_image_search, "fetch_image": t_fetch_image, "view_image": t_view_image,
     "annotate_image": t_annotate_image, "models": t_models, "connector_search": t_connector_search, "connector_add": t_connector_add, "routine_list": t_routine_list, "routine_create": t_routine_create, "routine_update": t_routine_update,
     "world_list": t_world_list, "world_read": t_world_read, "world_create": t_world_create, "world_say": t_world_say,
-    "generate_image": t_generate_image, "send_email": t_send_email, "forge_tool": t_forge_tool, "forge_list": t_forge_list, "ask_user": t_ask_user, "pack_list": t_pack_list, "pack_enable": t_pack_enable, "create_app": t_create_app, "app_list": t_app_list, "app_read": t_app_read, "memory_save": t_memory_save, "memory_forget": t_memory_forget, "memory_list": t_memory_list,
+    "generate_image": t_generate_image, "send_email": t_send_email, "forge_tool": t_forge_tool, "forge_list": t_forge_list, "ask_user": t_ask_user, "repo_map": t_repo_map, "find_symbol": t_find_symbol, "pack_list": t_pack_list, "pack_enable": t_pack_enable, "create_app": t_create_app, "app_list": t_app_list, "app_read": t_app_read, "memory_save": t_memory_save, "memory_forget": t_memory_forget, "memory_list": t_memory_list,
     "browser_read": t_browser_read, "browser_act": t_browser_act,
 }
 

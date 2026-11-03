@@ -1021,3 +1021,52 @@ def verify_test():
     config.VERIFY_GATE = True
     print("PASS verify gate: edits vs checks, trivial commands, failures, web pages, turn boundaries, switch")
 verify_test()
+
+
+async def repomap_test():
+    import tempfile, pathlib, time as _t
+    from app import repomap, tools as T
+    root = pathlib.Path(tempfile.mkdtemp())
+    (root / "billing").mkdir()
+    (root / "billing/tax.py").write_text("RATE = 0.0825\n\nclass Tax:\n    def compute(self, amount, rate=RATE):\n        return amount * rate\n\nasync def compute_tax(amount):\n    return Tax().compute(amount)\n")
+    (root / "billing/invoice.py").write_text("from .tax import compute_tax, Tax\n\ndef total(x):\n    return x + compute_tax(x)\n\ndef broken(:\n")      # syntax error: regex fallback
+    (root / "web").mkdir()
+    (root / "web/app.js").write_text("export class Cart {\n  addItem(item) {\n    return item;\n  }\n}\nexport const price = (x) => x * 2;\nfunction render() { return 1; }\nif (x) { y(); }\n")
+    (root / "svc.go").write_text("package main\n\ntype Server struct{}\n\nfunc (s *Server) Handle(w int) {}\n\nfunc main() {}\n")
+    (root / "fast.cpp").write_text("#include <cstdio>\n\nstruct Point { int x; };\n\nint distance(Point a, Point b) {\n  return a.x - b.x;\n}\n\nint main() {\n  if (1) { return 0; }\n}\n")
+    (root / "node_modules").mkdir(); (root / "node_modules/skip.js").write_text("function ignored() {}\n")
+    (root / "notes.md").write_text("# not code\n")
+    m = repomap.repo_map(root)
+    assert "billing/tax.py" in m and "class Tax" in m and "def compute(self, amount, rate)" in m, m
+    assert "async def compute_tax(amount)" in m and "RATE = …" in m, m
+    assert "def total(x)" in m and "def broken" in m, "unparseable python still gets regex symbols: " + m
+    assert "class Cart" in m and "addItem" in m and "price" in m and "function render" in m.replace("function render() { return 1; }", "function render"), m
+    assert "if (x)" not in m and "ignored" not in m and "notes.md" not in m, m
+    assert "func (s *Server) Handle" in m and "type Server struct" in m, m
+    assert "int distance(Point a, Point b)" in m and "struct Point" in m and "int main()" in m, m
+    # ranking: tax.py is used from invoice.py, so it outranks the unused files
+    assert m.index("billing/tax.py") < m.index("web/app.js"), m
+    assert "no source files" not in repomap.repo_map(root, "billing").lower() and "web/app.js" not in repomap.repo_map(root, "billing")
+    assert repomap.repo_map(root, "nothere").startswith("No source files")
+    f = repomap.find_symbol(root, "compute_tax")
+    assert "billing/tax.py:7" in f and "async def compute_tax(amount)" in f and "billing/invoice.py" in f and "References (" in f, f
+    f2 = repomap.find_symbol(root, "Tax.compute")
+    assert "billing/tax.py:4" in f2, f2
+    f3 = repomap.find_symbol(root, "computetax")
+    assert "No definition named" in f3 or "similar" in f3
+    assert "similar names" in repomap.find_symbol(root, "compute_t") and "No definition" in repomap.find_symbol(root, "zzzz")
+    # the index follows edits
+    _t.sleep(0.02)
+    (root / "billing/tax.py").write_text("def brand_new_fn(a):\n    return a\n")
+    assert "brand_new_fn" in repomap.find_symbol(root, "brand_new_fn") and "No definition named 'compute_tax'" in repomap.find_symbol(root, "compute_tax")
+    # tools: read-only (plan mode + sub-agents), reject folders outside the workspace
+    ctx = T.Ctx({"id": "rm"}, root, None)
+    assert "repo_map" in T.READONLY and "find_symbol" in T.READONLY and "find_symbol" in T.SUBAGENT_TOOLS
+    assert "svc.go" in await T.t_repo_map(ctx, {}) and "Definitions" in await T.t_find_symbol(ctx, {"name": "Cart"})
+    try:
+        await T.t_repo_map(ctx, {"path": "../.."})
+        raise AssertionError("escaped the workspace")
+    except T.ToolError:
+        pass
+    print("PASS repo map: python (ast + fallback), JS/TS, Go, C++, ranking, skip dirs, find_symbol, live index, read-only, sandboxed")
+asyncio.run(repomap_test())
