@@ -142,11 +142,12 @@ async def seed_workspace(s: dict, files: dict):
 
 async def run_eval(eval_id: str, model: str):
     ev = EVALS[eval_id]
-    for idx, t in enumerate(TASKS):
+    effort = ev.get("effort", "high")
+    for idx, t in enumerate(ev["_tasks"]):
         if ev.get("cancel"):
             break
         sid = "eval-" + uuid.uuid4().hex[:8]
-        s = {"id": sid, "title": t["name"], "model": model, "mode": "yolo", "thinking": True, "repo": None,
+        s = {"id": sid, "title": t["name"], "model": model, "mode": "yolo", "thinking": effort != "off", "effort": effort, "repo": None,
              "messages": [], "todos": [], "allow": [], "usage": {"in": 0, "out": 0}, "_ephemeral": True}
         root = await seed_workspace(s, t["files"])
         started = time.time()
@@ -187,6 +188,37 @@ async def run_eval(eval_id: str, model: str):
     ev["live"] = None
     ev["_run"] = None
     ev["status"] = "stopped" if ev.get("cancel") else "done"
+    await _remember(ev)
+
+
+HISTORY_KEY = "eval_history"
+EFFORTS = ("off", "medium", "high")
+SUITES = ("standard", "hard", "all")
+
+
+async def _remember(ev: dict):
+    """Keep a one-line summary of every finished run so scores can be compared across models and effort levels."""
+    from . import kv
+    done = ev["results"]
+    row = {"id": ev["id"], "model": ev["model"], "effort": ev.get("effort"), "suite": ev.get("suite"), "status": ev["status"],
+           "passed": sum(1 for r in done if r["passed"]), "ran": len(done), "total": ev["total"],
+           "seconds": round(sum(r.get("seconds", 0) for r in done)), "steps": sum(r.get("steps", 0) for r in done),
+           "at": ev["started"], "failed": [r["name"] for r in done if not r["passed"]][:8]}
+    hist = [h for h in (kv.get(HISTORY_KEY, []) or []) if h.get("id") != ev["id"]]
+    try:
+        await kv.put(HISTORY_KEY, ([row] + hist)[:30])
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def history() -> list:
+    from . import kv
+    return kv.get(HISTORY_KEY, []) or []
+
+
+def tasks_for(suite: str) -> list:
+    from .evals_hard import HARD_TASKS
+    return {"standard": TASKS, "hard": HARD_TASKS, "all": TASKS + HARD_TASKS}.get(suite, TASKS)
 
 
 def public(ev: dict) -> dict:
@@ -203,9 +235,12 @@ def stop_eval(eid: str):
         run.task.cancel()
 
 
-def start_eval(model: str) -> str:
+def start_eval(model: str, effort: str = "high", suite: str = "standard") -> str:
+    effort = effort if effort in EFFORTS else "high"
+    suite = suite if suite in SUITES else "standard"
+    tasks = tasks_for(suite)
     eid = uuid.uuid4().hex[:8]
-    EVALS[eid] = {"id": eid, "model": model, "status": "running", "total": len(TASKS), "results": [],
-                  "tasks": [t["name"] for t in TASKS], "started": time.time(), "live": None}
+    EVALS[eid] = {"id": eid, "model": model, "effort": effort, "suite": suite, "status": "running", "total": len(tasks), "results": [],
+                  "tasks": [t["name"] for t in tasks], "_tasks": tasks, "started": time.time(), "live": None}
     asyncio.create_task(run_eval(eid, model))
     return eid

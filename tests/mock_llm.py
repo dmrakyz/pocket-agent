@@ -152,6 +152,13 @@ def scenario(msgs, model):
         if k == 0:
             return "tools", [tool_call("create_app", {"name": "Counter", "icon": "🔢", "html": html})]
         return "text", "Counter is ready."
+    if "VGATE" in prompt:           # writes code and tries to stop; only runs it after being sent back ("VGATEBAD" never does)
+        code = "def add(a, b):\n    return a + b\n"
+        if k == 0:
+            return "tools", [tool_call("write", {"path": "calc.py", "content": code})]
+        if k == 1 and ws_nudges >= 1 and "VGATEBAD" not in prompt:
+            return "tools", [tool_call("bash", {"command": "python3 -c 'import calc; print(calc.add(2,3))'"})]
+        return "text", "All done, it works." if ws_nudges < 5 else "still not running it"
     if "ASKUSER" in prompt:
         if k == 0:
             return "tools", [tool_call("ask_user", {"questions": [

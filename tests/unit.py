@@ -979,3 +979,45 @@ async def packs_test():
     shutil.rmtree(root, ignore_errors=True)
     print("PASS packs: registry, disk check, env wiring, memory guard (fg + bg), platform row")
 asyncio.run(packs_test())
+
+
+def verify_test():
+    from app import verify, config
+    def call(i, name, **a): return {"id": i, "type": "function", "function": {"name": name, "arguments": __import__("json").dumps(a)}}
+    def asst(*calls): return {"role": "assistant", "content": "", "tool_calls": list(calls)}
+    def tool(i, name, text="ok", err=False): return {"role": "tool", "tool_call_id": i, "content": text, "_name": name, **({"_error": True} if err else {})}
+    U = {"role": "user", "content": "do it"}
+    # nothing edited: fine
+    assert verify.check([U, asst(call("1", "read", path="a.py")), tool("1", "read")]) == ""
+    # docs/notes only: fine
+    assert verify.check([U, asst(call("1", "write", path="notes.md")), tool("1", "write")]) == ""
+    # code edited, never run
+    assert "never ran" in verify.check([U, asst(call("1", "write", path="a.py")), tool("1", "write")])
+    # trivial commands are not checks
+    assert verify.check([U, asst(call("1", "write", path="a.py")), tool("1", "write"), asst(call("2", "bash", command="cat a.py")), tool("2", "bash"), asst(call("3", "bash", command="git status")), tool("3", "bash")])
+    # a real run after the edit passes
+    assert verify.check([U, asst(call("1", "write", path="a.py")), tool("1", "write"), asst(call("2", "bash", command="python3 a.py")), tool("2", "bash", "hi")]) == ""
+    # a run BEFORE the last edit does not count
+    assert "never ran" in verify.check([U, asst(call("0", "bash", command="python3 a.py")), tool("0", "bash"), asst(call("1", "edit", path="a.py")), tool("1", "edit")])
+    # a failing run is not verification, and says so
+    r = verify.check([U, asst(call("1", "write", path="a.py")), tool("1", "write"), asst(call("2", "bash", command="pytest")), tool("2", "bash", "1 failed\n[exit code 1]")])
+    assert "FAILED" in r, r
+    # fixed after failing: edit + new passing run is fine, failing run then passing run is fine
+    assert verify.check([U, asst(call("1", "write", path="a.py")), tool("1", "write"), asst(call("2", "bash", command="pytest")), tool("2", "bash", "x\n[exit code 1]"),
+                         asst(call("3", "edit", path="a.py")), tool("3", "edit"), asst(call("4", "bash", command="pytest")), tool("4", "bash", "1 passed")]) == ""
+    # failed edits do not count as changes
+    assert verify.check([U, asst(call("1", "edit", path="a.py")), tool("1", "edit", "no match", err=True)]) == ""
+    # web files: opening the page counts
+    assert verify.check([U, asst(call("1", "write", path="index.html")), tool("1", "write"), asst(call("2", "preview", path="index.html")), tool("2", "preview")]) == ""
+    # ...but not for a python file
+    assert verify.check([U, asst(call("1", "write", path="a.py")), tool("1", "write"), asst(call("2", "preview", path="index.html")), tool("2", "preview")])
+    # only the CURRENT turn is judged (an older turn's edits are not held against a new question)
+    assert verify.check([U, asst(call("1", "write", path="a.py")), tool("1", "write"), {"role": "assistant", "content": "done"}, {"role": "user", "content": "thanks, what is a mutex?"}]) == ""
+    # synthetic nudges do not reset the turn
+    assert verify.check([U, asst(call("1", "write", path="a.py")), tool("1", "write"), {"role": "user", "content": "[system] x", "_synthetic": True}])
+    # switch off
+    config.VERIFY_GATE = False
+    assert verify.check([U, asst(call("1", "write", path="a.py")), tool("1", "write")]) == ""
+    config.VERIFY_GATE = True
+    print("PASS verify gate: edits vs checks, trivial commands, failures, web pages, turn boundaries, switch")
+verify_test()

@@ -8,6 +8,7 @@ import time
 from pathlib import Path
 from typing import Optional
 
+from . import verify
 from . import apps, push, config, llm, perms, store, tools, usage, workspace
 
 runs: dict[str, "Run"] = {}
@@ -534,6 +535,7 @@ async def run_turn(s: dict, run: Run):
         limit = int(s.get("budget") or config.AUTOPILOT_STEPS) if autopilot else config.MAX_STEPS
         nudged_ap = 0
         nudged_ws = 0
+        nudged_vf = 0
         for step in range(limit):
             await compact(s, run)
             plan = s.get("mode") == "plan"
@@ -579,6 +581,18 @@ async def run_turn(s: dict, run: Run):
                         ". Create them or fix the paths, then answer again."})
                     continue
                 said = (m.get("content") or "").strip().upper()
+                if s.get("mode") != "plan":
+                    why = verify.check(s["messages"])
+                    if why and not said.startswith("UNVERIFIED"):
+                        if nudged_vf < 2:
+                            nudged_vf += 1
+                            await run.emit({"type": "notice", "text": "Changed code but no passing check yet; sending it back to run one"})
+                            await commit_message(run, s, {"role": "user", "_synthetic": True, "content": why})
+                            continue
+                        m["_unverified"] = True
+                        await run.emit({"type": "notice", "text": "Finished without a passing check on the code it changed"})
+                    elif why:
+                        m["_unverified"] = True
                 if (autopilot and s.get("mode") != "plan" and not said.startswith(("DONE", "BLOCKED"))
                         and nudged_ap < 60):
                     nudged_ap += 1

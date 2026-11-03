@@ -146,6 +146,17 @@ try:
     check("plan approval switched mode", sess5["mode"] == "auto", sess5["mode"])
     check("write allowed after plan approval", os.path.exists(os.path.join(DATA, "ws", s5["id"], "a.txt")) and "planned" in open(os.path.join(DATA, "ws", s5["id"], "a.txt")).read())
 
+    # --- verify gate: code changed but never run -> sent back; after a real run it passes; stubborn model gets flagged
+    sv = c.post("/api/sessions", json={"mode": "yolo"}).json()
+    run_turn(c, sv["id"], "VGATE please", timeout=60)
+    mv = c.get(f"/api/sessions/{sv['id']}").json()["session"]["messages"]
+    check("verify gate sent the unverified work back once", sum(1 for x in mv if x["role"] == "user" and str(x.get("content")).startswith("[system] You changed code")) == 1, str([str(x.get("content"))[:60] for x in mv]))
+    check("after it ran the code the final answer is accepted without a warning", mv[-1]["role"] == "assistant" and not mv[-1].get("_unverified") and any(x.get("role") == "tool" and x["content"].strip() == "5" for x in mv), str(mv[-3:])[:300])
+    sv2 = c.post("/api/sessions", json={"mode": "yolo"}).json()
+    evs = run_turn(c, sv2["id"], "VGATEBAD please", timeout=60)
+    mv2 = c.get(f"/api/sessions/{sv2['id']}").json()["session"]["messages"]
+    check("a model that never runs it is nudged at most twice, then flagged unverified", sum(1 for x in mv2 if x["role"] == "user" and str(x.get("content")).startswith("[system] You changed code")) == 2 and mv2[-1].get("_unverified") is True, str([str(x.get("content"))[:50] for x in mv2]))
+
     # --- ask_user: the agent asks, taps come back, only offered options get through; plan mode may ask too
     sq = c.post("/api/sessions", json={"mode": "plan"}).json()
     seen = []
@@ -395,7 +406,7 @@ try:
     check("preview needs a real login to mint", nc.post(f"/api/sessions/{s10['id']}/preview-token").status_code == 401)
 
     # --- eval pipeline (mock only knows task 1)
-    eid = c2.post("/api/eval", json={"model": "mock:mock/ultra-550b"}).json()["id"]
+    eid = c2.post("/api/eval", json={"model": "mock:mock/ultra-550b", "effort": "medium"}).json()["id"]
     for _ in range(80):
         ev = c2.get(f"/api/eval/{eid}").json()
         if ev["status"] == "done":
@@ -405,14 +416,18 @@ try:
     check("eval task 1 passes with scripted model", ev["results"][0]["passed"], str(ev["results"][0]))
     check("eval exposes task list + clock", ev.get("tasks") and len(ev["tasks"]) == 6 and ev.get("now"), str(ev.keys()))
     check("eval task 5 (build an app) passes with scripted model and leaves the drawer clean", ev["results"][4]["passed"] and c2.get("/api/apps").json()["apps"] == [], str(ev["results"][4]) + str(c2.get("/api/apps").json()))
+    check("eval records the effort level and suite it ran with", ev["effort"] == "medium" and ev["suite"] == "standard", str(ev.get("effort")))
+    hist = c2.get("/api/eval-history").json()["history"]
+    check("finished run is kept in the comparison history", hist and hist[0]["id"] == eid and hist[0]["effort"] == "medium" and hist[0]["passed"] >= 2 and hist[0]["total"] == 6, str(hist[:1]))
     check("eval-latest returns it", c2.get("/api/eval-latest").json()["eval"]["id"] == eid)
-    eid2 = c2.post("/api/eval", json={"model": "mock:mock/ultra-550b"}).json()["id"]
+    eid2 = c2.post("/api/eval", json={"model": "mock:mock/ultra-550b", "effort": "turbo"}).json()["id"]
     check("eval stop accepted", c2.post(f"/api/eval/{eid2}/stop").status_code == 200)
     for _ in range(40):
         ev2 = c2.get(f"/api/eval/{eid2}").json()
         if ev2["status"] != "running":
             break
         time.sleep(0.5)
+    check("a made-up effort falls back to high", c2.get(f"/api/eval/{eid2}").json()["effort"] == "high")
     check("eval stops early", ev2["status"] == "stopped" and len(ev2["results"]) < 5, str(ev2))
 finally:
     for p in procs:

@@ -469,3 +469,7 @@ label.memrow { flex-direction: row; gap: 12px; align-items: flex-start; }
 .ap-ai { position: absolute; top: -3px; right: 14px; font-size: 10px; background: var(--accent); color: var(--accent-ink); border-radius: 8px; padding: 1px 5px; }
 .ap-empty { grid-column: 1 / -1; padding: 24px 8px; text-align: center; }
 #apphost[hidden], #appspage[hidden] { display: none; }
+.evpick { margin: 12px 0 14px; }
+.evhist { margin-top: 22px; }
+.evhrow { display: flex; gap: 12px; padding: 8px 0; border-top: 1px solid var(--line); align-items: baseline; }
+.unverified { margin: 6px 0 2px; font-size: 12.5px; color: var(--warn, #e8b04a); }

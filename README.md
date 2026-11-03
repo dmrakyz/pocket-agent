@@ -273,3 +273,12 @@ Settings → **Backup & restore** downloads one zip: chats, apps and their data,
 ## The agent can ask you questions
 
 `ask_user` pauses the run and shows a card with 1 to 4 multiple-choice questions (tap one, or several for multi-select, or type your own answer; Skip is always there). It is meant for ambiguous or expensive-to-undo choices, asked before building. It works in plan mode, sends a "Question for you" push if you are away, and in runs nobody is watching (Shortcut, MCP) the agent is told nobody can answer and picks a default. In Telegram there are no tap cards, so it asks in plain text instead.
+
+## Verify gate
+
+A turn that changed code files may not end on "done" until a real check ran after the last change and passed (tests, the program, a build; for web pages, opening the preview or browser). If not, the agent is sent back to run one (up to twice, `[system] You changed code…`); after a failing check it is told to fix and re-run. If it still never verifies, the answer is flagged "⚠ Not verified". It can opt out honestly by starting its answer with `Unverified:` and saying why. Plan mode and sub-agents are exempt; `VERIFY_GATE=0` switches it off.
+
+## Capability check options
+
+Before a run you pick the **effort level** (Off / Medium / High reasoning) and the **suite** (Standard, Hard, or Both). Every finished run is kept in "Past runs" (model, effort, suite, score, failed tasks) so you can compare models and effort levels side by side.
+
