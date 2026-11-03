@@ -512,6 +512,47 @@ def _autoload_connectors(s: dict):
             return
 
 
+def _text_of(m: dict) -> str:
+    c = m.get("content")
+    return c if isinstance(c, str) else " ".join(p.get("text", "") for p in (c or []) if isinstance(p, dict))
+
+
+REVIEW_PROMPT = """You are a strict, independent code reviewer. Another engineer just finished the task below and says it is done. Your job is to find REAL problems, not style nits.
+
+THE USER'S REQUEST:
+{request}
+
+THE CHANGES (git diff of this turn):
+{diff}
+
+How to work: read the changed files where the diff is not enough, then RUN things with bash (the tests, the program, edge cases the request implies) to confirm every suspicion with evidence. Do not edit files.
+Check specifically: does it do everything the request asked (list each requirement), edge cases (empty input, zero, negative, big input, bad types), anything broken elsewhere that the change touches, leftover debug code or placeholders.
+Reply with exactly `LGTM` if you found no real problem. Otherwise reply with a numbered list: each item = the problem, the evidence (command + output or file:line), and the fix in one line. Maximum 6 items, most serious first."""
+
+
+async def self_review(run: Run, s: dict, ws: Path, base_sha: str, request: str) -> str:
+    """Fresh-context reviewer over this turn's diff. Returns '' when it found nothing, else its list of problems."""
+    await run.emit({"type": "notice", "text": "Reviewing the changes with a fresh pair of eyes…"})
+    async with _ws_lock(s["id"]):
+        await workspace.run(["git", "add", "-A"], cwd=ws, timeout=60)
+        rc, diff = await workspace.run(["git", "diff", "--cached", base_sha], cwd=ws, timeout=60)
+    diff = (diff if rc == 0 else "(diff unavailable)").strip()
+    if not diff:
+        return ""
+    if len(diff) > 24000:
+        diff = diff[:24000] + "\n… (diff truncated; read the files)"
+    try:
+        out = await run_subagent(run, s, ws, "review", REVIEW_PROMPT.format(request=request[:4000], diff=diff), None, False, 1)
+    except Exception as e:  # noqa: BLE001
+        await run.emit({"type": "notice", "text": f"review skipped ({type(e).__name__})"})
+        return ""
+    out = (out or "").strip()
+    if not out or out.upper().startswith("LGTM") or out.startswith("Error:"):
+        await run.emit({"type": "notice", "text": "Reviewer: no problems found" if out.upper().startswith("LGTM") else "Reviewer gave no result"})
+        return ""
+    return out[:5000]
+
+
 async def run_turn(s: dict, run: Run):
     status = "done"
     ws: Optional[Path] = None
@@ -538,6 +579,7 @@ async def run_turn(s: dict, run: Run):
         nudged_ap = 0
         nudged_ws = 0
         nudged_vf = 0
+        reviewed = False
         for step in range(limit):
             await compact(s, run)
             plan = s.get("mode") == "plan"
@@ -595,6 +637,16 @@ async def run_turn(s: dict, run: Run):
                         await run.emit({"type": "notice", "text": "Finished without a passing check on the code it changed"})
                     elif why:
                         m["_unverified"] = True
+                if s.get("review") and not reviewed and s.get("mode") != "plan" and verify.edited_files(s["messages"]):
+                    reviewed = True
+                    req = next((_text_of(x) for x in reversed(s["messages"]) if x.get("role") == "user" and not x.get("_synthetic")), "")
+                    problems = await self_review(run, s, ws, sha, req)
+                    if problems:
+                        m["_unverified"] = False
+                        await commit_message(run, s, {"role": "user", "_synthetic": True, "content":
+                            "[review] An independent reviewer checked your changes and found problems:\n" + problems +
+                            "\n\nFix the real ones and re-run your checks. If a point is wrong, say why in one line. Then give your final answer."})
+                        continue
                 if (autopilot and s.get("mode") != "plan" and not said.startswith(("DONE", "BLOCKED"))
                         and nudged_ap < 60):
                     nudged_ap += 1

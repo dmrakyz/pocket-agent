@@ -147,7 +147,7 @@ async def run_eval(eval_id: str, model: str):
         if ev.get("cancel"):
             break
         sid = "eval-" + uuid.uuid4().hex[:8]
-        s = {"id": sid, "title": t["name"], "model": model, "mode": "yolo", "thinking": effort != "off", "effort": effort, "repo": None,
+        s = {"id": sid, "title": t["name"], "model": model, "mode": "yolo", "thinking": effort != "off", "effort": effort, "review": bool(ev.get("review")), "repo": None,
              "messages": [], "todos": [], "allow": [], "usage": {"in": 0, "out": 0}, "_ephemeral": True}
         root = await seed_workspace(s, t["files"])
         started = time.time()
@@ -200,7 +200,7 @@ async def _remember(ev: dict):
     """Keep a one-line summary of every finished run so scores can be compared across models and effort levels."""
     from . import kv
     done = ev["results"]
-    row = {"id": ev["id"], "model": ev["model"], "effort": ev.get("effort"), "suite": ev.get("suite"), "status": ev["status"],
+    row = {"id": ev["id"], "model": ev["model"], "effort": ev.get("effort"), "suite": ev.get("suite"), "review": bool(ev.get("review")), "status": ev["status"],
            "passed": sum(1 for r in done if r["passed"]), "ran": len(done), "total": ev["total"],
            "seconds": round(sum(r.get("seconds", 0) for r in done)), "steps": sum(r.get("steps", 0) for r in done),
            "at": ev["started"], "failed": [r["name"] for r in done if not r["passed"]][:8]}
@@ -235,12 +235,12 @@ def stop_eval(eid: str):
         run.task.cancel()
 
 
-def start_eval(model: str, effort: str = "high", suite: str = "standard") -> str:
+def start_eval(model: str, effort: str = "high", suite: str = "standard", review: bool = False) -> str:
     effort = effort if effort in EFFORTS else "high"
     suite = suite if suite in SUITES else "standard"
     tasks = tasks_for(suite)
     eid = uuid.uuid4().hex[:8]
-    EVALS[eid] = {"id": eid, "model": model, "effort": effort, "suite": suite, "status": "running", "total": len(tasks), "results": [],
+    EVALS[eid] = {"id": eid, "model": model, "effort": effort, "suite": suite, "review": bool(review), "status": "running", "total": len(tasks), "results": [],
                   "tasks": [t["name"] for t in tasks], "_tasks": tasks, "started": time.time(), "live": None}
     asyncio.create_task(run_eval(eid, model))
     return eid

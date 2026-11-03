@@ -1123,7 +1123,14 @@ async function modelSheet() {
     note.textContent = EFFORTS[k][1];
   } })));
   const head = [];
-  if (S.cur) head.push(h('div.sec', { text: 'Effort (reasoning)' }), seg, note);
+  if (S.cur) {
+    head.push(h('div.sec', { text: 'Effort (reasoning)' }), seg, note);
+    const rv = h('input', { type: 'checkbox', checked: !!S.cur.review, onchange: async (e) => {
+      const on = e.target.checked;
+      try { await api('/api/sessions/' + S.cur.id, { method: 'PATCH', body: { review: on } }); S.cur.review = on; } catch (er) { e.target.checked = !on; toast(er.message, true); }
+    } });
+    head.push(h('label.rvrow', {}, rv, h('span', {}, h('b', { text: 'Self-review' }), h('div.dim', { style: 'font-size:12.5px', text: 'After it changes code, a fresh reviewer checks the diff and runs things; real problems go back to the agent once. Slower, uses more of the rate limit.' }))));
+  }
   head.push(h('div.sec', { text: 'Model' }), search);
   sheet('Model', ...head, list);
   let models = [];
@@ -2114,14 +2121,16 @@ function evPick() {
   const seg = (opts, cur, key, redraw) => h('div.seg', {}, ...Object.entries(opts).map(([k, [name]]) => h('button' + (cur === k ? '.on' : ''), { text: name, onclick: () => { store.set(key, k); redraw(); } })));
   return h('div.evpick', {},
     h('div.sec', { text: 'Effort (reasoning)' }), seg(EFFORTS, effort, 'eval_effort', evDraw), h('div.seg-note', { text: EFFORTS[effort][1] }),
-    h('div.sec', { text: 'Tasks' }), seg(EV_SUITES, suite, 'eval_suite', evDraw), h('div.seg-note', { text: EV_SUITES[suite][1] + (suite !== 'standard' ? '. The hard suite takes much longer.' : '') }));
+    h('div.sec', { text: 'Tasks' }), seg(EV_SUITES, suite, 'eval_suite', evDraw), h('div.seg-note', { text: EV_SUITES[suite][1] + (suite !== 'standard' ? '. The hard suite takes much longer.' : '') }),
+    h('label.rvrow', {}, h('input', { type: 'checkbox', checked: store.get('eval_review') === '1', onchange: (e) => { store.set('eval_review', e.target.checked ? '1' : '0'); evDraw(); } }),
+      h('span', {}, h('b', { text: 'Self-review' }), h('div.dim', { style: 'font-size:12.5px', text: 'A fresh reviewer checks each task\'s changes before it counts. Compare scores with and without it.' }))));
 }
 function evHistory() {
   if (!EV.hist.length) return null;
   const when = (t) => new Date(t * 1000).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
   return h('div.evhist', {}, h('div.sec', { text: 'Past runs' }), ...EV.hist.slice(0, 12).map((r) => h('div.evhrow', {},
     h('div', { style: 'font-weight:600', text: `${r.passed}/${r.total}` + (r.status === 'stopped' ? ' (stopped)' : '') }),
-    h('div.dim', { style: 'font-size:12.5px;flex:1;min-width:0', text: `${shortModel(r.model)} · ${(EFFORTS[r.effort] || [r.effort || '?'])[0]} effort · ${(EV_SUITES[r.suite] || [r.suite || 'standard'])[0]} · ${when(r.at)}` + (r.failed && r.failed.length ? ` · failed: ${r.failed.join(', ')}` : '') }))));
+    h('div.dim', { style: 'font-size:12.5px;flex:1;min-width:0', text: `${shortModel(r.model)} · ${(EFFORTS[r.effort] || [r.effort || '?'])[0]} effort · ${(EV_SUITES[r.suite] || [r.suite || 'standard'])[0]}${r.review ? ' + review' : ''} · ${when(r.at)}` + (r.failed && r.failed.length ? ` · failed: ${r.failed.join(', ')}` : '') }))));
 }
 const fmtT = (s) => { s = Math.max(0, Math.round(s)); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); };
 async function openEval() {
@@ -2160,7 +2169,7 @@ async function evStart() {
   if (EV.busy) return;
   EV.busy = true; EV.err = ''; evDraw();
   try {
-    const { id } = await api('/api/eval', { body: { model: (S.cur && S.cur.model) || '', effort: store.get('eval_effort') || 'high', suite: store.get('eval_suite') || 'standard' } });
+    const { id } = await api('/api/eval', { body: { model: (S.cur && S.cur.model) || '', effort: store.get('eval_effort') || 'high', suite: store.get('eval_suite') || 'standard', review: store.get('eval_review') === '1' } });
     store.set('eval', id);
     EV.ev = await api('/api/eval/' + id); EV.at = Date.now();
   } catch (e) { EV.err = e.message; }
@@ -2193,7 +2202,7 @@ function evDraw() {
   const head = running
     ? `Task ${Math.min(done + 1, ev.total)} of ${ev.total} · ${fmtT(ev.now - ev.started + drift)} elapsed`
     : (ev.status === 'stopped' ? `Stopped · ${passed}/${done} passed` : `Score ${passed}/${ev.total}`);
-  parts.push(h('div.evhead', {}, h('div.big', { text: head }), h('div.dim', { text: shortModel(ev.model) + ' · ' + (EFFORTS[ev.effort] || ['High'])[0] + ' effort · ' + (EV_SUITES[ev.suite] || ['Standard'])[0] + (running ? ' · running on the server' : '') })));
+  parts.push(h('div.evhead', {}, h('div.big', { text: head }), h('div.dim', { text: shortModel(ev.model) + ' · ' + (EFFORTS[ev.effort] || ['High'])[0] + ' effort · ' + (EV_SUITES[ev.suite] || ['Standard'])[0] + (ev.review ? ' + self-review' : '') + (running ? ' · running on the server' : '') })));
   parts.push(h('div.pbar' + (running ? '.run' : ''), {}, h('i', { style: `width:${running ? Math.max(pct, 3) : Math.round((done / ev.total) * 100)}%` })));
   ev.tasks.forEach((name, i) => {
     const r = ev.results[i];

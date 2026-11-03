@@ -144,7 +144,7 @@ async def test_model(body: dict):
 
 @app.post("/api/eval", dependencies=[Depends(auth)])
 async def eval_start(body: dict):
-    return {"id": evals.start_eval(body.get("model") or await llm.default_model(), str(body.get("effort") or "high"), str(body.get("suite") or "standard"))}
+    return {"id": evals.start_eval(body.get("model") or await llm.default_model(), str(body.get("effort") or "high"), str(body.get("suite") or "standard"), bool(body.get("review")))}
 
 
 @app.get("/api/eval-history", dependencies=[Depends(auth)])
@@ -232,6 +232,8 @@ async def patch_session(sid: str, body: dict):
         s["mode"] = body["mode"]
     if "thinking" in body:
         s["thinking"] = bool(body["thinking"])
+    if "review" in body:
+        s["review"] = bool(body["review"])
     if body.get("effort") in ("off", "medium", "high"):
         s["effort"] = body["effort"]
         s["thinking"] = body["effort"] != "off"

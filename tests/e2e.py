@@ -146,6 +146,24 @@ try:
     check("plan approval switched mode", sess5["mode"] == "auto", sess5["mode"])
     check("write allowed after plan approval", os.path.exists(os.path.join(DATA, "ws", s5["id"], "a.txt")) and "planned" in open(os.path.join(DATA, "ws", s5["id"], "a.txt")).read())
 
+    # --- self-review: a fresh reviewer reads the diff; real problems go back once, LGTM changes nothing, off by default
+    def rv_turn(prompt, on):
+        sr = c.post("/api/sessions", json={"mode": "yolo"}).json()
+        if on:
+            c.patch(f"/api/sessions/{sr['id']}", json={"review": True})
+        evs_r = run_turn(c, sr["id"], prompt, timeout=90)
+        return sr["id"], evs_r, c.get(f"/api/sessions/{sr['id']}").json()["session"]
+    sid_r, evs_r, ses_r = rv_turn("RVWBAD fix it", True)
+    revs = [m for m in ses_r["messages"] if m["role"] == "user" and str(m.get("content")).startswith("[review]")]
+    check("session reports the review switch", ses_r.get("review") is True)
+    check("reviewer problems go back to the agent exactly once", len(revs) == 1 and "ignores negative numbers" in revs[0]["content"], str([str(m.get("content"))[:60] for m in ses_r["messages"]]))
+    check("the agent answered after fixing, and the reviewer ran as a sub-agent", ses_r["messages"][-1]["content"] == "Fixed after review." and any(e.get("type") == "sub_start" and e.get("label") == "review" for e in evs_r), str(ses_r["messages"][-1])[:150])
+    check("a visible notice tells the user a review happened", any(e.get("type") == "notice" and "Reviewing the changes" in e.get("text", "") for e in evs_r))
+    sid_r2, evs_r2, ses_r2 = rv_turn("RVWOK fine", True)
+    check("LGTM from the reviewer adds nothing and the answer stands", not any(str(m.get("content")).startswith("[review]") for m in ses_r2["messages"]) and ses_r2["messages"][-1]["content"] == "Done." and any("no problems found" in e.get("text", "") for e in evs_r2 if e.get("type") == "notice"))
+    sid_r3, evs_r3, ses_r3 = rv_turn("RVWBAD but review is off", False)
+    check("self-review is off by default: no reviewer, no extra turn", ses_r3.get("review") is False and not any(e.get("type") == "sub_start" for e in evs_r3) and ses_r3["messages"][-1]["content"] == "Done.", str(ses_r3["messages"][-1])[:100])
+
     # --- verify gate: code changed but never run -> sent back; after a real run it passes; stubborn model gets flagged
     sv = c.post("/api/sessions", json={"mode": "yolo"}).json()
     run_turn(c, sv["id"], "VGATE please", timeout=60)

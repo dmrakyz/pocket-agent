@@ -26,10 +26,7 @@ def _first_cmd(cmd: str) -> str:
     return (cmd or "").strip().splitlines()[0] if (cmd or "").strip() else ""
 
 
-def check(messages: list) -> str:
-    """'' when fine, otherwise the reason (used as the nudge text)."""
-    if not config.VERIFY_GATE:
-        return ""
+def _scan(messages: list):
     start = 0
     for i, m in enumerate(messages):
         if m.get("role") == "user" and not m.get("_synthetic"):
@@ -65,6 +62,19 @@ def check(messages: list) -> str:
                 web_only = edited and all(_ext(p) in WEB_EXT for p in edited)
                 if web_only:
                     ok_check = i
+    return last_edit, edited, ok_check, bad_check
+
+
+def edited_files(messages: list) -> list:
+    """Code files changed in the current turn."""
+    return list(dict.fromkeys(_scan(messages)[1]))
+
+
+def check(messages: list) -> str:
+    """'' when fine, otherwise the reason (used as the nudge text)."""
+    if not config.VERIFY_GATE:
+        return ""
+    last_edit, edited, ok_check, bad_check = _scan(messages)
     if last_edit < 0:
         return ""
     if ok_check > last_edit and bad_check < ok_check:

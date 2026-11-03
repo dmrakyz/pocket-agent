@@ -46,13 +46,14 @@ def scenario(msgs, model):
         return c[0]["text"] if isinstance(c, list) else (c or "")
 
     real = [i for i, m in enumerate(msgs) if m["role"] == "user" and not text_of(m).startswith("[autopilot]")
-            and not text_of(m).startswith("Your reply was cut off") and not text_of(m).startswith("[system]")]
+            and not text_of(m).startswith("Your reply was cut off") and not text_of(m).startswith("[system]") and not text_of(m).startswith("[review]")]
     last_user = real[-1]
     prompt = text_of(msgs[last_user])
     after = msgs[last_user + 1:]
     k = sum(1 for m in after if m["role"] == "tool")
     nudges = sum(1 for m in after if m["role"] == "user" and text_of(m).startswith("[autopilot]"))
     ws_nudges = sum(1 for m in after if m["role"] == "user" and text_of(m).startswith("[system]"))
+    rev_nudges = sum(1 for m in after if m["role"] == "user" and text_of(m).startswith("[review]"))
     last_tool = next((m["content"] for m in reversed(after) if m["role"] == "tool"), "")
     tool_texts = [m["content"] for m in after if m["role"] == "tool"]
 
@@ -88,7 +89,21 @@ def scenario(msgs, model):
             return "tools", [tool_call("bash", {"command": "ls"})]
         return "text", "subagent report: found files"
 
+    if "independent code reviewer" in prompt:      # the self-review sub-agent
+        if k == 0:
+            return "tools", [tool_call("bash", {"command": "ls"})]
+        if "RVWBAD" in prompt:
+            return "text", "1. calc.add ignores negative numbers.\n   Evidence: python3 -c 'import calc; print(calc.add(-1, 1))' printed 2.\n   Fix: return a + b."
+        return "text", "LGTM"
+
     # ---- main scenarios
+    if "RVW" in prompt:             # writes + runs code, then stops; self-review may send it back once
+        code = "def add(a, b):\n    return a + b\n"
+        if k == 0:
+            return "tools", [tool_call("write", {"path": "calc.py", "content": code})]
+        if k == 1:
+            return "tools", [tool_call("bash", {"command": "python3 -c 'import calc; print(calc.add(2,3))'"})]
+        return "text", "Fixed after review." if rev_nudges else "Done."
     if "fizzbuzz.py" in prompt:      # the built-in eval task #1
         code = ("def fizzbuzz(n):\n    out = []\n    for i in range(1, n + 1):\n"
                 "        out.append('FizzBuzz' if i % 15 == 0 else 'Fizz' if i % 3 == 0 else 'Buzz' if i % 5 == 0 else str(i))\n"
