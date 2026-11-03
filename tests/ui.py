@@ -310,6 +310,7 @@ try:
         import zipfile as _z
         with _z.ZipFile("/tmp/upl.zip", "w") as _zf:
             _zf.writestr("a/b.txt", "hi")
+        check("file picker accepts any file type and several at once (iOS greyed out non-images before)", p.eval_on_selector("#file-img", "e => !e.getAttribute('accept') && e.multiple"))
         p.set_input_files("#file-img", "/tmp/upl.zip")
         p.wait_for_selector(".filechip")
         p.wait_for_function("window.__agent.files.length === 1 && window.__agent.files[0].state === 'ready'", timeout=15000)
