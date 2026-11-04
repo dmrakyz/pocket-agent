@@ -225,11 +225,8 @@ def kimi_reasoning_effort(thinking, effort=None) -> str:
     """Map Pocket Agent's Off/Medium/High control to Kimi's always-on low/high/max reasoning."""
     if thinking is False:
         return "low"                 # Kimi cannot disable thinking; use its lightest setting
-    if str(effort or "").lower() in ("medium", "med"):
-        return "high"
-    if str(effort or "").lower() == "low":
-        return "low"
-    return "max"                     # Pocket Agent's default High maps to Kimi's maximum effort
+    # K3.1 Pro supports only "max"; the model always reasons.
+    return "max"
 
 
 def request_body(prov_name: str, model: str, messages, tools, thinking, max_tokens, effort=None) -> dict:
@@ -240,7 +237,7 @@ def request_body(prov_name: str, model: str, messages, tools, thinking, max_toke
         body["tool_choice"] = "auto"
     if prov_name == "kimi":
         # Moonshot uses max_completion_tokens for output caps and rate-limit reservation.
-        body["max_completion_tokens"] = int(max_tokens or 16384)
+        body["max_completion_tokens"] = int(max_tokens or 131072)
         body["reasoning_effort"] = kimi_reasoning_effort(thinking, effort)
     elif max_tokens:
         body["max_tokens"] = max_tokens
