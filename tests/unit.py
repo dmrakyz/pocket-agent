@@ -1229,7 +1229,9 @@ def kimi_config_test():
         assert "_ts" not in kimi_body["messages"][0] and "tool_calls" in kimi_body["messages"][0]
         other_body = _llm.request_body("nvidia", "ultra", history, [], True, 1000, "high")
         assert "reasoning_content" not in other_body["messages"][0] and other_body["max_tokens"] == 1000
-        assert _llm.kimi_reasoning_effort(False, "high") == "max"
+        assert _llm.kimi_reasoning_effort(False, "high") == "low"
+        assert _llm.kimi_reasoning_effort(True, "medium") == "high"
+        assert _llm.kimi_reasoning_effort(True, "high") == "max"
         print("PASS Kimi single-account configuration, payload preservation and model priority")
     finally:
         for k, v in old.items():
