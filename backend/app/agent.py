@@ -320,7 +320,13 @@ async def _run_plugin_hooks(root: Path, event: str, name: str, args: dict, extra
             continue
         payload = json.dumps({"hook_event_name": event, "tool_name": px.CLAUDE_NAME.get(name, name), "tool_input": args, "cwd": str(root)})[:60000]
         env = workspace.clean_env() | {"TOOL_NAME": name, "TOOL_INPUT": json.dumps(args)[:8000], "CLAUDE_PROJECT_DIR": str(root), **(extra_env or {})}
-        p = await asyncio.create_subprocess_shell(h["command"], cwd=str(root), env=env, executable="/bin/bash", stdin=asyncio.subprocess.PIPE,
+        cmd = h["command"]
+        if h.get("plugin"):
+            tools._materialize_plugins()
+            pr = str(tools.PLUGIN_DIR / h["plugin"])
+            env["CLAUDE_PLUGIN_ROOT"] = pr
+            cmd = cmd.replace("${CLAUDE_PLUGIN_ROOT}", pr).replace("$CLAUDE_PLUGIN_ROOT", pr)
+        p = await asyncio.create_subprocess_shell(cmd, cwd=str(root), env=env, executable="/bin/bash", stdin=asyncio.subprocess.PIPE,
                                                   stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT)
         try:
             out, _ = await asyncio.wait_for(p.communicate(payload.encode()), timeout=60)

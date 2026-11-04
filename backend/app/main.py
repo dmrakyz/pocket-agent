@@ -1155,6 +1155,7 @@ async def skills_discover(req: Request):
         it["installed"] = it["name"] in havea
     for it in d["hooks"]:
         it["installed"] = it["id"] in haveh
+        it["plugin_files"] = sorted(it.get("plugin_files") or [])
     for it in d["mcp"]:
         it["installed"] = it["name"] in havem
     return d
@@ -1226,8 +1227,17 @@ async def skills_install(req: Request):
             if it["problem"] or len(hk) >= px.MAX_HOOKS:
                 skipped.append(f"hook {it['event']} {it['matcher']}: {it['problem'] or 'hook limit reached'}")
                 continue
-            hk = [h for h in hk if h.get("id") != it["id"]] + [{"id": it["id"], "event": it["event"], "matcher": it["matcher"], "regex": it["regex"],
-                                                                "command": it["command"], "enabled": False, "source": f"{src}:{it['path']}"}]
+            ent = {"id": it["id"], "event": it["event"], "matcher": it["matcher"], "regex": it["regex"],
+                   "command": it["command"], "enabled": False, "source": f"{src}:{it['path']}"}
+            if it.get("plugin_files"):
+                pf = kv.get("plugin_files", {}) or {}
+                pf[it["plugin_id"]] = si.clean_files(it["plugin_files"], allow_skill_md=True)
+                if len(pf) > 10:
+                    skipped.append(f"hook {it['event']} {it['matcher']}: too many plugins with files already installed")
+                    continue
+                await kv.put("plugin_files", pf)
+                ent["plugin"] = it["plugin_id"]
+            hk = [h for h in hk if h.get("id") != it["id"]] + [ent]
             saved.append(f"hook {it['event']} (off)")
     if len(saved) > n0:
         await kv.put("hooks", hk)
@@ -1259,7 +1269,7 @@ async def extras_list():
     c, a, h = kv.get("commands", {}) or {}, kv.get("agents", {}) or {}, kv.get("hooks", []) or []
     return {"commands": [{"name": n, "description": v.get("description", ""), "body": v.get("body", ""), "source": v.get("source", "")} for n, v in sorted(c.items())],
             "agents": [{"name": n, "description": v.get("description", ""), "prompt": v.get("prompt", ""), "can_edit": bool(v.get("can_edit")), "source": v.get("source", "")} for n, v in sorted(a.items())],
-            "hooks": [{k: x.get(k) for k in ("id", "event", "matcher", "command", "enabled", "source")} for x in h]}
+            "hooks": [{k: x.get(k) for k in ("id", "event", "matcher", "command", "enabled", "source", "plugin")} for x in h]}
 
 
 @app.delete("/api/extras/{kind}/{name}", dependencies=[Depends(auth)])
@@ -1273,8 +1283,13 @@ async def extras_delete(kind: str, name: str):
         if kind == "commands":
             tools._materialize_user_commands()
     elif kind == "hooks":
-        items = kv.get("hooks", []) or []
-        await kv.put("hooks", [x for x in items if x.get("id") != name])
+        items = [x for x in (kv.get("hooks", []) or []) if x.get("id") != name]
+        await kv.put("hooks", items)
+        pf = kv.get("plugin_files", {}) or {}
+        keep = {x.get("plugin") for x in items}
+        if any(k not in keep for k in pf):
+            await kv.put("plugin_files", {k: v for k, v in pf.items() if k in keep})
+            tools._materialize_plugins()
     else:
         raise HTTPException(404, "unknown kind")
     return {"ok": True}

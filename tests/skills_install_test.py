@@ -40,6 +40,7 @@ FILES = {
     "hooks/hooks.json": json.dumps({"hooks": {"PreToolUse": [{"matcher": "Bash", "hooks": [{"type": "command", "command": "cat >/dev/null; echo nope >&2; exit 2"}]}],
                                      "SessionStart": [{"hooks": [{"type": "command", "command": "echo hi"}]}],
                                      "PostToolUse": [{"matcher": "Edit|Write", "hooks": [{"type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/fmt.sh"}]}]}}),
+    "fmt.sh": "#!/bin/bash\ncat >/dev/null\necho script-ran-from-plugin >&2\nexit 2\n",
     ".mcp.json": json.dumps({"mcpServers": {"docs": {"type": "http", "url": "https://mcp.example.com/mcp"}, "local": {"command": "npx", "args": ["x"]},
                                            "old": {"type": "sse", "url": "https://x.com/sse"}}}),
 }
@@ -71,7 +72,9 @@ assert d["commands"][1]["problem"] and not d["commands"][0]["problem"]
 ag = d["agents"][0]; assert ag["name"] == "security-reviewer" and ag["can_edit"] and any("model" in n for n in ag["notes"])
 hk = {(h["event"], h["matcher"]): h for h in d["hooks"]}
 assert not hk[("PreToolUse", "Bash")]["problem"] and hk[("PreToolUse", "Bash")]["regex"] == "bash"
-assert "does not exist" in hk[("SessionStart", "*")]["problem"] and "plugin" in hk[("PostToolUse", "Edit|Write")]["problem"]
+assert "does not exist" in hk[("SessionStart", "*")]["problem"]
+pe = hk[("PostToolUse", "Edit|Write")]
+assert not pe["problem"] and "fmt.sh" in pe["plugin_files"] and "fmt.sh" in pe["preview"] and pe["plugin_id"], pe
 mc = {m["name"]: m for m in d["mcp"]}
 assert not mc["docs"]["problem"] and "stdio" in mc["local"]["problem"] and "SSE" in mc["old"]["problem"]
 d2 = asyncio.run(si.discover("o/r/skills/design"))
@@ -126,6 +129,13 @@ async def rt():
     assert await agent.run_hooks(root, "PreToolUse", "read", {}) is None and await agent.run_hooks(root, "PostToolUse", "bash", {}) is None
     hk["command"] = "exit 1"; await kv.put("hooks", [hk])
     assert await agent.run_hooks(root, "PreToolUse", "bash", {}) is None
+    # plugin-script hook runs from materialized plugin dir
+    await kv.put("plugin_files", {"pl": {"fmt.sh": FILES["fmt.sh"]}})
+    ph = {"id": "h2", "event": "PostToolUse", "regex": "edit|multi_edit|write", "command": "${CLAUDE_PLUGIN_ROOT}/fmt.sh", "enabled": True, "plugin": "pl"}
+    await kv.put("hooks", [ph])
+    r = await agent.run_hooks(root, "PostToolUse", "write", {}); assert r and "script-ran-from-plugin" in r, r
+    await kv.put("plugin_files", {}); tools._materialize_plugins()
+    assert not (tools.PLUGIN_DIR / "pl").exists()
 asyncio.run(rt())
 print("skills_install offline OK")
 

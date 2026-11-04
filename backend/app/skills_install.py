@@ -212,19 +212,39 @@ async def _extras(c, owner, repo, sha, entries, sem) -> dict:
     for p in mc:
         if got.get(p):
             out["mcp"] += px.mcp_items(got[p], p)
+    # hooks that call scripts inside the plugin: fetch the plugin's own text files so they can be read now and run later
+    for hk_ in out["hooks"]:
+        if "CLAUDE_PLUGIN_ROOT" not in hk_["command"] or hk_["event"] not in px.HOOK_EVENTS or not hk_["regex"]:
+            continue
+        p = hk_["path"]
+        root = p[:-len("/hooks/hooks.json")] if p.endswith("/hooks/hooks.json") else ("" if p == "hooks/hooks.json" else posixpath.dirname(p))
+        want = [e for e in entries if (not root or e["path"].startswith(root + "/")) and "/.git/" not in "/" + e["path"] and "node_modules/" not in e["path"]
+                and posixpath.splitext(e["path"])[1].lower() in TEXT_EXT and e.get("size", 0) <= MAX_FILE]
+        total, pick = 0, []
+        for e in want:
+            if len(pick) < 60 and total + e.get("size", 0) <= MAX_SKILL_TOTAL:
+                total += e.get("size", 0); pick.append(e["path"])
+        got2 = dict(await asyncio.gather(*[get(q) for q in pick]))
+        pf = {(q[len(root) + 1:] if root else q): t for q, t in got2.items() if t is not None}
+        if pf:
+            hk_["plugin_files"] = pf
+            hk_["plugin_id"] = px.clean_name(f"{owner}-{repo}-{root}", 40) or "plugin"
+            hk_["problem"] = ""
+            hk_["notes"] = [f"runs a script from the plugin; {len(pf)} plugin file(s) are installed with it (read them below). Switched OFF after install."]
+            hk_["preview"] = hk_["command"] + "\n\n" + "\n".join(f"===== {k} =====\n{v[:6000]}" for k, v in list(pf.items())[:12])[:30000]
     for key, field in (("commands", "body"), ("agents", "prompt"), ("hooks", "command")):
         for it in out[key]:
-            it["warnings"] = warnings_for([it[field]])
+            it["warnings"] = warnings_for([it[field]] + list((it.get("plugin_files") or {}).values()))
     for it in out["mcp"]:
         it["warnings"] = []
     return out
 
 
-def clean_files(files: dict) -> dict:
+def clean_files(files: dict, allow_skill_md: bool = False) -> dict:
     out, total = {}, 0
     for rel, txt in (files or {}).items():
         rel = str(rel).replace("\\", "/")
-        if (rel.startswith("/") or ".." in rel.split("/") or rel.upper() == "SKILL.MD" or not re.fullmatch(r"[\w./ -]{1,120}", rel)
+        if (rel.startswith("/") or ".." in rel.split("/") or (rel.upper() == "SKILL.MD" and not allow_skill_md) or not re.fullmatch(r"[\w./ -]{1,120}", rel)
                 or posixpath.splitext(rel)[1].lower() not in TEXT_EXT or not isinstance(txt, str) or len(txt) > MAX_FILE):
             continue
         total += len(txt)

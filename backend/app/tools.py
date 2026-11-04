@@ -733,6 +733,33 @@ def _materialize_user_skills():
                 shutil.rmtree(d, ignore_errors=True)
 
 
+PLUGIN_DIR = Path(config.DATA_DIR) / "plugins"
+
+
+def _materialize_plugins() -> None:
+    """Files of installed plugins whose hooks call scripts (kv `plugin_files`), written fresh because Render has no persistent disk."""
+    from . import kv
+    items = kv.get("plugin_files", {}) or {}
+    for pid, files in items.items():
+        base = (PLUGIN_DIR / pid).resolve()
+        for rel, txt in files.items():
+            p = (base / rel).resolve()
+            if base not in p.parents:
+                continue
+            try:
+                if not p.exists() or p.read_text("utf-8", "replace") != txt:
+                    p.parent.mkdir(parents=True, exist_ok=True)
+                    p.write_text(txt, "utf-8")
+                if p.suffix in (".sh", ".py", ".js", ".bash"):
+                    p.chmod(0o755)
+            except OSError:
+                pass
+    if PLUGIN_DIR.is_dir():
+        for d in PLUGIN_DIR.iterdir():
+            if d.is_dir() and d.name not in items:
+                shutil.rmtree(d, ignore_errors=True)
+
+
 USER_COMMANDS = Path(config.DATA_DIR) / "usercommands"
 
 

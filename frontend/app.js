@@ -2033,7 +2033,7 @@ function installSkills() {
       extra: (it) => it.files_list.length ? h('div.dim', { style: 'font-size:12px', text: 'bundled: ' + it.files_list.join(', ') }) : '' });
     sect('Slash commands', found.commands, 'commands', { key: (it) => it.path, title: (it) => '/' + it.name, sub: (it) => it.description, text: (it) => it.body });
     sect('Sub-agents', found.agents, 'agents', { key: (it) => it.path, title: (it) => it.name, sub: (it) => it.description, text: (it) => it.prompt });
-    sect('Hooks (installed switched off)', found.hooks, 'hooks', { key: (it) => it.id, title: (it) => it.event + ' · ' + it.matcher, sub: () => '', text: (it) => it.command });
+    sect('Hooks (installed switched off)', found.hooks, 'hooks', { key: (it) => it.id, title: (it) => it.event + ' · ' + it.matcher, sub: (it) => it.plugin_files.length ? 'ships ' + it.plugin_files.length + ' plugin file(s)' : '', text: (it) => it.preview || it.command });
     sect('MCP servers → Connectors', found.mcp, 'mcp', { key: (it) => it.name, title: (it) => it.name, sub: (it) => it.url || it.command, text: (it) => it.url || it.command });
     if (total) kids.push(h('button', { style: 'margin-top:12px', text: 'Install ticked', onclick: async (e) => {
       const pick = (k) => groups[k].filter(([cb]) => cb.checked).map(([, v]) => v);
