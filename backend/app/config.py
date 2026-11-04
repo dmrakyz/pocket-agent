@@ -80,8 +80,13 @@ def providers() -> dict:
     """OpenAI-compatible providers. Anything with a key set shows up in the model picker."""
     p = {}
     # Accept both the app's KIMI_* names and Moonshot's common MOONSHOT_* names.
-    kimi_raw = ",".join((env("KIMI_API_KEY"), env("KIMI_API_KEYS"),
-                         env("MOONSHOT_API_KEY"), env("MOONSHOT_API_KEYS")))
+    kimi_values = [env("KIMI_API_KEY"), env("KIMI_API_KEYS"),
+                    env("MOONSHOT_API_KEY"), env("MOONSHOT_API_KEYS")]
+    # Also accept separately named KIMI_API_KEY_1..N / MOONSHOT_API_KEY_1..N entries.
+    for prefix in ("KIMI_API_KEY_", "MOONSHOT_API_KEY_"):
+        kimi_values.extend(v for k, v in sorted(os.environ.items())
+                           if k.startswith(prefix) and k[len(prefix):].isdigit())
+    kimi_raw = ",".join(kimi_values)
     kimi_keys = list(dict.fromkeys(k.strip() for k in kimi_raw.split(",") if k.strip()))
     if kimi_keys:      # same per-key rotation and cooldown behavior as NVIDIA
         p["kimi"] = {"base_url": env("KIMI_BASE_URL") or env("MOONSHOT_BASE_URL", "https://api.moonshot.ai/v1"),
@@ -123,7 +128,7 @@ def mcp_servers() -> list:
 
 
 SECRET_ENV_KEYS = {
-    "APP_PASSWORD", "APP_SECRET", "GITHUB_TOKEN", "NVIDIA_API_KEY", "NVIDIA_API_KEYS", "KIMI_API_KEY", "KIMI_API_KEYS", "MOONSHOT_API_KEY", "MOONSHOT_API_KEYS", "TURSO_TOKEN", "TURSO_URL", "OPENROUTER_API_KEY", "OPENAI_API_KEY",
+    "APP_PASSWORD", "APP_SECRET", "GITHUB_TOKEN", "NVIDIA_API_KEY", "NVIDIA_API_KEYS", "KIMI_API_KEY", "KIMI_API_KEYS", "MOONSHOT_API_KEY", "MOONSHOT_API_KEYS", "KIMI_API_KEY_1", "KIMI_API_KEY_2", "KIMI_API_KEY_3", "KIMI_API_KEY_4", "KIMI_API_KEY_5", "MOONSHOT_API_KEY_1", "MOONSHOT_API_KEY_2", "MOONSHOT_API_KEY_3", "MOONSHOT_API_KEY_4", "MOONSHOT_API_KEY_5", "TURSO_TOKEN", "TURSO_URL", "OPENROUTER_API_KEY", "OPENAI_API_KEY",
     "ANTHROPIC_API_KEY", "GEMINI_API_KEY", "PROVIDERS_JSON", "MCP_SERVERS", "TAVILY_API_KEY", "BRAVE_API_KEY",
     "TELEGRAM_BOT_TOKEN",
     "RESEND_API_KEY",
