@@ -59,7 +59,7 @@ SUBAGENT_PARALLEL = int(env("SUBAGENT_PARALLEL", "4"))     # how many run at the
 MAX_SUBAGENT_DEPTH = int(env("MAX_SUBAGENT_DEPTH", "2"))   # 1 = subagents can't spawn more
 MAX_UPLOAD_MB = int(env("MAX_UPLOAD_MB", "50"))
 # Requests per minute per provider. Limits apply per key for providers with key pools.
-# Kimi's free API tier is commonly 2 RPM per account; each independent account gets its own window.
+# Kimi's local default is 2 RPM per key; set LLM_RPM to the per-key limit you want to enforce.
 # Override: LLM_RPM='{"nvidia": 30, "kimi": 2, "openrouter": 0}' (0 = unlimited)
 def rpm_limits() -> dict:
     d = {"nvidia": 35, "kimi": 2}
