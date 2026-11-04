@@ -79,9 +79,12 @@ BRAVE_API_KEY = env("BRAVE_API_KEY")
 def providers() -> dict:
     """OpenAI-compatible providers. Anything with a key set shows up in the model picker."""
     p = {}
-    kimi_keys = list(dict.fromkeys([k.strip() for k in (env("KIMI_API_KEY") + "," + env("KIMI_API_KEYS")).split(",") if k.strip()]))
+    # Accept both the app's KIMI_* names and Moonshot's common MOONSHOT_* names.
+    kimi_raw = ",".join((env("KIMI_API_KEY"), env("KIMI_API_KEYS"),
+                         env("MOONSHOT_API_KEY"), env("MOONSHOT_API_KEYS")))
+    kimi_keys = list(dict.fromkeys(k.strip() for k in kimi_raw.split(",") if k.strip()))
     if kimi_keys:      # same per-key rotation and cooldown behavior as NVIDIA
-        p["kimi"] = {"base_url": env("KIMI_BASE_URL", "https://api.moonshot.ai/v1"),
+        p["kimi"] = {"base_url": env("KIMI_BASE_URL") or env("MOONSHOT_BASE_URL", "https://api.moonshot.ai/v1"),
                      "api_key": kimi_keys[0], "api_keys": kimi_keys}
     nkeys = list(dict.fromkeys([k.strip() for k in (env("NVIDIA_API_KEY") + "," + env("NVIDIA_API_KEYS")).split(",") if k.strip()]))
     if nkeys:      # several keys rotate: each has its own rate limit (see llm.KeyPool)
@@ -120,7 +123,7 @@ def mcp_servers() -> list:
 
 
 SECRET_ENV_KEYS = {
-    "APP_PASSWORD", "APP_SECRET", "GITHUB_TOKEN", "NVIDIA_API_KEY", "NVIDIA_API_KEYS", "KIMI_API_KEY", "TURSO_TOKEN", "TURSO_URL", "OPENROUTER_API_KEY", "OPENAI_API_KEY",
+    "APP_PASSWORD", "APP_SECRET", "GITHUB_TOKEN", "NVIDIA_API_KEY", "NVIDIA_API_KEYS", "KIMI_API_KEY", "KIMI_API_KEYS", "MOONSHOT_API_KEY", "MOONSHOT_API_KEYS", "TURSO_TOKEN", "TURSO_URL", "OPENROUTER_API_KEY", "OPENAI_API_KEY",
     "ANTHROPIC_API_KEY", "GEMINI_API_KEY", "PROVIDERS_JSON", "MCP_SERVERS", "TAVILY_API_KEY", "BRAVE_API_KEY",
     "TELEGRAM_BOT_TOKEN",
     "RESEND_API_KEY",
