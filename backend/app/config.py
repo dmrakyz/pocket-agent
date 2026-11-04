@@ -58,10 +58,11 @@ MAX_SUBAGENTS = int(env("MAX_SUBAGENTS", "12"))            # per user turn, acro
 SUBAGENT_PARALLEL = int(env("SUBAGENT_PARALLEL", "4"))     # how many run at the same time
 MAX_SUBAGENT_DEPTH = int(env("MAX_SUBAGENT_DEPTH", "2"))   # 1 = subagents can't spawn more
 MAX_UPLOAD_MB = int(env("MAX_UPLOAD_MB", "50"))
-# Requests per minute per provider. NVIDIA's free tier is ~40 RPM; stay under it.
-# Override: LLM_RPM='{"nvidia": 30, "openrouter": 0}' (0 = unlimited)
+# Requests per minute per provider. Limits apply per key for providers with key pools.
+# Kimi's free API tier is commonly 2 RPM per account; each independent account gets its own window.
+# Override: LLM_RPM='{"nvidia": 30, "kimi": 2, "openrouter": 0}' (0 = unlimited)
 def rpm_limits() -> dict:
-    d = {"nvidia": 35}
+    d = {"nvidia": 35, "kimi": 2}
     raw = env("LLM_RPM")
     if raw:
         try:
@@ -78,6 +79,10 @@ BRAVE_API_KEY = env("BRAVE_API_KEY")
 def providers() -> dict:
     """OpenAI-compatible providers. Anything with a key set shows up in the model picker."""
     p = {}
+    kkeys = list(dict.fromkeys([k.strip() for k in (env("KIMI_API_KEY") + "," + env("KIMI_API_KEYS")).split(",") if k.strip()]))
+    if kkeys:
+        p["kimi"] = {"base_url": env("KIMI_BASE_URL", "https://api.moonshot.ai/v1"),
+                     "api_key": kkeys[0], "api_keys": kkeys}
     nkeys = list(dict.fromkeys([k.strip() for k in (env("NVIDIA_API_KEY") + "," + env("NVIDIA_API_KEYS")).split(",") if k.strip()]))
     if nkeys:      # several keys rotate: each has its own rate limit (see llm.KeyPool)
         p["nvidia"] = {"base_url": env("NVIDIA_BASE_URL", "https://integrate.api.nvidia.com/v1"),
@@ -115,7 +120,7 @@ def mcp_servers() -> list:
 
 
 SECRET_ENV_KEYS = {
-    "APP_PASSWORD", "APP_SECRET", "GITHUB_TOKEN", "NVIDIA_API_KEY", "NVIDIA_API_KEYS", "TURSO_TOKEN", "TURSO_URL", "OPENROUTER_API_KEY", "OPENAI_API_KEY",
+    "APP_PASSWORD", "APP_SECRET", "GITHUB_TOKEN", "NVIDIA_API_KEY", "NVIDIA_API_KEYS", "KIMI_API_KEY", "KIMI_API_KEYS", "TURSO_TOKEN", "TURSO_URL", "OPENROUTER_API_KEY", "OPENAI_API_KEY",
     "ANTHROPIC_API_KEY", "GEMINI_API_KEY", "PROVIDERS_JSON", "MCP_SERVERS", "TAVILY_API_KEY", "BRAVE_API_KEY",
     "TELEGRAM_BOT_TOKEN",
     "RESEND_API_KEY",
