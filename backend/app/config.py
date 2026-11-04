@@ -79,10 +79,10 @@ BRAVE_API_KEY = env("BRAVE_API_KEY")
 def providers() -> dict:
     """OpenAI-compatible providers. Anything with a key set shows up in the model picker."""
     p = {}
-    kimi_key = env("KIMI_API_KEY")
-    if kimi_key:
+    kimi_keys = list(dict.fromkeys([k.strip() for k in (env("KIMI_API_KEY") + "," + env("KIMI_API_KEYS")).split(",") if k.strip()]))
+    if kimi_keys:      # same per-key rotation and cooldown behavior as NVIDIA
         p["kimi"] = {"base_url": env("KIMI_BASE_URL", "https://api.moonshot.ai/v1"),
-                     "api_key": kimi_key}
+                     "api_key": kimi_keys[0], "api_keys": kimi_keys}
     nkeys = list(dict.fromkeys([k.strip() for k in (env("NVIDIA_API_KEY") + "," + env("NVIDIA_API_KEYS")).split(",") if k.strip()]))
     if nkeys:      # several keys rotate: each has its own rate limit (see llm.KeyPool)
         p["nvidia"] = {"base_url": env("NVIDIA_BASE_URL", "https://integrate.api.nvidia.com/v1"),
