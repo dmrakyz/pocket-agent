@@ -143,9 +143,15 @@ async def list_models(force: bool = False) -> list[dict]:
             return [{"ref": f"{name}:(error)", "provider": name, "id": f"(could not list: {type(e).__name__})",
                      "error": True}]
 
-    results = await asyncio.gather(*[one(n, p) for n, p in config.providers().items()])
-    for r in results:
-        out.extend(r)
+    providers = config.providers()
+    results = await asyncio.gather(*[one(n, p) for n, p in providers.items()])
+    for name, models in zip(providers, results):
+        out.extend(models)
+        # Moonshot's model-list endpoint can be unavailable for newly provisioned keys
+        # or restricted deployments. Keep the current direct-API model selectable;
+        # the model's "test" action still verifies the key and actual access.
+        if name == "kimi" and not any(not m.get("error") for m in models):
+            out.append({"ref": "kimi:kimi-k2.6", "provider": "kimi", "id": "kimi-k2.6"})
     out.sort(key=lambda m: (m["provider"], m["id"]))
     _models_cache["v"] = out
     return out
@@ -161,11 +167,12 @@ def pick(models: list[dict], *needles: str) -> Optional[str]:
 
 
 def select_default_model(models: list[dict]) -> str:
-    """Prefer standard Kimi K3.1 Pro, then Nemotron Ultra, then other available models."""
+    """Prefer current Moonshot Kimi K2.6, then Kimi K3.1 Pro, then Nemotron Ultra."""
     if config.DEFAULT_MODEL:
         return config.DEFAULT_MODEL
-    kimi = next((m for m in models if not m.get("error") and m.get("provider") == "kimi"
-                 and m.get("id") == "kimi-k3.1-pro"), None)
+    kimi = next((m for model_id in ("kimi-k2.6", "kimi-k3", "kimi-k3.1-pro")
+                 for m in models if not m.get("error") and m.get("provider") == "kimi"
+                 and m.get("id") == model_id), None)
     if kimi:
         return kimi["ref"]
     return pick(models, "nemotron-3-ultra", "ultra", "nemotron-3.5-super", "super") or (models[0]["ref"] if models else "")
