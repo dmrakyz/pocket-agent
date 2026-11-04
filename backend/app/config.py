@@ -79,10 +79,10 @@ BRAVE_API_KEY = env("BRAVE_API_KEY")
 def providers() -> dict:
     """OpenAI-compatible providers. Anything with a key set shows up in the model picker."""
     p = {}
-    kkeys = list(dict.fromkeys([k.strip() for k in (env("KIMI_API_KEY") + "," + env("KIMI_API_KEYS")).split(",") if k.strip()]))
-    if kkeys:
+    kimi_key = env("KIMI_API_KEY")
+    if kimi_key:
         p["kimi"] = {"base_url": env("KIMI_BASE_URL", "https://api.moonshot.ai/v1"),
-                     "api_key": kkeys[0], "api_keys": kkeys}
+                     "api_key": kimi_key}
     nkeys = list(dict.fromkeys([k.strip() for k in (env("NVIDIA_API_KEY") + "," + env("NVIDIA_API_KEYS")).split(",") if k.strip()]))
     if nkeys:      # several keys rotate: each has its own rate limit (see llm.KeyPool)
         p["nvidia"] = {"base_url": env("NVIDIA_BASE_URL", "https://integrate.api.nvidia.com/v1"),
@@ -120,7 +120,7 @@ def mcp_servers() -> list:
 
 
 SECRET_ENV_KEYS = {
-    "APP_PASSWORD", "APP_SECRET", "GITHUB_TOKEN", "NVIDIA_API_KEY", "NVIDIA_API_KEYS", "KIMI_API_KEY", "KIMI_API_KEYS", "TURSO_TOKEN", "TURSO_URL", "OPENROUTER_API_KEY", "OPENAI_API_KEY",
+    "APP_PASSWORD", "APP_SECRET", "GITHUB_TOKEN", "NVIDIA_API_KEY", "NVIDIA_API_KEYS", "KIMI_API_KEY", "TURSO_TOKEN", "TURSO_URL", "OPENROUTER_API_KEY", "OPENAI_API_KEY",
     "ANTHROPIC_API_KEY", "GEMINI_API_KEY", "PROVIDERS_JSON", "MCP_SERVERS", "TAVILY_API_KEY", "BRAVE_API_KEY",
     "TELEGRAM_BOT_TOKEN",
     "RESEND_API_KEY",
