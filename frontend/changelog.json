@@ -13,7 +13,8 @@
    "Connectors: one-tap Notion, Linear, Stripe, GitHub; the agent knows their official URLs",
    "Back-tap / Action Button: new step-by-step recipes, including a voice one that talks back, and a free \"ping\" test",
    "Settings → Skills → Install from GitHub: pull whole plugins (skills, slash commands, sub-agents, hooks, MCP servers), read them first, tick what you want; hooks arrive switched off",
-   "Settings → Etsy: connect your shop with Etsy's official login; the agent researches, drafts and uploads digital listings, and asks before anything goes live"
+   "Settings → Etsy: connect your shop with Etsy's official login; the agent researches, drafts and uploads digital listings, and asks before anything goes live",
+   "Settings → Lemon Squeezy: sell digital products; the agent researches a niche, builds and tests the product, writes the listing kit and storefront, and watches orders (refunds ask you)"
   ]
  },
  {

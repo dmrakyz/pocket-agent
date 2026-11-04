@@ -24,7 +24,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from starlette.background import BackgroundTask
 
 from .browser import browser, BrowserError
-from . import agent, app_act, autoremember, apps, backup, config, db, etsy, evals, forge, instagram, kv, llm, mcp_server, selftest, shortcut, mcp, memory, timectx, oauth, perms, push, routines, store, telegram, tools, usage, watchers, workspace, world
+from . import agent, app_act, autoremember, apps, backup, config, db, etsy, evals, forge, instagram, kv, lemonsqueezy, llm, mcp_server, selftest, shortcut, mcp, memory, timectx, oauth, perms, push, routines, store, telegram, tools, usage, watchers, workspace, world
 
 mcp_client = mcp.MCP()
 agent.MCP = mcp_client
@@ -1569,6 +1569,12 @@ async def mcp_server_token():
 async def mcp_server_revoke():
     await mcp_server.revoke()
     return {"enabled": False}
+
+
+# ------------------------------------------------------------------ lemon squeezy
+@app.get("/api/lemonsqueezy", dependencies=[Depends(auth)])
+async def ls_status():
+    return await lemonsqueezy.status()
 
 
 # ------------------------------------------------------------------ etsy

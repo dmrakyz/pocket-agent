@@ -33,6 +33,8 @@ INSTAGRAM_VERIFY_TOKEN = env("INSTAGRAM_VERIFY_TOKEN")      # optional; one is d
 INSTAGRAM_ALLOWED_IDS = {x for x in env("INSTAGRAM_ALLOWED_IDS").replace(" ", "").split(",") if x.isdigit()}
 ETSY_API_KEY = env("ETSY_API_KEY")                # Etsy app keystring (Open API v3)
 ETSY_SHARED_SECRET = env("ETSY_SHARED_SECRET")  # optional: Etsy asks for keystring:secret on newer apps
+LEMONSQUEEZY_API_KEY = env("LEMONSQUEEZY_API_KEY")   # Lemon Squeezy dashboard → Settings → API
+LEMONSQUEEZY_STORE_ID = env("LEMONSQUEEZY_STORE_ID")   # optional; defaults to the first store
 RESEND_API_KEY = env("RESEND_API_KEY")          # enables send_email (HTTPS; Render free blocks SMTP)
 MAIL_FROM = env("MAIL_FROM", "Pocket Agent <onboarding@resend.dev>")
 MAIL_REPLY_TO = env("MAIL_REPLY_TO")
@@ -118,6 +120,7 @@ SECRET_ENV_KEYS = {
     "TELEGRAM_BOT_TOKEN",
     "RESEND_API_KEY",
     "ETSY_API_KEY",
+    "LEMONSQUEEZY_API_KEY",
     "ETSY_SHARED_SECRET",
     "INSTAGRAM_ACCESS_TOKEN",
     "INSTAGRAM_APP_SECRET",

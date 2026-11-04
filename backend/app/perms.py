@@ -27,7 +27,7 @@ NEVER_ALWAYS = {"rm", "sudo", "dd", "chmod", "chown", "bash", "sh", "eval", "cur
                 "kill", "pkill", "mv", "env", "xargs", "python", "python3", "node", "perl", "ruby", "git"}
 
 
-ALWAYS_ASK = {"watch_create", "watch_remove", "publish_pages", "connector_add", "routine_create", "routine_update", "world_create", "send_email", "forge_tool", "skill_create", "etsy_update"}
+ALWAYS_ASK = {"watch_create", "watch_remove", "publish_pages", "connector_add", "routine_create", "routine_update", "world_create", "send_email", "forge_tool", "skill_create", "etsy_update", "ls_refund"}
 
 
 def _segments(cmd: str) -> list[str] | None:
@@ -134,6 +134,12 @@ def decide(session: dict, tool: str, args: dict) -> tuple[str, str]:
         if mode == "plan":
             return "deny", "Plan mode is read-only. Propose the connector in your plan instead."
         return "ask", "Add this connector?"
+    if tool == "ls_checkout":   # makes a payment link; nothing is charged and nothing is published
+        return ("deny", "Plan mode is read-only. Describe the checkout in your plan instead.") if mode == "plan" else ("allow", "")
+    if tool == "ls_refund":     # moves real money
+        if mode == "plan":
+            return "deny", "Plan mode is read-only. Describe the refund in your plan instead."
+        return "ask", "Refund this order?"
     if tool == "etsy_update":   # buyers see it: asks every time, even in YOLO or with a saved rule
         if mode == "plan":
             return "deny", "Plan mode is read-only. Describe the listing change in your plan instead."
