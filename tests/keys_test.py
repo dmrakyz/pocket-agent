@@ -2,7 +2,8 @@
 import asyncio, json, os, sys, threading, time
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "backend"))
 os.environ.update({"APP_PASSWORD": "pw", "DATA_DIR": "/tmp/agent-keys", "NVIDIA_API_KEY": "kA", "NVIDIA_API_KEYS": "kB, kC,kA",
-                   "NVIDIA_BASE_URL": "http://127.0.0.1:9190/v1", "LLM_RPM": json.dumps({"nvidia": 4})})
+                   "NVIDIA_BASE_URL": "http://127.0.0.1:9190/v1", "KIMI_API_KEY": "mA", "KIMI_API_KEYS": "mB,mC,mA",
+                   "KIMI_BASE_URL": "http://127.0.0.1:9190/v1", "LLM_RPM": json.dumps({"nvidia": 4, "kimi": 4})})
 import uvicorn
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, StreamingResponse
@@ -27,11 +28,11 @@ def check(n, c, x=""):
     print(("PASS " if c else "FAIL ") + n + (f"  [{x}]" if (x and not c) else "")); 
     if not c: fails.append(n)
 
-async def ask():
+async def ask(provider="nvidia"):
     notes = []
     async def n(t): notes.append(t)
     async def nop(_): pass
-    r = await llm.chat("nvidia:m", [{"role": "user", "content": "x"}], [], nop, nop, n)
+    r = await llm.chat(f"{provider}:m", [{"role": "user", "content": "x"}], [], nop, nop, n)
     return r["message"]["content"], notes
 
 async def main():
@@ -58,5 +59,17 @@ async def main():
     except Exception as e:
         check("all keys limited -> error surfaces after retries", "429" in str(e), str(e))
     check("secret env var is hidden from subprocesses", "NVIDIA_API_KEYS" in config.SECRET_ENV_KEYS)
+    # Kimi uses the same KeyPool implementation and per-key behavior.
+    check("Kimi keys are de-duplicated and ordered", config.providers()["kimi"]["api_keys"] == ["mA", "mB", "mC"], str(config.providers()["kimi"]["api_keys"]))
+    SEEN.clear(); BAD.clear(); llm._pools.clear()
+    for _ in range(6): await ask("kimi")
+    check("Kimi load spreads over all keys", {k: SEEN.count(k) for k in ("mA", "mB", "mC")} == {"mA": 2, "mB": 2, "mC": 2}, str(SEEN))
+    SEEN.clear(); llm._pools.clear(); BAD.update({"mA", "mB"})
+    t0 = time.monotonic()
+    kimi_outs = [await ask("kimi") for _ in range(3)]
+    check("Kimi 429 immediately switches to a healthy key", time.monotonic() - t0 < 2 and all(o[0] == "hi from mC" for o in kimi_outs), str(kimi_outs))
+    kimi_status = llm.key_status()["kimi"]
+    check("Kimi status reports cooldown without exposing keys", kimi_status[0]["cooling"] > 0 and kimi_status[1]["cooling"] > 0 and "mA" not in json.dumps(kimi_status))
+    check("Kimi key list is hidden from subprocesses", "KIMI_API_KEYS" in config.SECRET_ENV_KEYS)
 asyncio.run(main())
 print("\nALL PASSED" if not fails else "\nFAILED: " + str(fails)); sys.exit(1 if fails else 0)

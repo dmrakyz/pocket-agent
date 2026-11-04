@@ -1,5 +1,15 @@
 [
  {
+  "id": 12,
+  "date": "2026-11-04",
+  "title": "Kimi key rotation",
+  "items": [
+   "Kimi now supports multiple API keys through KIMI_API_KEYS, just like NVIDIA",
+   "Requests spread across the least-busy key; rate-limited keys cool down while another key takes over",
+   "Each key has its own local RPM window and cooldown status"
+  ]
+ },
+ {
   "id": 11,
   "date": "2026-11-04",
   "title": "Kimi K3.1 Pro joins as the primary model",

@@ -29,7 +29,7 @@ GitHub → your avatar → **Settings** → **Developer settings** → **Persona
 | `NVIDIA_API_KEY` | your `nvapi-…` key |
 | `GITHUB_TOKEN` | the token from step 2 |
 
-To enable Kimi K3.1 Pro as the primary model, add one `KIMI_API_KEY` from the Kimi Open Platform to Render's Environment. The server uses `https://api.moonshot.ai/v1`, selects `kimi-k3.1-pro` ahead of Nemotron Ultra, and preserves Kimi's reasoning/tool-call history. The local Kimi throttle defaults to 2 requests/minute; actual provider limits depend on the account tier and model. Do not rotate keys across separate accounts to multiply or evade provider limits. If you have five accounts, choose one authorized account key for this deployment; ask Moonshot about legitimate organization-level quota sharing or a higher limit.
+To enable Kimi K3.1 Pro as the primary model, add `KIMI_API_KEY` from the Kimi Open Platform to Render's Environment. To rotate multiple Kimi keys, add `KIMI_API_KEYS=key2,key3,key4` as a comma-separated list; the first `KIMI_API_KEY` is included automatically, duplicates are removed, and keys are selected by least recent usage. Kimi uses the same per-key RPM windows and 429 cooldown/failover behavior as NVIDIA. The server uses `https://api.moonshot.ai/v1`, selects `kimi-k3.1-pro` ahead of Nemotron Ultra, and preserves Kimi's reasoning/tool-call history. The local Kimi throttle defaults to 2 requests/minute per key; set `LLM_RPM` to tune it to the limits of your accounts.
 
 Deploy. When it's live, copy the URL (like `https://pocket-agent-xxxx.onrender.com`).
 
@@ -76,7 +76,7 @@ Settings → **Push notifications**. The server pings your phone when the agent 
 **iPhone:** this only works from the app added to your Home Screen (iOS 16.4+): open the installed app, then turn it on. Each iPhone/browser subscribes separately.
 
 ## Limits you should know about
-- **Model limits.** NVIDIA's free endpoints are locally throttled to 35 RPM by default. Kimi is locally throttled to 2 RPM by default; its actual API limits vary by account tier and model. These local limits are shared by all agent/sub-agent calls using that provider. HTTP 429 responses trigger cooldown/retry handling, then the configured fallback model (Nemotron Ultra when available).
+- **Model limits.** NVIDIA's local throttle defaults to 35 RPM per key; Kimi defaults to 2 RPM per key. These are local safeguards, not provider guarantees; actual limits depend on the provider account and model. Each key in a pool has its own local window. HTTP 429 responses cool the affected key and trigger an immediate switch when another key is available, followed by normal retry/fallback handling.
 - **512 MB RAM, no persistent disk.** Light builds only. Uncommitted work is lost on restart, so it auto-commits and pushes after every turn.
 - **No ports.** It can't serve a dev server you can open. Ask it to push to a branch and use GitHub Pages instead.
 - **Not included:** browser automation, computer use, local (stdio) MCP servers.
@@ -89,7 +89,7 @@ This server runs shell commands, on the internet, in the same container as your 
 - Fetched web pages are treated as untrusted in the system prompt, but no model is immune to prompt injection.
 
 ## Config reference (Render → Environment)
-`KIMI_API_KEY` (Kimi K3.1 Pro primary; local default 2 RPM) · `DEFAULT_MODEL`, `FALLBACK_MODEL` (`provider:model-id`; auto-picked otherwise: Kimi K3.1 Pro, then Nemotron Ultra) · `OPENROUTER_API_KEY`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, `PROVIDERS_JSON` (any OpenAI-compatible endpoint) · `TAVILY_API_KEY` / `BRAVE_API_KEY` (better search) · `LLM_RPM`, `MAX_STEPS`, `AUTOPILOT_STEPS`, `MAX_SUBAGENTS`, `SUBAGENT_PARALLEL`, `MAX_SUBAGENT_DEPTH`, `COMPACT_AT_TOKENS`, `MAX_UPLOAD_MB`, `BASH_TIMEOUT`.
+`KIMI_API_KEY` + optional `KIMI_API_KEYS` (Kimi K3.1 Pro primary; local default 2 RPM per key) · `DEFAULT_MODEL`, `FALLBACK_MODEL` (`provider:model-id`; auto-picked otherwise: Kimi K3.1 Pro, then Nemotron Ultra) · `OPENROUTER_API_KEY`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, `PROVIDERS_JSON` (any OpenAI-compatible endpoint) · `TAVILY_API_KEY` / `BRAVE_API_KEY` (better search) · `LLM_RPM`, `MAX_STEPS`, `AUTOPILOT_STEPS`, `MAX_SUBAGENTS`, `SUBAGENT_PARALLEL`, `MAX_SUBAGENT_DEPTH`, `COMPACT_AT_TOKENS`, `MAX_UPLOAD_MB`, `BASH_TIMEOUT`.
 
 ## Troubleshooting
 - **Menu → Server** shows what the server sees: providers, whether history sync is on, whether `git` is present.
@@ -312,7 +312,7 @@ If the model says "I can't / I don't have a way to…" and a tool in the live re
 - The Capability check lists every task with a checkbox (All / None); unticked tasks are skipped and the run says how many were excluded. API: `skip` list on `POST /api/eval`, catalog at `GET /api/eval-tasks`.
 
 ### More than one API key
-Set `NVIDIA_API_KEYS=key2,key3` for multiple NVIDIA credentials where the provider permits it. NVIDIA key rotation has independent local windows; this feature is not enabled for Kimi account keys. Kimi uses one `KIMI_API_KEY` per deployment, with its own local RPM throttle. Never use multiple accounts to bypass provider quota limits. Test: `tests/keys_test.py`.
+Set `NVIDIA_API_KEYS=key2,key3` for multiple NVIDIA credentials or `KIMI_API_KEYS=key2,key3` for multiple Kimi credentials; in both cases the singular `*_API_KEY` is included first. Keys are de-duplicated, requests are distributed to the least-busy key, and a key that returns HTTP 429 is cooled down while another available key is tried immediately. Each key has its own local RPM window; configure `LLM_RPM` to match the per-key limit you intend to enforce. Test: `tests/keys_test.py`.
 
 ### Tool retrieval (why it stops denying its tools)
 Telling a model "you have X" in a prompt is what weak models ignore. `backend/app/toolhint.py` does it from the harness instead: before every model call the user's request is matched (names, descriptions, an intent/synonym table) against the *live* tool registry, and the best matches are appended to the system prompt as "Tools that fit this request". Tools that aren't registered are never suggested. Safety nets: the `capabilities` tool (live list), the denial guard (`denial.py`), and the "Knows its own tools" check. Add synonyms in `toolhint.SYN` when a new tool needs plain-language triggers.
