@@ -1202,18 +1202,20 @@ toolhint_test()
 
 
 
-# Kimi K3.1 Pro: single-account quota, provider-specific payload and default priority
+# Kimi K3.1 Pro: multi-key rotation configuration, provider-specific payload and default priority
 from app import config as _cfg, llm as _llm
 def kimi_config_test():
-    old = {k: os.environ.get(k) for k in ("KIMI_API_KEY", "KIMI_BASE_URL", "LLM_RPM")}
+    names = ("KIMI_API_KEY", "KIMI_API_KEYS", "KIMI_BASE_URL", "LLM_RPM")
+    old = {k: os.environ.get(k) for k in names}
     try:
-        os.environ["KIMI_API_KEY"] = "kimi-test-key"
+        os.environ["KIMI_API_KEY"] = "kimi-a"
+        os.environ["KIMI_API_KEYS"] = "kimi-b,kimi-c,kimi-a"
         os.environ["LLM_RPM"] = '{"kimi": 2}'
         p = _cfg.providers()["kimi"]
         assert p["base_url"] == "https://api.moonshot.ai/v1"
-        assert p["api_key"] == "kimi-test-key" and "api_keys" not in p
+        assert p["api_key"] == "kimi-a" and p["api_keys"] == ["kimi-a", "kimi-b", "kimi-c"]
         assert _cfg.rpm_limits()["kimi"] == 2
-        assert "KIMI_API_KEY" in _cfg.SECRET_ENV_KEYS
+        assert {"KIMI_API_KEY", "KIMI_API_KEYS"} <= _cfg.SECRET_ENV_KEYS
         models = [
             {"provider": "nvidia", "id": "nvidia/nemotron-3-ultra", "ref": "nvidia:nvidia/nemotron-3-ultra"},
             {"provider": "kimi", "id": "kimi-k3.1-pro-highspeed", "ref": "kimi:kimi-k3.1-pro-highspeed"},
@@ -1232,7 +1234,7 @@ def kimi_config_test():
         assert _llm.kimi_reasoning_effort(False, "high") == "low"
         assert _llm.kimi_reasoning_effort(True, "medium") == "high"
         assert _llm.kimi_reasoning_effort(True, "high") == "max"
-        print("PASS Kimi single-account configuration, payload preservation and model priority")
+        print("PASS Kimi multi-key configuration, payload preservation and model priority")
     finally:
         for k, v in old.items():
             if v is None: os.environ.pop(k, None)
