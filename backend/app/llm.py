@@ -115,7 +115,7 @@ def split_ref(ref: str):
             return prov, model
     provs = list(config.providers())
     if not provs:
-        raise LLMError("No provider configured. Set NVIDIA_API_KEY (or another *_API_KEY) in Render.")
+        raise LLMError("No provider configured. Set KIMI_API_KEYS, NVIDIA_API_KEY, or another provider key in Render.")
     return provs[0], ref
 
 
@@ -160,18 +160,30 @@ def pick(models: list[dict], *needles: str) -> Optional[str]:
     return None
 
 
-async def default_model() -> str:
+async def select_default_model(models: list[dict]) -> str:
+    """Prefer standard Kimi K3.1 Pro, then Nemotron Ultra, then other available models."""
     if config.DEFAULT_MODEL:
         return config.DEFAULT_MODEL
-    ms = await list_models()
-    return pick(ms, "nemotron-3-ultra", "ultra", "nemotron-3.5-super", "super") or (ms[0]["ref"] if ms else "")
+    kimi = next((m for m in models if not m.get("error") and m.get("provider") == "kimi"
+                 and m.get("id") == "kimi-k3.1-pro"), None)
+    if kimi:
+        return kimi["ref"]
+    return pick(models, "nemotron-3-ultra", "ultra", "nemotron-3.5-super", "super") or (models[0]["ref"] if models else "")
+
+
+def select_fallback_model(models: list[dict]) -> str:
+    """Prefer Nemotron Ultra as Kimi's fallback; use a smaller model only if Ultra is absent."""
+    if config.FALLBACK_MODEL:
+        return config.FALLBACK_MODEL
+    return pick(models, "nemotron-3-ultra", "ultra", "lightning", "nano") or ""
+
+
+async def default_model() -> str:
+    return select_default_model(await list_models())
 
 
 async def fallback_model() -> str:
-    if config.FALLBACK_MODEL:
-        return config.FALLBACK_MODEL
-    ms = await list_models()
-    return pick(ms, "lightning", "nano") or ""
+    return select_fallback_model(await list_models())
 
 
 # ---------- tool-call fallback parsing (some open models emit them as text) ----------
@@ -203,24 +215,46 @@ def parse_inline_tool_calls(content: str):
     return clean.strip(), calls
 
 
-def strip_private(messages: list[dict]) -> list[dict]:
-    """Drop our own bookkeeping keys (anything starting with '_') before sending to a provider."""
-    return [{k: v for k, v in m.items() if not k.startswith("_")} for m in messages]
+def strip_private(messages: list[dict], preserve_reasoning: bool = False) -> list[dict]:
+    """Drop local bookkeeping; Kimi additionally needs its original reasoning_content on later turns."""
+    return [{k: v for k, v in m.items() if not k.startswith("_") and (preserve_reasoning or k != "reasoning_content")}
+            for m in messages]
 
 
-async def _stream_once(prov_name: str, model: str, messages, tools, on_text, on_reasoning, thinking, max_tokens, effort=None):
-    prov = config.providers()[prov_name]
-    body = {"model": model, "messages": strip_private(messages), "stream": True}
+def kimi_reasoning_effort(thinking, effort=None) -> str:
+    """Map Pocket Agent's Off/Medium/High control to Kimi's always-on low/high/max reasoning."""
+    if thinking is False:
+        return "low"                 # Kimi cannot disable thinking; use its lightest setting
+    if str(effort or "").lower() in ("medium", "med"):
+        return "high"
+    if str(effort or "").lower() == "low":
+        return "low"
+    return "max"                     # Pocket Agent's default High maps to Kimi's maximum effort
+
+
+def request_body(prov_name: str, model: str, messages, tools, thinking, max_tokens, effort=None) -> dict:
+    """Build provider-specific chat payloads without leaking one provider's extensions to another."""
+    body = {"model": model, "messages": strip_private(messages, preserve_reasoning=(prov_name == "kimi")), "stream": True}
     if tools:
         body["tools"] = tools
         body["tool_choice"] = "auto"
-    if max_tokens:
+    if prov_name == "kimi":
+        # Moonshot uses max_completion_tokens for output caps and rate-limit reservation.
+        body["max_completion_tokens"] = int(max_tokens or 16384)
+        body["reasoning_effort"] = kimi_reasoning_effort(thinking, effort)
+    elif max_tokens:
         body["max_tokens"] = max_tokens
     if thinking is not None and prov_name == "nvidia":
         kw = {"enable_thinking": bool(thinking)}
         if thinking and effort == "medium":
             kw["medium_effort"] = True     # Nemotron 3 Ultra: fewer reasoning tokens than full thinking
         body["chat_template_kwargs"] = kw
+    return body
+
+
+async def _stream_once(prov_name: str, model: str, messages, tools, on_text, on_reasoning, thinking, max_tokens, effort=None):
+    prov = config.providers()[prov_name]
+    body = request_body(prov_name, model, messages, tools, thinking, max_tokens, effort)
 
     content, reasoning, tcalls, finish, usage = [], [], {}, None, None
     kp = pool(prov_name)
@@ -284,7 +318,10 @@ async def _stream_once(prov_name: str, model: str, messages, tools, on_text, on_
     msg = {"role": "assistant", "content": text or None}
     if calls:
         msg["tool_calls"] = calls
-    if reasoning:
+    if prov_name == "kimi":
+        # Kimi requires the complete assistant message, including reasoning_content, on subsequent turns.
+        msg["reasoning_content"] = "".join(reasoning)
+    elif reasoning:
         msg["_reasoning"] = "".join(reasoning)
     return {"message": msg, "finish_reason": finish, "usage": usage}
 
