@@ -1,5 +1,15 @@
 [
  {
+  "id": 11,
+  "date": "2026-11-04",
+  "title": "Kimi K3.1 Pro joins as the primary model",
+  "items": [
+   "Kimi K3.1 Pro is selected automatically ahead of Nemotron Ultra when KIMI_API_KEY is configured",
+   "Kimi reasoning and tool-call history are preserved across turns",
+   "Nemotron Ultra is the automatic fallback when Kimi is unavailable"
+  ]
+ },
+ {
   "id": 10,
   "date": "2026-11-03",
   "title": "It plays, and remembers what it can do",
