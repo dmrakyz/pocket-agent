@@ -91,7 +91,8 @@ def auth(request: Request, token: Optional[str] = Query(None)):
 _fails: dict[str, list[float]] = {}
 
 
-@app.get("/health")
+@app.api_route("/health", methods=["GET", "HEAD"])
+@app.api_route("/", methods=["GET", "HEAD"])      # uptime pingers often point at the bare URL; a 404 there gets the job auto-disabled
 async def health():
     return {"ok": True, "t": int(time.time())}
 

@@ -41,7 +41,7 @@ Open the Pages URL on your phone → paste the Render URL and password → **Sha
 Optional: put your Render URL in `frontend/config.js` (edit on GitHub) so the app never asks for it.
 
 ### 7. Keep it awake
-Render's free tier sleeps after 15 min without inbound requests. Your agent calling the model does **not** count, and your phone's connection drops when the screen locks. So a long task would get killed mid-way. Fix: [cron-job.org](https://cron-job.org) → create a job that GETs `https://YOUR-SERVICE.onrender.com/health` **every 10 minutes**. (One always-on service fits inside Render's 750 free hours/month.)
+Render's free tier sleeps after 15 min without inbound requests. Your agent calling the model does **not** count, and your phone's connection drops when the screen locks. So a long task would get killed mid-way. Fix: [cron-job.org](https://cron-job.org) → create a job that GETs `https://YOUR-SERVICE.onrender.com/health` **every 10 minutes** (the bare URL works too now; if cron-job.org ever shows the job under "Failed Cronjobs" with "No upcoming executions", it auto-disabled itself after repeated errors: fix the URL and re-enable it). (One always-on service fits inside Render's 750 free hours/month.)
 
 ## Using it
 - **Settings** (bottom of the ☰ drawer): theme, notifications, **Capability check** (own screen with a live progress bar; 4 real tasks checked by code; runs on the server so you can leave and come back), server info, version, check for updates, sign out.
