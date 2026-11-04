@@ -147,11 +147,23 @@ async def list_models(force: bool = False) -> list[dict]:
     results = await asyncio.gather(*[one(n, p) for n, p in providers.items()])
     for name, models in zip(providers, results):
         out.extend(models)
-        # Moonshot's model-list endpoint can be unavailable for newly provisioned keys
-        # or restricted deployments. Keep the current direct-API model selectable;
-        # the model's "test" action still verifies the key and actual access.
-        if name == "kimi" and not any(not m.get("error") for m in models):
-            out.append({"ref": "kimi:kimi-k2.6", "provider": "kimi", "id": "kimi-k2.6"})
+        if name == "kimi":
+            # Keep the current direct Moonshot catalogue selectable even when
+            # /models is stale, incomplete, or restricted for a newly provisioned key.
+            # The model test verifies actual account access before use.
+            known = (
+                "kimi-k3.1-pro",
+                "kimi-k3.1-pro-highspeed",
+                "kimi-k3",
+                "kimi-k2.7-code",
+                "kimi-k2.7-code-highspeed",
+                "kimi-k2.6",
+            )
+            existing = {m.get("id") for m in models if not m.get("error")}
+            out.extend(
+                {"ref": f"kimi:{model_id}", "provider": "kimi", "id": model_id}
+                for model_id in known if model_id not in existing
+            )
     out.sort(key=lambda m: (m["provider"], m["id"]))
     _models_cache["v"] = out
     return out
@@ -167,10 +179,11 @@ def pick(models: list[dict], *needles: str) -> Optional[str]:
 
 
 def select_default_model(models: list[dict]) -> str:
-    """Prefer current Moonshot Kimi K2.6, then Kimi K3.1 Pro, then Nemotron Ultra."""
+    """Prefer Moonshot's newest flagship, Kimi K3.1 Pro, over older Kimi models."""
     if config.DEFAULT_MODEL:
         return config.DEFAULT_MODEL
-    kimi = next((m for model_id in ("kimi-k2.6", "kimi-k3", "kimi-k3.1-pro")
+    kimi = next((m for model_id in ("kimi-k3.1-pro", "kimi-k3.1-pro-highspeed", "kimi-k3",
+                                    "kimi-k2.7-code", "kimi-k2.7-code-highspeed", "kimi-k2.6")
                  for m in models if not m.get("error") and m.get("provider") == "kimi"
                  and m.get("id") == model_id), None)
     if kimi:
