@@ -1199,3 +1199,42 @@ def toolhint_test():
     assert "connector_add" in H.section("add a spotify connector", sp) and H.section("hello", sp) == ""
     print("PASS tool hints: intents map to the right tools, plain coding requests add nothing, absent tools never suggested")
 toolhint_test()
+
+
+# Kimi K3.1 Pro: independent account keys, provider-specific payload and default priority
+from app import config as _cfg, llm as _llm
+def kimi_config_test():
+    old = {k: os.environ.get(k) for k in ("KIMI_API_KEY", "KIMI_API_KEYS", "KIMI_BASE_URL", "LLM_RPM")}
+    try:
+        os.environ.pop("KIMI_API_KEY", None)
+        os.environ["KIMI_API_KEYS"] = "acct1, acct2,acct3,acct4,acct5,acct1"
+        os.environ["LLM_RPM"] = '{"kimi": 2}'
+        p = _cfg.providers()["kimi"]
+        assert p["base_url"] == "https://api.moonshot.ai/v1"
+        assert p["api_keys"] == ["acct1", "acct2", "acct3", "acct4", "acct5"], p["api_keys"]
+        pool = _llm.KeyPool(p["api_keys"], _cfg.rpm_limits()["kimi"])
+        assert len(pool.lims) == 5 and all(x.rpm == 2 for x in pool.lims)
+        assert "KIMI_API_KEYS" in _cfg.SECRET_ENV_KEYS
+        models = [
+            {"provider": "nvidia", "id": "nvidia/nemotron-3-ultra", "ref": "nvidia:nvidia/nemotron-3-ultra"},
+            {"provider": "kimi", "id": "kimi-k3.1-pro-highspeed", "ref": "kimi:kimi-k3.1-pro-highspeed"},
+            {"provider": "kimi", "id": "kimi-k3.1-pro", "ref": "kimi:kimi-k3.1-pro"},
+        ]
+        assert _llm.select_default_model(models) == "kimi:kimi-k3.1-pro"
+        assert _llm.select_fallback_model(models) == "nvidia:nvidia/nemotron-3-ultra"
+        history = [{"role": "assistant", "content": "tool call", "reasoning_content": "thinking", "_ts": 1,
+                    "tool_calls": [{"id": "c1", "type": "function", "function": {"name": "x", "arguments": "{}"}}]}]
+        kimi_body = _llm.request_body("kimi", "kimi-k3.1-pro", history, [], True, None, "high")
+        assert kimi_body["reasoning_effort"] == "max" and kimi_body["max_completion_tokens"] == 16384
+        assert kimi_body["messages"][0]["reasoning_content"] == "thinking"
+        assert "_ts" not in kimi_body["messages"][0] and "tool_calls" in kimi_body["messages"][0]
+        other_body = _llm.request_body("nvidia", "ultra", history, [], True, 1000, "high")
+        assert "reasoning_content" not in other_body["messages"][0] and other_body["max_tokens"] == 1000
+        assert _llm.kimi_reasoning_effort(False, "high") == "low"
+        print("PASS Kimi keys, quota isolation, payload preservation and model priority")
+    finally:
+        for k, v in old.items():
+            if v is None: os.environ.pop(k, None)
+            else: os.environ[k] = v
+        _llm._pools.clear()
+kimi_config_test()
