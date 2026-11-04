@@ -160,7 +160,7 @@ def pick(models: list[dict], *needles: str) -> Optional[str]:
     return None
 
 
-async def select_default_model(models: list[dict]) -> str:
+def select_default_model(models: list[dict]) -> str:
     """Prefer standard Kimi K3.1 Pro, then Nemotron Ultra, then other available models."""
     if config.DEFAULT_MODEL:
         return config.DEFAULT_MODEL
@@ -222,11 +222,12 @@ def strip_private(messages: list[dict], preserve_reasoning: bool = False) -> lis
 
 
 def kimi_reasoning_effort(thinking, effort=None) -> str:
-    """Map Pocket Agent's Off/Medium/High control to Kimi's always-on low/high/max reasoning."""
-    if thinking is False:
-        return "low"                 # Kimi cannot disable thinking; use its lightest setting
-    # K3.1 Pro supports only "max"; the model always reasons.
-    return "max"
+    """Map Pocket Agent's controls to Kimi K3.1 Pro's low/high/max reasoning levels."""
+    if thinking is False or str(effort or "").lower() == "low":
+        return "low"                 # Reasoning remains enabled; this is the lightest level.
+    if str(effort or "").lower() in ("medium", "med"):
+        return "high"
+    return "max"                     # High/default maps to maximum reasoning effort.
 
 
 def request_body(prov_name: str, model: str, messages, tools, thinking, max_tokens, effort=None) -> dict:
