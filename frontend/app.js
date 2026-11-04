@@ -428,7 +428,7 @@ function scrollDown(force) {
   if (force || S.stick) c.scrollTop = c.scrollHeight;
 }
 const ICONS = { read: '▤', write: '✎', edit: '✎', multiedit: '✎', bash: '$', bash_output: '$', kill_bash: '■', grep: '⌕', glob: '✱',
-  web_fetch: '◎', web_search: '◎', browser_read: '◫', browser_act: '◫', todo_write: '☑', task: '⋔', skill: '★', git_sync: '⎇', create_pr: '⎇', exit_plan_mode: '☰', share_file: '⬇', preview: '▶', view_3d: '◈', image_search: '⌕', fetch_image: '▣', view_image: '◉', annotate_image: '✐', generate_image: '✦', send_email: '✉', connector_add: '⚭', routine_list: '⏱', routine_create: '⏱', routine_update: '⏱', world_list: '🌍', world_read: '🌍', world_create: '🌍', world_say: '🌍', create_app: '▦', app_list: '▦', app_read: '▦', forge_tool: '⚒', forge_list: '⚒', pack_list: '⚙', pack_enable: '⚙', serve: '▶', serve_stop: '■', watch_create: '👁', watch_list: '👁', watch_remove: '👁', publish_pages: '🌐', capabilities: '☰', skill_create: '✦', ask_user: '?', repo_map: '⌖', find_symbol: '⌖', models: '⋔', connector_search: '⌕' };
+  web_fetch: '◎', web_search: '◎', browser_read: '◫', browser_act: '◫', todo_write: '☑', task: '⋔', skill: '★', git_sync: '⎇', create_pr: '⎇', exit_plan_mode: '☰', share_file: '⬇', preview: '▶', view_3d: '◈', image_search: '⌕', fetch_image: '▣', view_image: '◉', annotate_image: '✐', generate_image: '✦', send_email: '✉', etsy_read: '🛍', etsy_draft: '🛍', etsy_update: '🛍', connector_add: '⚭', routine_list: '⏱', routine_create: '⏱', routine_update: '⏱', world_list: '🌍', world_read: '🌍', world_create: '🌍', world_say: '🌍', create_app: '▦', app_list: '▦', app_read: '▦', forge_tool: '⚒', forge_list: '⚒', pack_list: '⚙', pack_enable: '⚙', serve: '▶', serve_stop: '■', watch_create: '👁', watch_list: '👁', watch_remove: '👁', publish_pages: '🌐', capabilities: '☰', skill_create: '✦', ask_user: '?', repo_map: '⌖', find_symbol: '⌖', models: '⋔', connector_search: '⌕' };
 function toolSummary(name, a) {
   a = a || {};
   switch (name) {
@@ -607,7 +607,7 @@ const KIND = { bash: ['Ran', 'command', 'commands'], bash_output: ['Ran', 'comma
   read: ['Read', 'file', 'files'], glob: ['Searched', 'folder', 'folders'], grep: ['Searched', 'code search', 'code searches'],
   write: ['Edited', 'file', 'files'], edit: ['Edited', 'file', 'files'], multiedit: ['Edited', 'file', 'files'], annotate_image: ['Edited', 'image', 'images'],
   web_fetch: ['Opened', 'page', 'pages'], web_search: ['Searched the web', 'time', 'times'], browser_read: ['Browsed', 'page', 'pages'], browser_act: ['Used the browser', 'time', 'times'], image_search: ['Searched images', 'time', 'times'],
-  fetch_image: ['Downloaded', 'image', 'images'], generate_image: ['Generated', 'image', 'images'], send_email: ['Sent', 'email', 'emails'], connector_add: ['Proposed', 'connector', 'connectors'], routine_list: ['Listed', 'routines', 'routine lists'], routine_create: ['Scheduled', 'routine', 'routines'], routine_update: ['Updated', 'routine', 'routines'], world_list: ['Listed', 'worlds', 'world lists'], world_read: ['Read', 'world', 'worlds'], world_create: ['Started', 'world', 'worlds'], world_say: ['Stepped into', 'world', 'worlds'], create_app: ['Built', 'app', 'apps'], app_list: ['Listed', 'app list', 'app lists'], app_read: ['Read', 'app', 'apps'], forge_tool: ['Forged', 'tool', 'tools'], forge_list: ['Listed', 'forged tools', 'forged tool lists'], ask_user: ['Asked', 'question', 'questions'], repo_map: ['Mapped', 'repo', 'repos'], find_symbol: ['Looked up', 'symbol', 'symbols'], skill_create: ['Saved', 'skill', 'skills'], pack_list: ['Listed', 'toolchain pack list', 'toolchain pack lists'], pack_enable: ['Installed', 'toolchain pack', 'toolchain packs'], serve: ['Started', 'dev server', 'dev servers'], watch_create: ['Set up', 'watcher', 'watchers'], watch_list: ['Listed', 'watcher list', 'watcher lists'], watch_remove: ['Removed', 'watcher', 'watchers'], serve_stop: ['Stopped', 'dev server', 'dev servers'], publish_pages: ['Published', 'site', 'sites'], capabilities: ['Listed', 'tool list', 'tool lists'], view_image: ['Looked at', 'image', 'images'], task: ['Delegated', 'task', 'tasks'], git_sync: ['Synced', 'time', 'times'], todo_write: ['Updated', 'task list', 'task lists'], skill: ['Loaded', 'skill', 'skills'], models: ['Checked', 'model list', 'model lists'], connector_search: ['Looked up', 'connector tool', 'connector tools'], create_pr: ['Opened', 'pull request', 'pull requests'] };
+  fetch_image: ['Downloaded', 'image', 'images'], generate_image: ['Generated', 'image', 'images'], send_email: ['Sent', 'email', 'emails'], etsy_read: ['Checked', 'Etsy lookup', 'Etsy lookups'], etsy_draft: ['Drafted', 'Etsy listing', 'Etsy listings'], etsy_update: ['Changed', 'Etsy listing', 'Etsy listings'], connector_add: ['Proposed', 'connector', 'connectors'], routine_list: ['Listed', 'routines', 'routine lists'], routine_create: ['Scheduled', 'routine', 'routines'], routine_update: ['Updated', 'routine', 'routines'], world_list: ['Listed', 'worlds', 'world lists'], world_read: ['Read', 'world', 'worlds'], world_create: ['Started', 'world', 'worlds'], world_say: ['Stepped into', 'world', 'worlds'], create_app: ['Built', 'app', 'apps'], app_list: ['Listed', 'app list', 'app lists'], app_read: ['Read', 'app', 'apps'], forge_tool: ['Forged', 'tool', 'tools'], forge_list: ['Listed', 'forged tools', 'forged tool lists'], ask_user: ['Asked', 'question', 'questions'], repo_map: ['Mapped', 'repo', 'repos'], find_symbol: ['Looked up', 'symbol', 'symbols'], skill_create: ['Saved', 'skill', 'skills'], pack_list: ['Listed', 'toolchain pack list', 'toolchain pack lists'], pack_enable: ['Installed', 'toolchain pack', 'toolchain packs'], serve: ['Started', 'dev server', 'dev servers'], watch_create: ['Set up', 'watcher', 'watchers'], watch_list: ['Listed', 'watcher list', 'watcher lists'], watch_remove: ['Removed', 'watcher', 'watchers'], serve_stop: ['Stopped', 'dev server', 'dev servers'], publish_pages: ['Published', 'site', 'sites'], capabilities: ['Listed', 'tool list', 'tool lists'], view_image: ['Looked at', 'image', 'images'], task: ['Delegated', 'task', 'tasks'], git_sync: ['Synced', 'time', 'times'], todo_write: ['Updated', 'task list', 'task lists'], skill: ['Loaded', 'skill', 'skills'], models: ['Checked', 'model list', 'model lists'], connector_search: ['Looked up', 'connector tool', 'connector tools'], create_pr: ['Opened', 'pull request', 'pull requests'] };
 const isPinned = (c) => { const r = S.results[c._call.id]; return !!(r && (r._file || r._preview || r._model || r._image || r._app)) || c._call.function.name === 'exit_plan_mode'; };
 const isDone = (c) => !!S.results[c._call.id] && !S.pending[c._call.id];
 function tgLabel(cards) {
@@ -1687,6 +1687,29 @@ async function openInstagram() {
   try { draw(await api('/api/instagram?base=' + encodeURIComponent(S.api))); } catch (e) { body.replaceChildren(h('div.dim', { style: 'color:var(--bad)', text: e.message })); }
 }
 
+async function openEtsy() {
+  const body = h('div', {}, h('div.dim', { text: 'Loading…' }));
+  sheet('Etsy', body);
+  const copy = (t) => h('div.hookbox', { text: t, onclick: () => { try { navigator.clipboard.writeText(t); toast('Copied'); } catch { /* selectable anyway */ } } });
+  const draw = (t) => {
+    const kids = [];
+    if (!t.configured) {
+      kids.push(h('div.dim', { text: 'Lets the agent run an Etsy shop through Etsy\'s official API: read orders and reviews, write listings as drafts, upload files, and (with your approval) publish and edit. No password is stored.' }),
+        h('div.dim', { style: 'font-size:14px;margin-top:8px', text: '1. Create an app at etsy.com/developers (Your Apps). 2. Add this redirect URI to the app:' }), copy(t.redirect_uri),
+        h('div.dim', { style: 'font-size:14px', text: '3. In Render, set ETSY_API_KEY (the app keystring, and ETSY_SHARED_SECRET if Etsy shows one) and redeploy. 4. Come back here and tap Connect.' }));
+    } else if (!t.connected) {
+      kids.push(h('div.dim', { text: 'API key is set. Make sure this redirect URI is registered in your Etsy app:' }), copy(t.redirect_uri));
+      if (t.error) kids.push(h('div.dim', { style: 'color:var(--bad);font-size:13px', text: t.error }));
+      kids.push(h('button.primary', { text: 'Connect Etsy', onclick: async (e) => { const b = e.currentTarget; b.disabled = true; try { const r = await api('/api/etsy/connect', { body: { base: S.api } }); window.open(r.url, '_blank'); b.disabled = false; toast('Approve in the Etsy tab, then reopen this'); } catch (er) { toast(er.message, true); b.disabled = false; } } }));
+    } else {
+      kids.push(h('div', {}, h('b', { text: t.shop || 'Shop ' + t.shop_id }), h('div.dim', { style: 'font-size:13px', text: 'Connected. Drafts and reads run on their own; publishing or changing a listing asks you every time.' })),
+        h('button.secondary.danger', { text: 'Disconnect', onclick: async () => { if (!(await confirmSheet('Disconnect Etsy?', 'The agent loses access until you connect again.', 'Disconnect', true))) return; try { draw(await api('/api/etsy/disconnect', { method: 'POST', body: {} })); } catch (er) { toast(er.message, true); } } }));
+    }
+    body.replaceChildren(...kids);
+  };
+  try { const t = await api('/api/etsy?base=' + encodeURIComponent(S.api)); draw(t); } catch (e) { body.replaceChildren(h('div.dim', { style: 'color:var(--bad)', text: e.message })); }
+}
+
 /* ============================================================ app drawer */
 const AH = { id: '', name: '', frame: null, data: null };
 async function openApps() {
@@ -2266,6 +2289,7 @@ function drawSettings() {
       row('⚭', 'Connectors', openConnectors),
       row('✈', 'Telegram', openTelegram),
       row('◎', 'Instagram DMs', openInstagram),
+      row('✦', 'Etsy shop', openEtsy),
       row('⌘', 'Back-tap assistant', openShortcut),
       row('⚒', 'Forged tools', openForge),
       row('🌍', 'World engine', openWorlds),

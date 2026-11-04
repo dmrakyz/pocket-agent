@@ -24,7 +24,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from starlette.background import BackgroundTask
 
 from .browser import browser, BrowserError
-from . import agent, app_act, autoremember, apps, backup, config, db, evals, forge, instagram, kv, llm, mcp_server, selftest, shortcut, mcp, memory, timectx, oauth, perms, push, routines, store, telegram, tools, usage, watchers, workspace, world
+from . import agent, app_act, autoremember, apps, backup, config, db, etsy, evals, forge, instagram, kv, llm, mcp_server, selftest, shortcut, mcp, memory, timectx, oauth, perms, push, routines, store, telegram, tools, usage, watchers, workspace, world
 
 mcp_client = mcp.MCP()
 agent.MCP = mcp_client
@@ -1569,6 +1569,38 @@ async def mcp_server_token():
 async def mcp_server_revoke():
     await mcp_server.revoke()
     return {"enabled": False}
+
+
+# ------------------------------------------------------------------ etsy
+@app.get("/api/etsy", dependencies=[Depends(auth)])
+async def etsy_status(base: str = ""):
+    return {**etsy.status(), "redirect_uri": (base.rstrip("/") + "/etsy/callback") if base else ""}
+
+
+@app.post("/api/etsy/connect", dependencies=[Depends(auth)])
+async def etsy_connect(body: dict):
+    try:
+        return {"url": etsy.start(str(body.get("base", "")))}
+    except etsy.EtsyError as e:
+        raise HTTPException(400, str(e))
+
+
+@app.post("/api/etsy/disconnect", dependencies=[Depends(auth)])
+async def etsy_disconnect():
+    await etsy.disconnect()
+    return etsy.status()
+
+
+@app.get("/etsy/callback")
+async def etsy_callback(state: str = "", code: str = "", error: str = ""):
+    page = lambda title, text: HTMLResponse(f"<!doctype html><meta name=viewport content='width=device-width,initial-scale=1'><body style='font:18px system-ui;background:#0f1115;color:#eee;padding:40px;text-align:center'><h2>{title}</h2><p>{text}</p>", headers={"Cache-Control": "no-store"})
+    if error or not code or not state:
+        return page("Etsy sign-in cancelled", "Nothing was connected. You can close this page and try again from the app.")
+    try:
+        name = await etsy.finish(state, code)
+    except etsy.EtsyError as e:
+        return page("Etsy sign-in failed", html.escape(str(e)))
+    return page("Etsy connected", f"{html.escape(name)} is connected. Go back to the app.")
 
 
 # ------------------------------------------------------------------ instagram

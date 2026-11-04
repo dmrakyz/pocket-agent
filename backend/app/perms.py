@@ -27,7 +27,7 @@ NEVER_ALWAYS = {"rm", "sudo", "dd", "chmod", "chown", "bash", "sh", "eval", "cur
                 "kill", "pkill", "mv", "env", "xargs", "python", "python3", "node", "perl", "ruby", "git"}
 
 
-ALWAYS_ASK = {"watch_create", "watch_remove", "publish_pages", "connector_add", "routine_create", "routine_update", "world_create", "send_email", "forge_tool", "skill_create"}
+ALWAYS_ASK = {"watch_create", "watch_remove", "publish_pages", "connector_add", "routine_create", "routine_update", "world_create", "send_email", "forge_tool", "skill_create", "etsy_update"}
 
 
 def _segments(cmd: str) -> list[str] | None:
@@ -134,6 +134,14 @@ def decide(session: dict, tool: str, args: dict) -> tuple[str, str]:
         if mode == "plan":
             return "deny", "Plan mode is read-only. Propose the connector in your plan instead."
         return "ask", "Add this connector?"
+    if tool == "etsy_update":   # buyers see it: asks every time, even in YOLO or with a saved rule
+        if mode == "plan":
+            return "deny", "Plan mode is read-only. Describe the listing change in your plan instead."
+        return "ask", "Change this Etsy listing?"
+    if tool == "etsy_draft":    # invisible to buyers until published, so it follows the normal edit rules
+        if mode == "plan":
+            return "deny", "Plan mode is read-only. Describe the listing in your plan instead."
+        return ("allow", "") if mode in ("auto", "yolo") or matches_rule(session.get("allow", []), tool, args) else ("ask", "")
     if tool == "send_email":   # irreversible and outward-facing: asks every time, even in YOLO or with a saved rule
         if mode == "plan":
             return "deny", "Plan mode is read-only. Draft the email in your plan instead."
