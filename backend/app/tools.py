@@ -354,6 +354,9 @@ def _diff(old: str, new: str, name: str) -> str:
     return "\n".join(d)
 
 
+MAX_READ_LINE = 2000
+
+
 async def t_read(ctx: Ctx, a: dict):
     p = ctx.resolve(a["path"], must_exist=True)
     if p.is_dir():
@@ -366,12 +369,26 @@ async def t_read(ctx: Ctx, a: dict):
     lines = text.splitlines()
     off = max(1, int(a.get("offset") or 1))
     lim = int(a.get("limit") or 2000)
-    chunk = lines[off - 1: off - 1 + lim]
     ctx.read_files.add(str(p))
-    out = _numbered("\n".join(chunk), off)
-    if off - 1 + lim < len(lines):
-        out += f"\n… ({len(lines) - (off - 1 + lim)} more lines; use offset={off + lim})"
-    return cap(out) if out else "(empty file)"
+    # Stay inside the output budget ourselves. If the generic cap chopped the middle, the model would believe it had read every
+    # line up to `limit` while whole stretches were missing, so report exactly which lines were shown.
+    budget, used, rows = LIMIT - 600, 0, []
+    for i, line in enumerate(lines[off - 1: off - 1 + lim], off):
+        if len(line) > MAX_READ_LINE:
+            line = line[:MAX_READ_LINE] + f" … [{len(line) - MAX_READ_LINE} more characters on this line]"
+        row = f"{i:>6}\t{line}"
+        if rows and used + len(row) + 1 > budget:
+            break
+        rows.append(row)
+        used += len(row) + 1
+    if not rows:
+        return "(empty file)" if not lines else f"(the file has {len(lines)} lines; offset {off} is past the end)"
+    last = off - 1 + len(rows)
+    out = "\n".join(rows)
+    if last < len(lines):
+        out += (f"\n… (showed lines {off}-{last} of {len(lines)}; {len(lines) - last} more: use offset={last + 1}. "
+                "For a big file, grep for what you need first instead of reading it all.)")
+    return out
 
 
 async def t_write(ctx: Ctx, a: dict):
