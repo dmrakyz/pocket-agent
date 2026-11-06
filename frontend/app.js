@@ -1166,10 +1166,12 @@ async function modelSheet() {
   head.push(h('div.sec', { text: 'Model' }), search);
   sheet('Model', ...head, list);
   let models = [];
+  let routerBox = null;
   const draw = () => {
     const q = search.value.trim().toLowerCase();
     const shown = models.filter((m) => !q || (m.id + ' ' + m.provider).toLowerCase().includes(q));
     list.replaceChildren();
+    if (routerBox) list.append(routerBox);
     for (const m of shown) {
       const out = h('small', { text: m.provider });
       list.append(h('div.opt' + (S.cur && S.cur.model === m.ref ? '.sel' : ''), {},
@@ -1186,6 +1188,34 @@ async function modelSheet() {
   try {
     const r = await api('/api/models');
     models = r.models.filter((x) => !x.error);
+    if (S.cur) {
+      const roleNames = { reasoning: 'Reasoning / planning', coding: 'Coding / implementation', reviewer: 'Independent reviewer', fast: 'Fast / simple tasks' };
+      const suggested = (terms) => { const m = models.find(x => terms.some(t => x.id.toLowerCase().includes(t))); return m ? m.ref : ''; };
+      const roles = Object.assign({
+        reasoning: suggested(['mistral-large-4']),
+        coding: suggested(['deepseek-v4', 'qwen3-coder', 'devstral']),
+        reviewer: suggested(['deepseek-v4', 'nemotron-3-ultra']),
+        fast: suggested(['flash', 'small', 'nano'])
+      }, S.cur.model_roles || {});
+      const mode = h('select', { class: 'mroute-mode' },
+        ...[['manual','Manual · use selected model'],['auto','Automatic · choose by task'],['hybrid','Hybrid · primary + specialists']].map(([v,t]) => h('option', { value:v, text:t, selected:(S.cur.model_mode || 'manual')===v })));
+      mode.onchange = async () => {
+        try { await api('/api/sessions/' + S.cur.id, { method:'PATCH', body:{ model_mode:mode.value } }); S.cur.model_mode=mode.value; toast('Routing mode saved'); }
+        catch(e) { toast(e.message,true); }
+      };
+      const roleRows = Object.entries(roleNames).map(([key,label]) => {
+        const sel = h('select', { class:'mroute-role' }, h('option',{value:'',text:'Not assigned'}), ...models.map(m=>h('option',{value:m.ref,text:m.provider+' · '+m.id,selected:roles[key]===m.ref})));
+        sel.onchange = async () => {
+          roles[key]=sel.value;
+          try { await api('/api/sessions/' + S.cur.id,{method:'PATCH',body:{model_roles:roles}}); S.cur.model_roles={...roles}; }
+          catch(e) { toast(e.message,true); }
+        };
+        return h('label.mroute-row',{},h('span',{text:label}),sel);
+      });
+      routerBox = h('div.mroute',{},h('div.sec',{text:'Model routing'}),mode,
+        h('div.dim',{text:'Assign specialist models. Automatic and Hybrid modes use these roles when the task matches.'}),
+        ...roleRows);
+    }
     draw();
     if (S.info) list.prepend(h('div.dim', { text: `${models.length} models · default: ${shortModel(S.info.default_model)} · fallback: ${shortModel(S.info.fallback_model) || 'none'}` }));
     for (const b of r.models.filter((x) => x.error)) list.append(h('div.dim', { text: `${b.provider}: ${b.id}` }));
