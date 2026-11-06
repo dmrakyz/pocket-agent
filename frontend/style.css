@@ -482,3 +482,8 @@ label.memrow { flex-direction: row; gap: 12px; align-items: flex-start; }
 .evsel1 { margin: 6px 0 !important; font-size: 14.5px; align-items: center; }
 .evsel1 input { width: 20px; height: 20px; margin-top: 0; }
 .linkbtn { background: none; border: 0; color: var(--accent); font-size: 14px; padding: 6px 8px; }
+
+/* ---- multi-model routing ---- */
+.mroute { display:flex; flex-direction:column; gap:8px; padding:12px; margin:4px 0 10px; border:1px solid var(--line); border-radius:12px; background:var(--panel); }
+.mroute-mode,.mroute-role { width:100%; min-width:0; color:var(--text); background:var(--bg); border:1px solid var(--line); border-radius:9px; padding:9px 10px; font:inherit; font-size:13px; }
+.mroute-row { display:flex; flex-direction:column; gap:5px; color:var(--dim); font-size:12px; }
