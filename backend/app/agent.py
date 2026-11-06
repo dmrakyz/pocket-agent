@@ -622,7 +622,7 @@ async def self_review(run: Run, s: dict, ws: Path, base_sha: str, request: str) 
     if len(diff) > 24000:
         diff = diff[:24000] + "\n… (diff truncated; read the files)"
     try:
-        out = await run_subagent(run, s, ws, "review", REVIEW_PROMPT.format(request=request[:4000], diff=diff), None, False, 1)
+        out = await run_subagent(run, s, ws, "review", REVIEW_PROMPT.format(request=request[:4000], diff=diff), (s.get("model_roles") or {}).get("reviewer") or None, False, 1)
     except Exception as e:  # noqa: BLE001
         await run.emit({"type": "notice", "text": f"review skipped ({type(e).__name__})"})
         return ""
@@ -676,13 +676,16 @@ async def run_turn(s: dict, run: Run):
             async def notify(t):
                 await run.emit({"type": "notice", "text": t})
 
-            resp = await llm.chat(s["model"], [{"role": "system", "content": build_system(s, ws) + toolhint.section(_request_text(s), sch)}] + timectx.apply(s, await vision_proxy(s, run, s["messages"])),
+            active_model = llm.route_model(s, _request_text(s))
+            if active_model != s["model"]:
+                await run.emit({"type": "notice", "text": f"Router selected {active_model} for this task"})
+            resp = await llm.chat(active_model, [{"role": "system", "content": build_system(s, ws) + toolhint.section(_request_text(s), sch)}] + timectx.apply(s, await vision_proxy(s, run, s["messages"])),
                                   sch, on_text, on_reason, notify, thinking=s.get("thinking"), effort=s.get("effort"))
             m = resp["message"]
             if resp.get("usage"):
                 s["usage"]["in"] += resp["usage"].get("prompt_tokens", 0)
                 s["usage"]["out"] += resp["usage"].get("completion_tokens", 0)
-            usage.record(s["model"], (resp.get("usage") or {}).get("prompt_tokens", 0), (resp.get("usage") or {}).get("completion_tokens", 0))
+            usage.record(active_model, (resp.get("usage") or {}).get("prompt_tokens", 0), (resp.get("usage") or {}).get("completion_tokens", 0))
             calls = m.get("tool_calls")
             if not calls and not (m.get("content") or "").strip():
                 if nudged < 2:       # model returned nothing: poke it once or twice
