@@ -1200,7 +1200,7 @@ async function modelSheet() {
       const mode = h('select', { class: 'mroute-mode' },
         ...[['manual','Manual · use selected model'],['auto','Automatic · choose by task'],['hybrid','Hybrid · primary + specialists']].map(([v,t]) => h('option', { value:v, text:t, selected:(S.cur.model_mode || 'manual')===v })));
       mode.onchange = async () => {
-        try { await api('/api/sessions/' + S.cur.id, { method:'PATCH', body:{ model_mode:mode.value } }); S.cur.model_mode=mode.value; toast('Routing mode saved'); }
+        try { await api('/api/sessions/' + S.cur.id, { method:'PATCH', body:{ model_mode:mode.value, model_roles:roles } }); S.cur.model_mode=mode.value; toast('Routing mode saved'); }
         catch(e) { toast(e.message,true); }
       };
       const roleRows = Object.entries(roleNames).map(([key,label]) => {
