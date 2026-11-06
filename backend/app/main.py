@@ -243,6 +243,11 @@ async def patch_session(sid: str, body: dict):
         s["_titled"] = True
     if "model" in body and body["model"]:
         s["model"] = body["model"]
+    if body.get("model_mode") in ("manual", "auto", "hybrid"):
+        s["model_mode"] = body["model_mode"]
+    if isinstance(body.get("model_roles"), dict):
+        allowed_roles = {"reasoning", "coding", "reviewer", "fast"}
+        s["model_roles"] = {k: str(v)[:240] for k, v in body["model_roles"].items() if k in allowed_roles and isinstance(v, str)}
     if body.get("mode") in perms.MODES:
         s["mode"] = body["mode"]
     if "thinking" in body:
