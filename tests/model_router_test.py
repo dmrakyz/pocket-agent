@@ -1,4 +1,6 @@
-from backend.app.llm import route_model
+import os, sys
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "backend"))
+from app.llm import route_model
 
 
 def test_manual_mode_keeps_selected_model():
