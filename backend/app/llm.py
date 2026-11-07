@@ -406,3 +406,34 @@ async def summarize(model_ref: str, text: str, instruction: str) -> str:
                                  {"role": "user", "content": text}], [], noop, noop, noop, thinking=False,
                      max_tokens=4000)
     return out["message"].get("content") or ""
+
+
+# ---------- per-session multi-model routing ----------
+def route_model(session: dict, request: str = "") -> str:
+    """Select one configured model for this turn; manual mode always respects the pinned model."""
+    mode = session.get("model_mode", "manual")
+    primary = session.get("model") or ""
+    if mode == "manual":
+        return primary
+    roles = session.get("model_roles") or {}
+    text = (request or "").lower()
+    coding = any(x in text for x in ("implement", "write code", "code this", "debug", "fix the bug", "refactor", "compile", "typescript", "python", "javascript", "pull request", "tests", "test suite"))
+    reasoning = any(x in text for x in ("analyze", "architecture", "design", "reason", "prove", "derive", "compare", "evaluate", "plan", "why", "trade-off", "tradeoff"))
+    simple = any(x in text for x in ("summarize", "extract", "translate", "classify", "format", "rewrite"))
+    if mode == "hybrid":
+        # Hybrid keeps the selected primary as coordinator, delegating only clear specialist work.
+        if coding and roles.get("coding"):
+            return roles["coding"]
+        if simple and roles.get("fast"):
+            return roles["fast"]
+        if reasoning and roles.get("reasoning"):
+            return roles["reasoning"]
+        return primary
+    # Automatic: prefer a role specialist, then fall back to the session's primary model.
+    if coding and roles.get("coding"):
+        return roles["coding"]
+    if reasoning and roles.get("reasoning"):
+        return roles["reasoning"]
+    if simple and roles.get("fast"):
+        return roles["fast"]
+    return roles.get("reasoning") or primary
