@@ -683,7 +683,7 @@ async def run_turn(s: dict, run: Run):
         reviewed = False
         step = 0
         while autopilot or step < limit:
-            
+            await consume_interrupts(s, run)
             step += 1
             if autopilot:
                 job["steps"] = int(job.get("steps", 0)) + 1
