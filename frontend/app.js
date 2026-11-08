@@ -514,6 +514,15 @@ function fillCard(card, call, result, approval) {
     h('span.tool-sum', { text: toolSummary(name, a) }), state));
   if (!open) return;
   const body = h('div.tool-body');
+  if (!result && !approval) {
+    const p = card._progress || {};
+    const meter = h('div.tool-progress', {},
+      h('div.tool-progress-label', { text: p.detail || 'Starting tool…' }),
+      h('div.tool-progress-track', {}, h('i', { style: p.total > 0 ? 'width:' + Math.max(0, Math.min(100, p.progress / p.total * 100)) + '%' : '' })));
+    if (p.total > 0) meter.classList.add('determinate');
+    body.append(meter);
+  }
+  if (card._liveOutput) body.append(h('pre.tool-live-output', { text: card._liveOutput.slice(-24000) }));
   if (name === 'exit_plan_mode') {
     body.append(h('div.plan.prose', { html: md(a.plan || '') }));
   } else if (name === 'bash') {
@@ -863,6 +872,7 @@ function handle(ev) {
       if (m.role === 'tool') {
         S.results[m.tool_call_id] = m;
         const card = S.cards[m.tool_call_id];
+        if (card) card._progress = null;
         if (card) { fillCard(card, card._call, m, null); if (card._tg) refreshTG(card._tg); }
         if (m._browser) brRefreshAlive();
       } else if (m.role === 'assistant') {
@@ -902,7 +912,8 @@ function handle(ev) {
       break;
     }
     case 'phase': S.currentActivity = { phase: ev.phase, detail: ev.detail, since: Date.now() }; setStatus(ev.detail || ev.phase); break;
-    case 'tool_start': { S.currentActivity = { phase: 'tool', detail: ev.name, since: Date.now() }; const card = S.cards[ev.tool_id]; if (card) { card.dataset.open = '1'; fillCard(card, card._call, S.results[ev.tool_id], null); } setStatus('Running ' + ev.name + '…'); break; }
+    case 'tool_start': { S.currentActivity = { phase: 'tool', detail: ev.detail || ev.name, since: Date.now() }; const card = S.cards[ev.tool_id]; if (card) { card._progress = { detail: ev.detail || ('Starting ' + ev.name), progress: 0, total: 0 }; card.dataset.open = '1'; fillCard(card, card._call, S.results[ev.tool_id], null); } setStatus(ev.detail || ('Running ' + ev.name + '…')); break; }
+    case 'tool_progress': { const card = S.cards[ev.tool_id]; if (card) { card._progress = { detail: ev.detail || 'Working…', progress: Number(ev.progress || 0), total: Number(ev.total || 0) }; if (!S.results[ev.tool_id]) fillCard(card, card._call, null, null); } if (ev.detail) setStatus(ev.detail); break; }
     case 'tool_output': { const card = S.cards[ev.tool_id]; if (card) { card._liveOutput = (card._liveOutput || '') + (ev.text || ''); const pre = card.querySelector('.tool-live-output'); if (pre) { pre.textContent = card._liveOutput.slice(-24000); pre.scrollTop = pre.scrollHeight; } else { const body = card.querySelector('.tool-body'); if (body) body.append(h('pre.tool-live-output', { text: card._liveOutput.slice(-24000) })); } } break; }
     case 'tool_end': S.currentActivity = { phase: 'thinking', detail: 'Tool finished · ' + ev.name, since: Date.now() }; setStatus('Finished ' + ev.name + (ev.error ? ' · error' : '')); break;
     case 'heartbeat': S.currentActivity = { phase: ev.phase, detail: ev.detail, since: Date.now() }; setStatus(ev.detail || 'Working…'); break;
