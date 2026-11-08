@@ -55,7 +55,9 @@ class Run:
             self.partial["text"] += ev["text"]
         elif t == "reasoning":
             self.partial["reasoning"] += ev["text"]
-        elif t == "message":
+        elif t in ("message", "stream_reset"):
+            # Discard tokens from a provider attempt that failed mid-stream.
+            # The next retry starts a fresh response; never concatenate attempts.
             self.partial = {"text": "", "reasoning": ""}
         ev["seq"] = self.seq + 1
         self.events.append(ev)
