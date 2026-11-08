@@ -488,4 +488,3 @@ label.memrow { flex-direction: row; gap: 12px; align-items: flex-start; }
 .mroute-mode,.mroute-role { width:100%; min-width:0; color:var(--text); background:var(--bg); border:1px solid var(--line); border-radius:9px; padding:9px 10px; font:inherit; font-size:13px; }
 .mroute-row { display:flex; flex-direction:column; gap:5px; color:var(--dim); font-size:12px; }
 
-.pause-run { width: 34px; height: 34px; font-size: 16px; color: var(--accent); border-color: var(--accent); }
