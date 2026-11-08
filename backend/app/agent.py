@@ -45,8 +45,16 @@ class Run:
             phase = {"step_start": "thinking", "tool_start": "tool", "tool_end": "thinking", "phase": ev.get("phase")}.get(t, "working")
             detail = ev.get("detail") or ev.get("name") or ("Waiting for model response" if phase == "thinking" else "")
             self.current = {"phase": phase, "since": time.time(), "detail": str(detail)[:300], "tool_id": ev.get("tool_id")}
+        elif t == "llm_status":
+            now = time.time()
+            if self.current.get("stage") != ev.get("stage"):
+                self.current["stage_since"] = now
+            self.current["stage"] = ev.get("stage")
+            self.current["detail"] = str(ev.get("detail") or "Waiting for model")[:300]
+            self.current["last_event_at"] = now
         elif t in ("delta", "reasoning"):
             self.current["last_token_at"] = time.time()
+            self.current["last_event_at"] = time.time()
         elif t == "tool_output":
             self.current["last_output_at"] = time.time()
         if t == "step_start":
@@ -737,6 +745,9 @@ async def run_turn(s: dict, run: Run):
             async def on_stream_reset():
                 await run.emit({"type": "stream_reset"})
 
+            async def on_llm_status(stage, detail):
+                await run.emit({"type": "llm_status", "stage": stage, "detail": detail, "model": active_model if "active_model" in locals() else s.get("model")})
+
             async def notify(t):
                 await run.emit({"type": "notice", "text": t})
 
@@ -749,7 +760,7 @@ async def run_turn(s: dict, run: Run):
             await run.emit({"type": "phase", "phase": "model", "detail": f"Waiting for {active_model} · {active_effort} effort · step {step}"})
             resp = await llm.chat(active_model, [{"role": "system", "content": build_system(s, ws) + toolhint.section(_request_text(s), sch)}] + timectx.apply(s, await vision_proxy(s, run, s["messages"])),
                                   sch, on_text, on_reason, notify, thinking=s.get("thinking"), effort=active_effort,
-                                  on_reset=on_stream_reset)
+                                  on_reset=on_stream_reset, on_status=on_llm_status)
             m = resp["message"]
             if resp.get("usage"):
                 s["usage"]["in"] += resp["usage"].get("prompt_tokens", 0)
@@ -997,7 +1008,7 @@ async def vision_proxy(s: dict, run: Run, msgs: list) -> list:
 
 async def _heartbeat(run: Run):
     while not run.done:
-        await asyncio.sleep(5)
+        await asyncio.sleep(2)
         if run.done:
             return
         cur = run.current or {}
@@ -1007,14 +1018,21 @@ async def _heartbeat(run: Run):
         detail = (cur.get("detail") or cur.get("phase") or "Working") + " · " + str(elapsed // 60) + "m " + str(elapsed % 60) + "s"
         if cur.get("phase") == "model":
             if age is None:
-                detail += " · no response tokens yet"
+                detail += " · no first token yet"
+                if elapsed >= 180:
+                    detail += " · suspiciously slow; provider may be queued or stuck"
+                elif elapsed >= 90:
+                    detail += " · slow first-token wait"
+            elif age >= 180:
+                detail += " · no new tokens for " + str(age // 60) + "m · stream may be stalled"
             elif age >= 60:
                 detail += " · no new tokens for " + str(age // 60) + "m"
             elif age >= 15:
                 detail += " · waiting for next token"
             else:
                 detail += " · receiving response"
-        await run.emit({"type": "heartbeat", "phase": cur.get("phase", "working"), "detail": detail, "at": now, "step": run.step})
+        await run.emit({"type": "heartbeat", "phase": cur.get("phase", "working"), "detail": detail, "at": now, "step": run.step,
+                        "elapsed_seconds": elapsed, "token_idle_seconds": age, "stage": cur.get("stage")})
 
 
 def start(s: dict, text: str, images: Optional[list] = None) -> Run:
