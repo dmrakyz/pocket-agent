@@ -31,6 +31,7 @@ class Run:
         self.partial = {"text": "", "reasoning": ""}
         self.current = {"phase": "starting", "since": time.time(), "detail": ""}
         self.step = 0
+        self.last_durable_heartbeat = time.time()
         self.subs: dict[str, dict] = {}                      # live view of sub-agents for the UI panel
         self.sub_count = 0                                   # sub-agents started this turn (all depths)
         self.sub_sem = asyncio.Semaphore(config.SUBAGENT_PARALLEL)   # guards sub-agent model calls
@@ -1034,7 +1035,16 @@ async def _heartbeat(run: Run):
             else:
                 detail += " · receiving response"
         await run.emit({"type": "heartbeat", "phase": cur.get("phase", "working"), "detail": detail, "at": now, "step": run.step,
-                        "elapsed_seconds": elapsed, "token_idle_seconds": age, "stage": cur.get("stage")})
+                        "elapsed_seconds": elapsed, "token_idle_seconds": age, "stage": cur.get("stage"),
+                        "last_event_at": cur.get("last_event_at"), "last_output_at": cur.get("last_output_at")})
+        # Persist liveness periodically without writing to the remote state store every heartbeat.
+        if run.session.get("job") and now - run.last_durable_heartbeat >= 30:
+            run.session["job"]["heartbeat"] = now
+            run.session["job"]["phase"] = cur.get("phase", "working")
+            run.session["job"]["stage"] = cur.get("stage")
+            run.session["job"]["step"] = run.step
+            store.touch(run.session)
+            run.last_durable_heartbeat = now
 
 
 def start(s: dict, text: str, images: Optional[list] = None) -> Run:
