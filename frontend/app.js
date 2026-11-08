@@ -903,9 +903,7 @@ function updateSend() {
   const stop = S.run.running && !hasDraft();
   b.textContent = stop ? '■' : '↑';
   b.classList.toggle('stop', stop);
-  b.setAttribute('aria-label', stop ? 'Stop' : S.run.running ? 'Queue message' : 'Send');
-  const pause = $('#btn-pause');
-  if (pause) { pause.hidden = !S.run.running; pause.textContent = S.run.paused ? '▶' : 'Ⅱ'; pause.setAttribute('aria-label', S.run.paused ? 'Resume agent' : 'Pause agent'); }
+  b.setAttribute('aria-label', stop ? 'Stop' : S.run.running ? 'Send instruction' : 'Send');
 }
 function autoGrow() { const t = $('#input'); t.style.height = 'auto'; t.style.height = Math.min(t.scrollHeight, window.innerHeight * 0.38) + 'px'; }
 const queueFor = () => (S.queues[S.cur.id] ||= []);
@@ -930,7 +928,18 @@ async function send() {
   if (S.files.some((f) => f.state === 'uploading')) { toast('Still uploading…'); return; }
   if (!S.cur) { try { await newChat({}); } catch (e) { toast(e.message, true); return; } }
   const draft = takeDraft();
-  if (S.run.running) { queueFor().push(draft); renderQueue(); updateSend(); return; }
+  if (S.run.running) {
+    try {
+      const r = await api('/api/sessions/' + S.cur.id + '/interrupt', { body: { text: draft.text, images: draft.images, tz: (Intl.DateTimeFormat().resolvedOptions().timeZone || '') } });
+      toast('Instruction queued (' + r.queued + ' pending). It will be checked after the current operation.');
+    } catch (e) {
+      $('#input').value = draft.text;
+      S.images = draft.images;
+      renderAttach(); autoGrow();
+      toast(e.message, true, 6000);
+    }
+    return;
+  }
   await dispatch(draft);
 }
 async function dispatch({ text, images }) {
