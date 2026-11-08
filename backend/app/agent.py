@@ -397,14 +397,17 @@ async def gated_execute(run: Run, s: dict, ctx: tools.Ctx, call: dict, allowed: 
                         label: str = "") -> dict:
     name = call["function"]["name"]
     tool_id = call.get("id", "")
-    await run.emit({"type": "tool_start", "tool_id": tool_id, "name": name, "detail": name})
     try:
         args = json.loads(call["function"]["arguments"] or "{}")
         if not isinstance(args, dict):
             raise ValueError("arguments must be a JSON object")
     except (json.JSONDecodeError, ValueError) as e:
+        await run.emit({"type": "tool_start", "tool_id": tool_id, "name": name, "detail": f"Preparing {name}"})
         return {"text": f"Error: tool arguments were not valid JSON ({e}). Send them again as a JSON object.",
                 "error": True}
+    summary = str(args.get("path") or args.get("command") or args.get("url") or args.get("query") or "")
+    await run.emit({"type": "tool_start", "tool_id": tool_id, "name": name,
+                    "detail": (name + (": " + summary[:180] if summary else ""))[:240]})
     if allowed is not None and name not in allowed:
         return {"text": f"Error: tool {name!r} is not available here.", "error": True}
     if name == "ask_user":
