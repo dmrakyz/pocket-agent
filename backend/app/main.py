@@ -294,7 +294,10 @@ async def interrupt(sid: str, body: dict):
     queue = s.setdefault("interrupt_queue", [])
     if len(queue) >= 20:
         raise HTTPException(429, "interrupt queue is full (20 pending instructions)")
-    queue.append(item)
+    if body.get("priority"):
+        queue.insert(0, item)
+    else:
+        queue.append(item)
     store.touch(s)
     await r.emit({"type": "notice", "text": f"Instruction queued ({len(queue)} pending). It will be checked after the current model/tool operation finishes."})
     return {"ok": True, "queued": len(queue)}
