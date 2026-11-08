@@ -49,7 +49,9 @@ VISION_MODEL = env("VISION_MODEL")            # model used by view_image; auto-p
 FALLBACK_MODEL = env("FALLBACK_MODEL")      # used when the main model keeps failing; auto-picked if empty
 COMPACT_AT_TOKENS = int(env("COMPACT_AT_TOKENS", "120000"))
 MAX_STEPS = int(env("MAX_STEPS", "60"))     # tool-loop iterations per user turn
-BASH_TIMEOUT = int(env("BASH_TIMEOUT", "120"))
+BASH_TIMEOUT = int(env("BASH_TIMEOUT", "600"))
+BASH_MAX_TIMEOUT = int(env("BASH_MAX_TIMEOUT", "3600"))
+LLM_READ_TIMEOUT_SECONDS = int(env("LLM_READ_TIMEOUT_SECONDS", "1800"))
 VERIFY_GATE = env("VERIFY_GATE", "1") not in ("0", "false", "off", "no")   # a turn that changed code may not end until a check passed
 BASH_MEM_MB = int(env("BASH_MEM_MB", "300"))     # a bash command (all its processes together) is killed above this; 0 = off
 TOOL_OUTPUT_LIMIT = int(env("TOOL_OUTPUT_LIMIT", "30000"))
