@@ -390,6 +390,7 @@ async function openSession(id) {
   S.cur = d.session; S.run = d.run; S.commands = d.commands || [];
   S.pending = {}; for (const p of d.run.pending || []) S.pending[p.id] = p;
   S.partial = d.run.partial || { text: '', reasoning: '' };
+  S.currentActivity = d.run.current || null;
   S.lastSeq = d.run.seq || 0;
   S.finished = !d.run.running;
   S.subs = d.run.subs || [];
@@ -397,7 +398,11 @@ async function openSession(id) {
   brRefreshAlive();
   renderChat(true);
   renderList();
-  if (d.run.running) attach();
+  if (d.run.running) {
+    const cur = d.run.current || {};
+    setStatus(cur.detail || 'Reconnected to active run…');
+    attach();
+  }
 }
 async function newChat(opts = {}) {
   const m = await api('/api/sessions', { body: opts });
