@@ -1,5 +1,17 @@
 [
  {
+  "id": 15,
+  "date": "2026-11-08",
+  "title": "Effort controls, messenger, and crash-safe checkpoints",
+  "items": [
+   "Choose Low, Medium, High, or Max effort manually, or let the agent select effort for each task independently of model routing",
+   "Ask live status questions while the worker is busy; a separate fast messenger answers without entering the worker's instruction queue",
+   "Send a new instruction to the front of the queue without waiting behind earlier queued prompts",
+   "Chat sessions are mirrored to Turso so chat history survives Render restarts",
+   "Workspace changes are committed and pushed after every completed tool batch, including normal turns"
+  ]
+ },
+ {
   "id": 14,
   "date": "2026-11-08",
   "title": "Interrupt active work with new instructions",
