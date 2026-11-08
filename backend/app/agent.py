@@ -45,6 +45,8 @@ class Run:
             phase = {"step_start": "thinking", "tool_start": "tool", "tool_end": "thinking", "phase": ev.get("phase")}.get(t, "working")
             detail = ev.get("detail") or ev.get("name") or ("Waiting for model response" if phase == "thinking" else "")
             self.current = {"phase": phase, "since": time.time(), "detail": str(detail)[:300], "tool_id": ev.get("tool_id")}
+        elif t in ("delta", "reasoning"):
+            self.current["last_token_at"] = time.time()
         elif t == "tool_output":
             self.current["last_output_at"] = time.time()
         if t == "step_start":
@@ -970,9 +972,20 @@ async def _heartbeat(run: Run):
         if run.done:
             return
         cur = run.current or {}
-        elapsed = max(0, int(time.time() - cur.get("since", time.time())))
-        detail = (cur.get("detail") or cur.get("phase") or "Working") + " · " + str(elapsed) + "s"
-        await run.emit({"type": "heartbeat", "phase": cur.get("phase", "working"), "detail": detail, "at": time.time(), "step": run.step})
+        now = time.time()
+        elapsed = max(0, int(now - cur.get("since", now)))
+        age = max(0, int(now - cur["last_token_at"])) if cur.get("last_token_at") else None
+        detail = (cur.get("detail") or cur.get("phase") or "Working") + " · " + str(elapsed // 60) + "m " + str(elapsed % 60) + "s"
+        if cur.get("phase") == "model":
+            if age is None:
+                detail += " · no response tokens yet"
+            elif age >= 60:
+                detail += " · no new tokens for " + str(age // 60) + "m"
+            elif age >= 15:
+                detail += " · waiting for next token"
+            else:
+                detail += " · receiving response"
+        await run.emit({"type": "heartbeat", "phase": cur.get("phase", "working"), "detail": detail, "at": now, "step": run.step})
 
 
 def start(s: dict, text: str, images: Optional[list] = None) -> Run:
