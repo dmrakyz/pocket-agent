@@ -2,12 +2,12 @@
  {
   "id": 14,
   "date": "2026-11-08",
-  "title": "Pause, resume and persistent long-running jobs",
+  "title": "Interrupt active work with new instructions",
   "items": [
-   "Autopilot keeps iterating until it finishes or is genuinely blocked, with no fixed step ceiling",
-   "Pause and resume an active run without cancelling it; pause takes effect after the current model/tool operation",
-   "Long-running jobs checkpoint session state and Git-backed workspace every five agent steps",
-   "Jobs interrupted by a server restart automatically resume from the latest saved checkpoint"
+   "Autopilot has no fixed step ceiling and continues until completion or a genuine blocker",
+   "Send new instructions while the agent is working; they are queued server-side and injected at the next safe model/tool boundary",
+   "An active shell/build/test operation is allowed to finish before the agent incorporates the new instruction",
+   "Interrupts survive server restarts through session persistence; no pause/resume UI is exposed"
   ]
  },
  {
