@@ -732,6 +732,9 @@ async def run_turn(s: dict, run: Run):
             async def on_reason(t):
                 await run.emit({"type": "reasoning", "text": t})
 
+            async def on_stream_reset():
+                await run.emit({"type": "stream_reset"})
+
             async def notify(t):
                 await run.emit({"type": "notice", "text": t})
 
@@ -743,7 +746,8 @@ async def run_turn(s: dict, run: Run):
             active_effort = choose_effort(s, _request_text(s))
             await run.emit({"type": "phase", "phase": "model", "detail": f"Waiting for {active_model} · {active_effort} effort · step {step}"})
             resp = await llm.chat(active_model, [{"role": "system", "content": build_system(s, ws) + toolhint.section(_request_text(s), sch)}] + timectx.apply(s, await vision_proxy(s, run, s["messages"])),
-                                  sch, on_text, on_reason, notify, thinking=s.get("thinking"), effort=active_effort)
+                                  sch, on_text, on_reason, notify, thinking=s.get("thinking"), effort=active_effort,
+                                  on_reset=on_stream_reset)
             m = resp["message"]
             if resp.get("usage"):
                 s["usage"]["in"] += resp["usage"].get("prompt_tokens", 0)
