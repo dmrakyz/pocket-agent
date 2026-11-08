@@ -277,6 +277,50 @@ async def delete_session(sid: str):
     return {"ok": True}
 
 
+
+@app.post("/api/sessions/{sid}/messenger", dependencies=[Depends(auth)])
+async def messenger(sid: str, body: dict):
+    """Answer a live status question on a separate fast-model call without entering the worker's queue."""
+    s = get_session(sid)
+    run = agent.runs.get(sid)
+    if not s.get("_running") or not run or run.done:
+        raise HTTPException(409, "the worker is no longer running; send this as a normal message")
+    prompt = str(body.get("text") or "").strip()
+    if not prompt:
+        raise HTTPException(400, "empty messenger prompt")
+    fast = (s.get("model_roles") or {}).get("fast", "")
+    if fast.startswith("kimi:"):
+        fast = ""
+    model = fast or await llm.default_model()
+    if not model:
+        raise HTTPException(503, "No fast messenger model is configured")
+    elapsed = max(0, int(time.time() - run.started))
+    recent = []
+    for ev in run.events[-80:]:
+        if ev.get("type") in ("phase", "tool_start", "tool_end", "notice", "heartbeat"):
+            recent.append({k: ev.get(k) for k in ("type", "phase", "detail", "name", "error", "text") if ev.get(k) is not None})
+    last_user = next((_text_of(x) for x in reversed(s.get("messages", [])) if x.get("role") == "user" and not x.get("_interrupt")), "")
+    status = {"elapsed_seconds": elapsed, "step": run.step, "current": run.current,
+              "partial_response": (run.partial.get("text") or "")[-1200:],
+              "pending_instructions": len(s.get("interrupt_queue", [])), "recent_activity": recent[-20:]}
+    system = ("You are Pocket Agent's fast messenger, a separate assistant that can communicate with the user while the main worker is busy. "
+              "Answer only from the live status data below. Be concise and candid. Clearly distinguish observed facts from uncertainty. "
+              "Never claim a task is complete unless the status proves it. Do not ask the main worker to stop.\n"
+              "Original task: " + last_user[-2500:] + "\nLive status JSON: " + json.dumps(status, ensure_ascii=False))
+    async def nop(*_):
+        return None
+    try:
+        result = await llm.chat(model, [{"role": "system", "content": system}, {"role": "user", "content": prompt}],
+                                [], nop, nop, nop, thinking=False, effort="low", max_tokens=700)
+        answer = (result["message"].get("content") or "").strip()
+        if not answer:
+            answer = "The messenger model returned an empty response. The worker is still running."
+        await run.emit({"type": "messenger_reply", "text": answer, "model": model.split(":")[-1]})
+        return {"ok": True, "text": answer, "model": model}
+    except Exception as e:
+        raise HTTPException(502, "Messenger failed: " + str(e)[:180])
+
+
 @app.post("/api/sessions/{sid}/interrupt", dependencies=[Depends(auth)])
 async def interrupt(sid: str, body: dict):
     s = get_session(sid)
