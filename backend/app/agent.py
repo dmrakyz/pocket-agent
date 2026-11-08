@@ -683,7 +683,7 @@ async def run_turn(s: dict, run: Run):
         reviewed = False
         step = 0
         while autopilot or step < limit:
-            await run.wait_if_paused()
+            
             step += 1
             if autopilot:
                 job["steps"] = int(job.get("steps", 0)) + 1
@@ -782,7 +782,7 @@ async def run_turn(s: dict, run: Run):
             else:
                 results = None
             for i, c in enumerate(calls):
-                await run.wait_if_paused()
+                
                 res = results[i] if results else await gated_execute(run, s, ctx, c)
                 tm = {"role": "tool", "tool_call_id": c["id"], "content": res["text"], "_name": c["function"]["name"]}
                 if res.get("error"):
