@@ -52,6 +52,8 @@ class Run:
             self.current["stage"] = ev.get("stage")
             self.current["detail"] = str(ev.get("detail") or "Waiting for model")[:300]
             self.current["last_event_at"] = now
+            if ev.get("stage") == "first_output":
+                self.current["last_token_at"] = now
         elif t in ("delta", "reasoning"):
             self.current["last_token_at"] = time.time()
             self.current["last_event_at"] = time.time()
