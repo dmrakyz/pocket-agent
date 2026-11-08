@@ -662,6 +662,20 @@ async def consume_interrupts(s: dict, run: Run) -> int:
     return consumed
 
 
+def choose_effort(session: dict, request: str) -> str:
+    """Choose a Claude-Code-style effort tier independently of model routing."""
+    setting = str(session.get("effort", "high")).lower()
+    if setting in ("low", "medium", "high", "max"):
+        return setting
+    text = (request or "").lower()
+    max_terms = ("architecture", "design a system", "prove", "formal", "research", "benchmark", "optimize", "security audit", "root cause", "multi-agent", "from scratch", "refactor the entire", "complex")
+    high_terms = ("implement", "debug", "fix", "refactor", "write code", "build", "test", "analyze", "compare", "plan")
+    low_terms = ("what is", "define", "translate", "summarize", "quick", "simple", "format", "list ")
+    if any(x in text for x in max_terms): return "max"
+    if any(x in text for x in high_terms): return "high"
+    if any(x in text for x in low_terms) or len(text) < 180: return "low"
+    return "medium"
+
 async def run_turn(s: dict, run: Run):
     status = "done"
     ws: Optional[Path] = None
@@ -723,8 +737,10 @@ async def run_turn(s: dict, run: Run):
             await run.emit({"type": "phase", "phase": "model", "detail": "Waiting for " + active_model + " · step " + str(step)})
             if active_model != s["model"]:
                 await run.emit({"type": "notice", "text": f"Router selected {active_model} for this task"})
+            active_effort = choose_effort(s, _request_text(s))
+            await run.emit({"type": "phase", "phase": "model", "detail": f"Waiting for {active_model} · {active_effort} effort · step {step}"})
             resp = await llm.chat(active_model, [{"role": "system", "content": build_system(s, ws) + toolhint.section(_request_text(s), sch)}] + timectx.apply(s, await vision_proxy(s, run, s["messages"])),
-                                  sch, on_text, on_reason, notify, thinking=s.get("thinking"), effort=s.get("effort"))
+                                  sch, on_text, on_reason, notify, thinking=s.get("thinking"), effort=active_effort)
             m = resp["message"]
             if resp.get("usage"):
                 s["usage"]["in"] += resp["usage"].get("prompt_tokens", 0)
