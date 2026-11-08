@@ -255,9 +255,9 @@ async def patch_session(sid: str, body: dict):
         s["thinking"] = bool(body["thinking"])
     if "review" in body:
         s["review"] = bool(body["review"])
-    if body.get("effort") in ("off", "medium", "high"):
+    if body.get("effort") in ("low", "medium", "high", "max", "auto"):
         s["effort"] = body["effort"]
-        s["thinking"] = body["effort"] != "off"
+        s["thinking"] = True
     if "autopilot" in body:
         s["autopilot"] = bool(body["autopilot"])
     if body.get("budget"):
