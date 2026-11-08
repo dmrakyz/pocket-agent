@@ -564,6 +564,7 @@ def _mem_msg(flag: dict) -> str:
 
 async def t_bash(ctx: Ctx, a: dict):
     cmd = a["command"]
+    call_id = getattr(ctx, "call_id", "")
     timeout = max(1, min(int(a.get("timeout") or config.BASH_TIMEOUT), config.BASH_MAX_TIMEOUT))
     env = workspace.clean_env()
     if a.get("background"):
@@ -583,7 +584,18 @@ async def t_bash(ctx: Ctx, a: dict):
     mflag: dict = {}
     guard = asyncio.create_task(_mem_guard(p, mflag))
     try:
-        out, _ = await asyncio.wait_for(p.communicate(), timeout=timeout)
+        chunks = []
+        async def collect_output():
+            while True:
+                chunk = await p.stdout.read(4096)
+                if not chunk:
+                    break
+                chunks.append(chunk)
+                if call_id:
+                    await ctx.emit({"type": "tool_output", "tool_id": call_id, "text": chunk.decode("utf-8", "replace")})
+        await asyncio.wait_for(collect_output(), timeout=timeout)
+        await p.wait()
+        out = b"".join(chunks)
     except asyncio.TimeoutError:
         try:
             os.killpg(p.pid, signal.SIGKILL)
