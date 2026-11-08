@@ -590,8 +590,7 @@ function userNode(m, idx) {
 function assistantNode(m, idx) {
   const n = h('div.msg-ai', { 'data-idx': idx });
   const calls = m.tool_calls || [];
-  const thought = !m.content && calls.length ? m._reasoning : '';
-  if (m._reasoning && !thought) n.append(h('details.reasoning', {}, h('summary', { text: 'Thinking' }), h('div.rtext', { text: m._reasoning })));
+  const thought = ''; // Never render raw provider reasoning into the conversation UI.
   if (m.content) n.append(prose(m.content));
   if (m._unverified && m.content) n.append(h('div.unverified', { text: '⚠ Not verified: no passing run after the last code change' }));
   if (calls.length) {
@@ -721,21 +720,41 @@ function renderChat(forceScroll) {
 }
 let liveRaf = 0;
 function renderLive() {
-  if (!S.run.running) { if (S.live) S.live.remove(); S.live = null; if (S.statusEl) S.statusEl.remove(); S.statusEl = null; return; }
-  if (!S.live) { S.live = h('div.msg-ai.fresh'); msgsEl().append(S.live); }
+  if (!S.run.running) {
+    if (S.live) S.live.remove();
+    S.live = null;
+    if (S.statusEl) S.statusEl.remove();
+    S.statusEl = null;
+    return;
+  }
+  if (!S.live) {
+    S.live = h('div.msg-ai.fresh');
+    msgsEl().append(S.live);
+  }
   if (liveRaf) return;
   liveRaf = requestAnimationFrame(() => {
     liveRaf = 0;
     if (!S.live) return;
+    const box = chat();
+    const keepAtBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 120;
     const p = S.partial;
-    S.live.replaceChildren();
-    if (p.reasoning) S.live.append(h('details.reasoning', { open: !p.text }, h('summary', { text: 'Thinking…' }), h('div.rtext', { text: p.reasoning })));
-    if (p.text) S.live.append(prose(p.text));
-    if (!p.text && !p.reasoning) S.live.append(h('div.live-dots', {}, h('i'), h('i'), h('i')));
-    if (S.statusEl) msgsEl().append(S.statusEl);
-    msgsEl().append(S.live);
-    if (S.statusEl) msgsEl().append(S.statusEl);
-    scrollDown();
+    // Keep the live message node stable. Replacing/moving it on every streamed
+    // token caused layout flashes and yanked readers away from their position.
+    let body = S.live.querySelector('.live-body');
+    if (!body) {
+      S.live.replaceChildren();
+      body = h('div.live-body');
+      S.live.append(body);
+    }
+    if (p.text) {
+      body.replaceChildren(prose(p.text));
+    } else if (!body.querySelector('.live-dots')) {
+      body.replaceChildren(h('div.live-dots', {}, h('i'), h('i'), h('i')));
+    }
+    // Provider reasoning tokens are deliberately not rendered into the chat.
+    // Show concise activity/status instead of exposing raw internal reasoning.
+    if (S.statusEl && S.statusEl.parentNode !== msgsEl()) msgsEl().append(S.statusEl);
+    if (keepAtBottom) scrollDown(true);
   });
 }
 const RETRYISH = /HTTP (408|429|5\d\d)|retrying in|keeps failing|network hiccup/;
@@ -753,10 +772,12 @@ async function retryOnOtherModel() {
 }
 function setStatus(text) {
   if (!text) { if (S.statusEl) S.statusEl.remove(); S.statusEl = null; return; }
+  const box = chat();
+  const keepAtBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 120;
   if (!S.statusEl) S.statusEl = h('div.notice');
   S.statusEl.replaceChildren(text, RETRYISH.test(text) ? h('button.notice-btn', { text: 'Try another model', onclick: retryOnOtherModel }) : null);
-  msgsEl().append(S.statusEl);
-  scrollDown();
+  if (S.statusEl.parentNode !== msgsEl()) msgsEl().append(S.statusEl);
+  if (keepAtBottom) scrollDown(true);
 }
 function renderTodos() {
   const bar = $('#todobar');
