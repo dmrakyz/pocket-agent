@@ -1,5 +1,16 @@
 [
  {
+  "id": 16,
+  "date": "2026-11-08",
+  "title": "Live model diagnostics and stalled-stream warnings",
+  "items": [
+   "Live status distinguishes API-key queueing, connection, provider response, stream startup and first model output",
+   "The activity clock refreshes every two seconds instead of relying on a five-second heartbeat",
+   "Long waits without a first token are explicitly flagged as slow, then suspicious; long gaps after output are flagged as possible stream stalls",
+   "Retry and fallback transitions appear in the live activity feed, with a Try another model action for suspicious stalls"
+  ]
+ },
+ {
   "id": 15,
   "date": "2026-11-08",
   "title": "Effort controls, messenger, and crash-safe checkpoints",
