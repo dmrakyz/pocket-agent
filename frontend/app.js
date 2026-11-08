@@ -904,6 +904,8 @@ function updateSend() {
   b.textContent = stop ? '■' : '↑';
   b.classList.toggle('stop', stop);
   b.setAttribute('aria-label', stop ? 'Stop' : S.run.running ? 'Queue message' : 'Send');
+  const pause = $('#btn-pause');
+  if (pause) { pause.hidden = !S.run.running; pause.textContent = S.run.paused ? '▶' : 'Ⅱ'; pause.setAttribute('aria-label', S.run.paused ? 'Resume agent' : 'Pause agent'); }
 }
 function autoGrow() { const t = $('#input'); t.style.height = 'auto'; t.style.height = Math.min(t.scrollHeight, window.innerHeight * 0.38) + 'px'; }
 const queueFor = () => (S.queues[S.cur.id] ||= []);
@@ -2622,6 +2624,12 @@ function wire() {
   $('#btn-update').onclick = applyUpdate;
   $('#chat-search').oninput = renderList;
   $('#btn-send').onclick = send;
+  $('#btn-pause').onclick = async () => {
+    if (!S.cur || !S.run.running) return;
+    const action = S.run.paused ? 'resume' : 'pause';
+    try { await api('/api/sessions/' + S.cur.id + '/' + action, { method: 'POST' }); S.run.paused = action === 'pause'; updateSend(); toast(action === 'pause' ? 'Pause requested; current operation will finish first.' : 'Resuming agent…'); }
+    catch (e) { toast(e.message, true); }
+  };
   $('#btn-attach').onclick = () => $('#file-img').click();
   $('#file-img').onchange = (e) => { [...e.target.files].forEach((f) => attachAny(f).catch((er) => toast(er.message, true))); e.target.value = ''; };
   const input = $('#input');
