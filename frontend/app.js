@@ -947,7 +947,9 @@ function updateSend() {
   const stop = S.run.running && !hasDraft();
   b.textContent = stop ? '■' : '↑';
   b.classList.toggle('stop', stop);
-  b.setAttribute('aria-label', stop ? 'Stop' : S.run.running ? 'Send instruction' : 'Send');
+  b.setAttribute('aria-label', stop ? 'Stop' : S.run.running ? 'Queue instruction' : 'Send');
+  const now = $('#btn-send-now');
+  if (now) now.hidden = !(S.run.running && hasDraft());
 }
 function autoGrow() { const t = $('#input'); t.style.height = 'auto'; t.style.height = Math.min(t.scrollHeight, window.innerHeight * 0.38) + 'px'; }
 const queueFor = () => (S.queues[S.cur.id] ||= []);
@@ -1001,6 +1003,16 @@ async function send() {
   }
   await dispatch(draft);
 }
+async function sendNow() {
+  if (!S.run.running || !hasDraft()) return send();
+  if (S.files.some((f) => f.state === 'uploading')) { toast('Still uploading…'); return; }
+  const draft = takeDraft();
+  try {
+    const r = await api('/api/sessions/' + S.cur.id + '/interrupt', { body: { text: draft.text, images: draft.images, priority: true, tz: (Intl.DateTimeFormat().resolvedOptions().timeZone || '') } });
+    toast('Sent to the front of the worker queue (' + r.queued + ' pending).');
+  } catch (e) { $('#input').value = draft.text; S.images = draft.images; renderAttach(); autoGrow(); toast(e.message, true, 6000); }
+}
+
 async function dispatch({ text, images }) {
   const msg = { role: 'user', content: images.length ? [{ type: 'text', text }, ...images.map((u) => ({ type: 'image_url', image_url: { url: u } }))] : text };
   S.cur.messages.push(msg);
@@ -1216,7 +1228,7 @@ async function setEffort(k) {
 async function modelSheet() {
   const list = h('div', { style: 'display:flex;flex-direction:column;gap:8px' }, h('div.dim', { text: 'Loading models…' }));
   const search = h('input.msearch', { type: 'search', placeholder: 'Search models', autocomplete: 'off', autocapitalize: 'off', autocorrect: 'off', spellcheck: 'false' });
-  const cur = () => (S.cur && S.cur.effort) || 'high';
+  const cur = () => { const v = (S.cur && S.cur.effort) || 'high'; return v === 'off' ? 'low' : v; };
   const note = h('div.seg-note', { text: EFFORTS[cur()][1] });
   const seg = h('div.seg', {}, ...Object.entries(EFFORTS).map(([k, [name]]) => h('button' + (cur() === k ? '.on' : ''), { text: name, onclick: async (e) => {
     const me = e.currentTarget;
@@ -2692,6 +2704,7 @@ function wire() {
   $('#btn-update').onclick = applyUpdate;
   $('#chat-search').oninput = renderList;
   $('#btn-send').onclick = send;
+  $('#btn-send-now').onclick = sendNow;
   $('#btn-attach').onclick = () => $('#file-img').click();
   $('#file-img').onchange = (e) => { [...e.target.files].forEach((f) => attachAny(f).catch((er) => toast(er.message, true))); e.target.value = ''; };
   const input = $('#input');
