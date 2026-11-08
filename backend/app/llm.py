@@ -359,7 +359,7 @@ _no_effort: set = set()
 
 
 async def chat(model_ref: str, messages: list[dict], tools: list[dict], on_text, on_reasoning,
-               notify: Notify, thinking=None, max_tokens=None, effort=None, fallback: bool = True):
+               notify: Notify, thinking=None, max_tokens=None, effort=None, fallback: bool = True, on_reset=None):
     """Streaming chat with retries and one fallback-model attempt (unless fallback=False: pinned models never get swapped). Returns {message, finish_reason, usage}."""
     prov, model = split_ref(model_ref)
     if (prov, model) in _no_think:
@@ -374,6 +374,10 @@ async def chat(model_ref: str, messages: list[dict], tools: list[dict], on_text,
             return await _stream_once(prov, model, messages, tools, on_text, on_reasoning, thinking, max_tokens, effort)
         except LLMError as e:
             last = e
+            # A failed stream may already have emitted partial text. Clear that attempt
+            # before retrying so the UI never concatenates two different generations.
+            if on_reset:
+                await on_reset()
             if e.status == 400 and thinking and effort:
                 _no_effort.add((prov, model))
                 effort = None              # this model doesn't know the effort flag; keep thinking on, retry
@@ -394,6 +398,8 @@ async def chat(model_ref: str, messages: list[dict], tools: list[dict], on_text,
             await asyncio.sleep(delays[attempt])
         except (httpx.TransportError, httpx.TimeoutException) as e:
             last = LLMError(f"network error: {type(e).__name__}")
+            if on_reset:
+                await on_reset()
             if attempt == len(delays):
                 break
             await notify(f"network hiccup ({type(e).__name__}) — retrying in {delays[attempt]}s")
@@ -401,6 +407,8 @@ async def chat(model_ref: str, messages: list[dict], tools: list[dict], on_text,
 
     fb = await fallback_model() if fallback else ""
     if fb and fb != model_ref and fb != f"{prov}:{model}":
+        if on_reset:
+            await on_reset()
         await notify(f"{model} keeps failing ({last}). Falling back to {fb} for this step.")
         fprov, fmodel = split_ref(fb)
         return await _stream_once(fprov, fmodel, messages, tools, on_text, on_reasoning, None, max_tokens)
