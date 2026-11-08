@@ -277,6 +277,29 @@ async def delete_session(sid: str):
     return {"ok": True}
 
 
+@app.post("/api/sessions/{sid}/interrupt", dependencies=[Depends(auth)])
+async def interrupt(sid: str, body: dict):
+    s = get_session(sid)
+    r = agent.runs.get(sid)
+    if not s.get("_running") or not r or r.done:
+        raise HTTPException(409, "the agent is no longer running; send this as a normal message")
+    text = (body.get("text") or "").strip()
+    images = [u for u in (body.get("images") or []) if isinstance(u, str) and u.startswith("data:image/")][:4]
+    if not text and not images:
+        raise HTTPException(400, "empty message")
+    content = ([{"type": "text", "text": text}] if text else []) + [
+        {"type": "image_url", "image_url": {"url": u}} for u in images
+    ]
+    item = {"role": "user", "content": content if images else text, "_interrupt": True, "_ts": time.time()}
+    queue = s.setdefault("interrupt_queue", [])
+    if len(queue) >= 20:
+        raise HTTPException(429, "interrupt queue is full (20 pending instructions)")
+    queue.append(item)
+    store.touch(s)
+    await r.emit({"type": "notice", "text": f"Instruction queued ({len(queue)} pending). It will be checked after the current model/tool operation finishes."})
+    return {"ok": True, "queued": len(queue)}
+
+
 @app.post("/api/sessions/{sid}/messages", dependencies=[Depends(auth)])
 async def send_message(sid: str, body: dict):
     s = get_session(sid)
@@ -319,36 +342,6 @@ async def events(sid: str, after: int = 0):
 
     return StreamingResponse(gen(), media_type="text/event-stream",
                              headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
-
-
-@app.post("/api/sessions/{sid}/pause", dependencies=[Depends(auth)])
-async def pause(sid: str):
-    s = get_session(sid)
-    r = agent.runs.get(sid)
-    if not r or r.done:
-        raise HTTPException(409, "no active run to pause")
-    r.pause_requested = True
-    r.pause_event.clear()
-    if s.get("job"):
-        s["job"]["status"] = "paused"
-        s["job"]["paused_at"] = time.time()
-        store.touch(s)
-    return {"ok": True, "paused": True, "note": "Pause takes effect after the current model/tool operation finishes."}
-
-
-@app.post("/api/sessions/{sid}/resume", dependencies=[Depends(auth)])
-async def resume(sid: str):
-    s = get_session(sid)
-    r = agent.runs.get(sid)
-    if not r or r.done:
-        raise HTTPException(409, "no paused run to resume")
-    r.pause_requested = False
-    r.pause_event.set()
-    if s.get("job"):
-        s["job"]["status"] = "running"
-        s["job"]["resumed_at"] = time.time()
-        store.touch(s)
-    return {"ok": True, "paused": False}
 
 
 @app.post("/api/sessions/{sid}/stop", dependencies=[Depends(auth)])
