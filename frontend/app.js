@@ -2633,12 +2633,6 @@ function wire() {
   $('#btn-update').onclick = applyUpdate;
   $('#chat-search').oninput = renderList;
   $('#btn-send').onclick = send;
-  $('#btn-pause').onclick = async () => {
-    if (!S.cur || !S.run.running) return;
-    const action = S.run.paused ? 'resume' : 'pause';
-    try { await api('/api/sessions/' + S.cur.id + '/' + action, { method: 'POST' }); S.run.paused = action === 'pause'; updateSend(); toast(action === 'pause' ? 'Pause requested; current operation will finish first.' : 'Resuming agent…'); }
-    catch (e) { toast(e.message, true); }
-  };
   $('#btn-attach').onclick = () => $('#file-img').click();
   $('#file-img').onchange = (e) => { [...e.target.files].forEach((f) => attachAny(f).catch((er) => toast(er.message, true))); e.target.value = ''; };
   const input = $('#input');
