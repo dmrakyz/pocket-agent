@@ -299,7 +299,7 @@ async def messenger(sid: str, body: dict):
     for ev in run.events[-80:]:
         if ev.get("type") in ("phase", "tool_start", "tool_end", "notice", "heartbeat"):
             recent.append({k: ev.get(k) for k in ("type", "phase", "detail", "name", "error", "text") if ev.get(k) is not None})
-    last_user = next((_text_of(x) for x in reversed(s.get("messages", [])) if x.get("role") == "user" and not x.get("_interrupt")), "")
+    last_user = next(((x.get("content") if isinstance(x.get("content"), str) else "[user attached an image or file]") for x in reversed(s.get("messages", [])) if x.get("role") == "user" and not x.get("_interrupt")), "")
     status = {"elapsed_seconds": elapsed, "step": run.step, "current": run.current,
               "partial_response": (run.partial.get("text") or "")[-1200:],
               "pending_instructions": len(s.get("interrupt_queue", [])), "recent_activity": recent[-20:]}
