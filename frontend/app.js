@@ -768,7 +768,7 @@ function renderLive() {
     if (keepAtBottom) scrollDown(true);
   });
 }
-const RETRYISH = /HTTP (408|429|5\d\d)|retrying in|keeps failing|network hiccup/;
+const RETRYISH = /HTTP (408|429|5\d\d)|retrying in|keeps failing|network hiccup|suspiciously slow|stream may be stalled/;
 async function retryOnOtherModel() {
   if (!S.cur) return;
   const fb = S.info && S.info.fallback_model;
@@ -913,11 +913,12 @@ function handle(ev) {
       break;
     }
     case 'phase': S.currentActivity = { phase: ev.phase, detail: ev.detail, since: Date.now() }; setStatus(ev.detail || ev.phase); break;
+    case 'llm_status': S.currentActivity = { phase: 'model', stage: ev.stage, detail: ev.detail, since: Date.now() }; setStatus(ev.detail || 'Contacting model…'); break;
     case 'tool_start': { S.currentActivity = { phase: 'tool', detail: ev.detail || ev.name, since: Date.now() }; const card = S.cards[ev.tool_id]; if (card) { card._progress = { detail: ev.detail || ('Starting ' + ev.name), progress: 0, total: 0 }; card.dataset.open = '1'; fillCard(card, card._call, S.results[ev.tool_id], null); } setStatus(ev.detail || ('Running ' + ev.name + '…')); break; }
     case 'tool_progress': { const card = S.cards[ev.tool_id]; if (card) { card._progress = { detail: ev.detail || 'Working…', progress: Number(ev.progress || 0), total: Number(ev.total || 0) }; if (!S.results[ev.tool_id]) fillCard(card, card._call, null, null); } if (ev.detail) setStatus(ev.detail); break; }
     case 'tool_output': { const card = S.cards[ev.tool_id]; if (card) { card._liveOutput = (card._liveOutput || '') + (ev.text || ''); const pre = card.querySelector('.tool-live-output'); if (pre) { pre.textContent = card._liveOutput.slice(-24000); pre.scrollTop = pre.scrollHeight; } else { const body = card.querySelector('.tool-body'); if (body) body.append(h('pre.tool-live-output', { text: card._liveOutput.slice(-24000) })); } } break; }
     case 'tool_end': S.currentActivity = { phase: 'thinking', detail: 'Tool finished · ' + ev.name, since: Date.now() }; setStatus('Finished ' + ev.name + (ev.error ? ' · error' : '')); break;
-    case 'heartbeat': S.currentActivity = { phase: ev.phase, detail: ev.detail, since: Date.now() }; setStatus(ev.detail || 'Working…'); break;
+    case 'heartbeat': S.currentActivity = { phase: ev.phase, stage: ev.stage, detail: ev.detail, elapsedSeconds: ev.elapsed_seconds, tokenIdleSeconds: ev.token_idle_seconds, since: Date.now() }; setStatus(ev.detail || 'Working…'); break;
     case 'error': toast(ev.text, true, 8000); msgsEl().append(h('div.notice.err', { text: ev.text })); scrollDown(); break;
     case 'reload': reloadCurrent(); break;
     case 'done': finishRun(); brRefreshAlive(); break;
