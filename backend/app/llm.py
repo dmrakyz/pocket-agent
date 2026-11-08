@@ -11,7 +11,8 @@ import httpx
 
 from . import config
 
-TIMEOUT = httpx.Timeout(float(config.LLM_READ_TIMEOUT_SECONDS), connect=30.0)
+TIMEOUT = httpx.Timeout(float(config.LLM_READ_TIMEOUT_SECONDS), connect=float(config.LLM_CONNECT_TIMEOUT_SECONDS),
+                       write=float(config.LLM_WRITE_TIMEOUT_SECONDS), pool=float(config.LLM_POOL_TIMEOUT_SECONDS))
 
 
 class Limiter:
@@ -306,7 +307,22 @@ async def _stream_once(prov_name: str, model: str, messages, tools, on_text, on_
                         ra = 30.0
                     kp.cool(ki, ra)
                 raise LLMError(f"{prov_name} HTTP {r.status_code}: {text}", r.status_code)
-            async for line in r.aiter_lines():
+            # First-token timeout is independent from stream inactivity; total response time is unlimited.
+            line_iter = r.aiter_lines().__aiter__()
+            first_token_deadline = time.monotonic() + config.LLM_FIRST_TOKEN_TIMEOUT_SECONDS
+            while True:
+                try:
+                    if first_output:
+                        line = await line_iter.__anext__()
+                    else:
+                        remaining = first_token_deadline - time.monotonic()
+                        if remaining <= 0:
+                            raise httpx.TimeoutException(f"no first model output within {config.LLM_FIRST_TOKEN_TIMEOUT_SECONDS}s")
+                        line = await asyncio.wait_for(line_iter.__anext__(), timeout=remaining)
+                except StopAsyncIteration:
+                    break
+                except asyncio.TimeoutError as exc:
+                    raise httpx.TimeoutException(f"no first model output within {config.LLM_FIRST_TOKEN_TIMEOUT_SECONDS}s") from exc
                 if not line.startswith("data:"):
                     continue
                 data = line[5:].strip()
