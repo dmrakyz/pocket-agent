@@ -1,5 +1,16 @@
 [
  {
+  "id": 14,
+  "date": "2026-11-08",
+  "title": "Pause, resume and persistent long-running jobs",
+  "items": [
+   "Autopilot keeps iterating until it finishes or is genuinely blocked, with no fixed step ceiling",
+   "Pause and resume an active run without cancelling it; pause takes effect after the current model/tool operation",
+   "Long-running jobs checkpoint session state and Git-backed workspace every five agent steps",
+   "Jobs interrupted by a server restart automatically resume from the latest saved checkpoint"
+  ]
+ },
+ {
   "id": 13,
   "date": "2026-11-08",
   "title": "Longer coding runs and free-first model routing",
