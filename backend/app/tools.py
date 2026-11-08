@@ -1908,7 +1908,11 @@ async def execute(ctx: Ctx, name: str, args: dict) -> dict:
         h = HANDLERS.get(name)
         if not h:
             return {"text": f"unknown tool {name!r}. Available: {', '.join(HANDLERS)}", "error": True}
-        res = await h(ctx, args)
+        timeout = int(config.TOOL_TIMEOUTS.get(name, config.TOOL_TIMEOUT_DEFAULT_SECONDS))
+        try:
+            res = await asyncio.wait_for(h(ctx, args), timeout=max(1, timeout))
+        except asyncio.TimeoutError:
+            raise ToolError(f"{name} exceeded its {timeout}s operation timeout. The agent can checkpoint and retry or split the operation.")
         if isinstance(res, dict):
             return {"error": False, **res}
         return {"text": res, "error": False}

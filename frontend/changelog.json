@@ -1,133 +1,155 @@
 [
- {
-  "id": 15,
-  "date": "2026-11-08",
-  "title": "Effort controls, messenger, and crash-safe checkpoints",
-  "items": [
-   "Choose Low, Medium, High, or Max effort manually, or let the agent select effort for each task independently of model routing",
-   "Ask live status questions while the worker is busy; a separate fast messenger answers without entering the worker's instruction queue",
-   "Send a new instruction to the front of the queue without waiting behind earlier queued prompts",
-   "Chat sessions are mirrored to Turso so chat history survives Render restarts",
-   "Workspace changes are committed and pushed after every completed tool batch, including normal turns"
-  ]
- },
- {
-  "id": 14,
-  "date": "2026-11-08",
-  "title": "Interrupt active work with new instructions",
-  "items": [
-   "Autopilot has no fixed step ceiling and continues until completion or a genuine blocker",
-   "Send new instructions while the agent is working; they are queued and checked after the current operation finishes",
-   "Live activity feed shows the current model/tool operation and elapsed time, refreshed every five seconds",
-   "Foreground and background shell output streams into the active tool card",
-   "Reopening an active session restores its current operation and reconnects to live events",
-   "Workspace checkpoints and restart recovery for GitHub-backed jobs"
-  ]
- },
- {
-  "id": 13,
-  "date": "2026-11-08",
-  "title": "Longer coding runs and free-first model routing",
-  "items": [
-   "Shell commands default to 10 minutes and can be given up to 60 minutes; both limits are configurable",
-   "Long model streams allow up to 30 minutes without an idle read timeout (configurable)",
-   "Kimi remains available for deliberate manual selection, but is excluded from default, fallback and automatic specialist routing",
-   "Existing Auto/Hybrid chats that had Kimi as their primary switch to an available non-Kimi model"
-  ]
- },
- {
-  "id": 12,
-  "date": "2026-11-04",
-  "title": "Kimi key rotation",
-  "items": [
-   "Kimi now supports multiple API keys through KIMI_API_KEYS, just like NVIDIA",
-   "Requests spread across the least-busy key; rate-limited keys cool down while another key takes over",
-   "Each key has its own local RPM window and cooldown status"
-  ]
- },
- {
-  "id": 11,
-  "date": "2026-11-04",
-  "title": "Kimi K3.1 Pro joins as the primary model",
-  "items": [
-   "Kimi K3.1 Pro is selected automatically ahead of Nemotron Ultra when KIMI_API_KEY is configured",
-   "Kimi reasoning and tool-call history are preserved across turns",
-   "Nemotron Ultra is the automatic fallback when Kimi is unavailable"
-  ]
- },
- {
-  "id": 10,
-  "date": "2026-11-03",
-  "title": "It plays, and remembers what it can do",
-  "items": [
-   "Browser: hold keys, mouse look and drag for games and canvas pages; stays open 20 minutes",
-   "Before every reply the system matches your request against its live tool list and puts the right tools in front of it, so it stops saying it can't",
-   "Several NVIDIA keys rotate when one is rate-limited",
-   "Watchers: \"tell me when X changes\" — it checks on a schedule and pings you only when it matters",
-   "State can live in a free Turso database; a running Capability check resumes after a redeploy",
-   "Remembers on its own: files lasting facts you state, and reminds you of dates you mention (switch in Memory)",
-   "Connectors: one-tap Notion, Linear, Stripe, GitHub; the agent knows their official URLs",
-   "Back-tap / Action Button: new step-by-step recipes, including a voice one that talks back, and a free \"ping\" test",
-   "Settings → Skills → Install from GitHub: pull whole plugins (skills, slash commands, sub-agents, hooks, MCP servers), read them first, tick what you want; hooks arrive switched off",
-   "Settings → Etsy: connect your shop with Etsy's official login; the agent researches, drafts and uploads digital listings, and asks before anything goes live",
-   "Settings → Lemon Squeezy: sell digital products; the agent researches a niche, builds and tests the product, writes the listing kit and storefront, and watches orders (refunds ask you)"
-  ]
- },
- {
-  "id": 9,
-  "date": "2026-11-03",
-  "title": "Run servers, publish sites, upload anything",
-  "items": [
-   "Live dev server: it can run a Flask/Node app and you use it right in the app (serve)",
-   "One-tap publish to GitHub Pages (you approve every time)",
-   "File picker fixed: any file type, several at once (iOS greyed out non-images)",
-   "Capability check: tick which tasks to run and which to exclude",
-   "Several NVIDIA API keys rotate automatically; a rate-limited key sits out and another takes over"
-  ]
- },
- {
-  "id": 8,
-  "date": "2026-11-03",
-  "title": "It can build bigger things, and checks its work",
-  "items": [
-   "Asks you questions: tap-to-answer cards when a request is ambiguous (ask_user)",
-   "Verify gate: it can't say done after changing code until a check passed, otherwise it says \"Not verified\"",
-   "Repo map and symbol search to navigate big codebases",
-   "Optional self-review: a fresh reviewer checks the diff (Model sheet)",
-   "Sense of time: it now sees timestamps in your time zone on messages, answers and tool results",
-   "Can add connectors (remote MCP), save skills and schedule routines itself (you approve each)",
-   "Won't deny tools it has: a guard sends wrong \"I can't\" answers back, plus a `capabilities` tool and a new Capability-check task"
-  ]
- },
- {
-  "id": 7,
-  "date": "2026-11-03",
-  "title": "Capability check grows up",
-  "items": [
-   "Choose reasoning effort (Off / Medium / High) and a Hard suite of 12 real tasks",
-   "Past runs are saved so you can compare models and effort levels",
-   "New Compile C++ task"
-  ]
- },
- {
-  "id": 6,
-  "date": "2026-11-03",
-  "title": "More languages and tools",
-  "items": [
-   "Settings → Toolchain packs: scipy/pandas, cmake/clang and Emscripten, installed only when needed and cached on GitHub",
-   "Every command is memory-capped so one runaway script can't kill the server",
-   "Previews can run WebAssembly and multi-file pages",
-   "Settings → Skills: reusable instructions the agent can save for every chat (you approve them)"
-  ]
- },
- {
-  "id": 5,
-  "date": "2026-11-02",
-  "title": "Self-management, backups and worlds",
-  "items": [
-   "The agent can propose MCP connectors, routines and worlds from chat (you approve each)",
-   "Settings → Platform check and Backup & restore",
-   "Worlds can look things up on the web, and you can read and mute them"
-  ]
- }
+  {
+    "id": 17,
+    "date": "2026-11-08",
+    "title": "Long-running execution and live activity clock",
+    "items": [
+      "Model connection, first-output, and stream-inactivity timeouts are separate; a progressing response has no total-duration cap",
+      "Tools have operation-specific deadlines, while long shell work can use independently monitored background jobs",
+      "The activity clock advances locally every second even if a heartbeat event is delayed",
+      "Long-running autopilot liveness is checkpointed periodically so a server restart can resume from the latest saved workspace state"
+    ]
+  },
+  {
+    "id": 16,
+    "date": "2026-11-08",
+    "title": "Live model diagnostics and stalled-stream warnings",
+    "items": [
+      "Live status distinguishes API-key queueing, connection, provider response, stream startup and first model output",
+      "The activity clock refreshes every two seconds instead of relying on a five-second heartbeat",
+      "Long waits without a first token are explicitly flagged as slow, then suspicious; long gaps after output are flagged as possible stream stalls",
+      "Retry and fallback transitions appear in the live activity feed, with a Try another model action for suspicious stalls"
+    ]
+  },
+  {
+    "id": 15,
+    "date": "2026-11-08",
+    "title": "Effort controls, messenger, and crash-safe checkpoints",
+    "items": [
+      "Choose Low, Medium, High, or Max effort manually, or let the agent select effort for each task independently of model routing",
+      "Ask live status questions while the worker is busy; a separate fast messenger answers without entering the worker's instruction queue",
+      "Send a new instruction to the front of the queue without waiting behind earlier queued prompts",
+      "Chat sessions are mirrored to Turso so chat history survives Render restarts",
+      "Workspace changes are committed and pushed after every completed tool batch, including normal turns"
+    ]
+  },
+  {
+    "id": 14,
+    "date": "2026-11-08",
+    "title": "Interrupt active work with new instructions",
+    "items": [
+      "Autopilot has no fixed step ceiling and continues until completion or a genuine blocker",
+      "Send new instructions while the agent is working; they are queued and checked after the current operation finishes",
+      "Live activity feed shows the current model/tool operation and elapsed time, refreshed every five seconds",
+      "Foreground and background shell output streams into the active tool card",
+      "Reopening an active session restores its current operation and reconnects to live events",
+      "Workspace checkpoints and restart recovery for GitHub-backed jobs"
+    ]
+  },
+  {
+    "id": 13,
+    "date": "2026-11-08",
+    "title": "Longer coding runs and free-first model routing",
+    "items": [
+      "Shell commands default to 10 minutes and can be given up to 60 minutes; both limits are configurable",
+      "Long model streams allow up to 30 minutes without an idle read timeout (configurable)",
+      "Kimi remains available for deliberate manual selection, but is excluded from default, fallback and automatic specialist routing",
+      "Existing Auto/Hybrid chats that had Kimi as their primary switch to an available non-Kimi model"
+    ]
+  },
+  {
+    "id": 12,
+    "date": "2026-11-04",
+    "title": "Kimi key rotation",
+    "items": [
+      "Kimi now supports multiple API keys through KIMI_API_KEYS, just like NVIDIA",
+      "Requests spread across the least-busy key; rate-limited keys cool down while another key takes over",
+      "Each key has its own local RPM window and cooldown status"
+    ]
+  },
+  {
+    "id": 11,
+    "date": "2026-11-04",
+    "title": "Kimi K3.1 Pro joins as the primary model",
+    "items": [
+      "Kimi K3.1 Pro is selected automatically ahead of Nemotron Ultra when KIMI_API_KEY is configured",
+      "Kimi reasoning and tool-call history are preserved across turns",
+      "Nemotron Ultra is the automatic fallback when Kimi is unavailable"
+    ]
+  },
+  {
+    "id": 10,
+    "date": "2026-11-03",
+    "title": "It plays, and remembers what it can do",
+    "items": [
+      "Browser: hold keys, mouse look and drag for games and canvas pages; stays open 20 minutes",
+      "Before every reply the system matches your request against its live tool list and puts the right tools in front of it, so it stops saying it can't",
+      "Several NVIDIA keys rotate when one is rate-limited",
+      "Watchers: \"tell me when X changes\" — it checks on a schedule and pings you only when it matters",
+      "State can live in a free Turso database; a running Capability check resumes after a redeploy",
+      "Remembers on its own: files lasting facts you state, and reminds you of dates you mention (switch in Memory)",
+      "Connectors: one-tap Notion, Linear, Stripe, GitHub; the agent knows their official URLs",
+      "Back-tap / Action Button: new step-by-step recipes, including a voice one that talks back, and a free \"ping\" test",
+      "Settings → Skills → Install from GitHub: pull whole plugins (skills, slash commands, sub-agents, hooks, MCP servers), read them first, tick what you want; hooks arrive switched off",
+      "Settings → Etsy: connect your shop with Etsy's official login; the agent researches, drafts and uploads digital listings, and asks before anything goes live",
+      "Settings → Lemon Squeezy: sell digital products; the agent researches a niche, builds and tests the product, writes the listing kit and storefront, and watches orders (refunds ask you)"
+    ]
+  },
+  {
+    "id": 9,
+    "date": "2026-11-03",
+    "title": "Run servers, publish sites, upload anything",
+    "items": [
+      "Live dev server: it can run a Flask/Node app and you use it right in the app (serve)",
+      "One-tap publish to GitHub Pages (you approve every time)",
+      "File picker fixed: any file type, several at once (iOS greyed out non-images)",
+      "Capability check: tick which tasks to run and which to exclude",
+      "Several NVIDIA API keys rotate automatically; a rate-limited key sits out and another takes over"
+    ]
+  },
+  {
+    "id": 8,
+    "date": "2026-11-03",
+    "title": "It can build bigger things, and checks its work",
+    "items": [
+      "Asks you questions: tap-to-answer cards when a request is ambiguous (ask_user)",
+      "Verify gate: it can't say done after changing code until a check passed, otherwise it says \"Not verified\"",
+      "Repo map and symbol search to navigate big codebases",
+      "Optional self-review: a fresh reviewer checks the diff (Model sheet)",
+      "Sense of time: it now sees timestamps in your time zone on messages, answers and tool results",
+      "Can add connectors (remote MCP), save skills and schedule routines itself (you approve each)",
+      "Won't deny tools it has: a guard sends wrong \"I can't\" answers back, plus a `capabilities` tool and a new Capability-check task"
+    ]
+  },
+  {
+    "id": 7,
+    "date": "2026-11-03",
+    "title": "Capability check grows up",
+    "items": [
+      "Choose reasoning effort (Off / Medium / High) and a Hard suite of 12 real tasks",
+      "Past runs are saved so you can compare models and effort levels",
+      "New Compile C++ task"
+    ]
+  },
+  {
+    "id": 6,
+    "date": "2026-11-03",
+    "title": "More languages and tools",
+    "items": [
+      "Settings → Toolchain packs: scipy/pandas, cmake/clang and Emscripten, installed only when needed and cached on GitHub",
+      "Every command is memory-capped so one runaway script can't kill the server",
+      "Previews can run WebAssembly and multi-file pages",
+      "Settings → Skills: reusable instructions the agent can save for every chat (you approve them)"
+    ]
+  },
+  {
+    "id": 5,
+    "date": "2026-11-02",
+    "title": "Self-management, backups and worlds",
+    "items": [
+      "The agent can propose MCP connectors, routines and worlds from chat (you approve each)",
+      "Settings → Platform check and Backup & restore",
+      "Worlds can look things up on the web, and you can read and mute them"
+    ]
+  }
 ]

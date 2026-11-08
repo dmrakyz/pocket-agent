@@ -51,7 +51,21 @@ COMPACT_AT_TOKENS = int(env("COMPACT_AT_TOKENS", "120000"))
 MAX_STEPS = int(env("MAX_STEPS", "60"))     # tool-loop iterations per user turn
 BASH_TIMEOUT = int(env("BASH_TIMEOUT", "600"))
 BASH_MAX_TIMEOUT = int(env("BASH_MAX_TIMEOUT", "3600"))
-LLM_READ_TIMEOUT_SECONDS = int(env("LLM_READ_TIMEOUT_SECONDS", "1800"))
+# Model phases have independent limits. A progressing response has no total-duration cap.
+# The stream-idle timer is per read gap, never a total model-call deadline.
+LLM_STREAM_IDLE_TIMEOUT_SECONDS = int(env("LLM_STREAM_IDLE_TIMEOUT_SECONDS", env("LLM_READ_TIMEOUT_SECONDS", "1200")))
+LLM_READ_TIMEOUT_SECONDS = LLM_STREAM_IDLE_TIMEOUT_SECONDS  # backwards-compatible name
+LLM_CONNECT_TIMEOUT_SECONDS = int(env("LLM_CONNECT_TIMEOUT_SECONDS", "30"))
+LLM_WRITE_TIMEOUT_SECONDS = int(env("LLM_WRITE_TIMEOUT_SECONDS", "120"))
+LLM_POOL_TIMEOUT_SECONDS = int(env("LLM_POOL_TIMEOUT_SECONDS", "30"))
+LLM_FIRST_TOKEN_TIMEOUT_SECONDS = int(env("LLM_FIRST_TOKEN_TIMEOUT_SECONDS", "900"))
+TOOL_TIMEOUT_DEFAULT_SECONDS = int(env("TOOL_TIMEOUT_DEFAULT_SECONDS", "900"))
+TOOL_TIMEOUTS = {"bash": BASH_MAX_TIMEOUT + 30, "browser_read": 180, "browser_act": 180,
+                 "web_search": 180, "web_fetch": 180, "bash_output": 120, "kill_bash": 30}
+try:
+    TOOL_TIMEOUTS.update({str(k): max(1, int(v)) for k, v in json.loads(env("TOOL_TIMEOUTS_JSON", "{}")).items()})
+except (ValueError, TypeError, json.JSONDecodeError):
+    print("WARNING: TOOL_TIMEOUTS_JSON is invalid; using built-in operation limits")
 VERIFY_GATE = env("VERIFY_GATE", "1") not in ("0", "false", "off", "no")   # a turn that changed code may not end until a check passed
 BASH_MEM_MB = int(env("BASH_MEM_MB", "300"))     # a bash command (all its processes together) is killed above this; 0 = off
 TOOL_OUTPUT_LIMIT = int(env("TOOL_OUTPUT_LIMIT", "30000"))

@@ -11,7 +11,8 @@ import httpx
 
 from . import config
 
-TIMEOUT = httpx.Timeout(float(config.LLM_READ_TIMEOUT_SECONDS), connect=30.0)
+TIMEOUT = httpx.Timeout(float(config.LLM_READ_TIMEOUT_SECONDS), connect=float(config.LLM_CONNECT_TIMEOUT_SECONDS),
+                       write=float(config.LLM_WRITE_TIMEOUT_SECONDS), pool=float(config.LLM_POOL_TIMEOUT_SECONDS))
 
 
 class Limiter:
@@ -279,16 +280,24 @@ def request_body(prov_name: str, model: str, messages, tools, thinking, max_toke
     return body
 
 
-async def _stream_once(prov_name: str, model: str, messages, tools, on_text, on_reasoning, thinking, max_tokens, effort=None):
+async def _stream_once(prov_name: str, model: str, messages, tools, on_text, on_reasoning, thinking, max_tokens, effort=None, on_status=None):
     prov = config.providers()[prov_name]
     body = request_body(prov_name, model, messages, tools, thinking, max_tokens, effort)
 
     content, reasoning, tcalls, finish, usage = [], [], {}, None, None
+    first_event = False
+    first_output = False
     kp = pool(prov_name)
+    if on_status:
+        await on_status("key_wait", f"Waiting for an available {prov_name.upper()} API key")
     ki, key = await kp.acquire()
     url = prov["base_url"].rstrip("/") + "/chat/completions"
+    if on_status:
+        await on_status("connecting", f"Connecting to {prov_name.upper()} · {model}")
     async with httpx.AsyncClient(timeout=TIMEOUT) as c:
         async with c.stream("POST", url, headers=_headers(prov, key), json=body) as r:
+            if on_status:
+                await on_status("headers", f"Provider responded · HTTP {r.status_code}; waiting for model stream")
             if r.status_code >= 400:
                 text = (await r.aread()).decode("utf-8", "replace")[:600]
                 if r.status_code == 429:
@@ -298,7 +307,22 @@ async def _stream_once(prov_name: str, model: str, messages, tools, on_text, on_
                         ra = 30.0
                     kp.cool(ki, ra)
                 raise LLMError(f"{prov_name} HTTP {r.status_code}: {text}", r.status_code)
-            async for line in r.aiter_lines():
+            # First-token timeout is independent from stream inactivity; total response time is unlimited.
+            line_iter = r.aiter_lines().__aiter__()
+            first_token_deadline = time.monotonic() + config.LLM_FIRST_TOKEN_TIMEOUT_SECONDS
+            while True:
+                try:
+                    if first_output:
+                        line = await line_iter.__anext__()
+                    else:
+                        remaining = first_token_deadline - time.monotonic()
+                        if remaining <= 0:
+                            raise httpx.TimeoutException(f"no first model output within {config.LLM_FIRST_TOKEN_TIMEOUT_SECONDS}s")
+                        line = await asyncio.wait_for(line_iter.__anext__(), timeout=remaining)
+                except StopAsyncIteration:
+                    break
+                except asyncio.TimeoutError as exc:
+                    raise httpx.TimeoutException(f"no first model output within {config.LLM_FIRST_TOKEN_TIMEOUT_SECONDS}s") from exc
                 if not line.startswith("data:"):
                     continue
                 data = line[5:].strip()
@@ -308,6 +332,10 @@ async def _stream_once(prov_name: str, model: str, messages, tools, on_text, on_
                     ev = json.loads(data)
                 except json.JSONDecodeError:
                     continue
+                if not first_event:
+                    first_event = True
+                    if on_status:
+                        await on_status("stream_open", "Provider stream opened · waiting for model output")
                 if ev.get("usage"):
                     usage = ev["usage"]
                 for ch in ev.get("choices", []):
@@ -317,11 +345,23 @@ async def _stream_once(prov_name: str, model: str, messages, tools, on_text, on_
                     rc = d.get("reasoning_content") or d.get("reasoning")
                     if rc:
                         reasoning.append(rc)
+                        if not first_output:
+                            first_output = True
+                            if on_status:
+                                await on_status("first_output", "First model output received · reasoning")
                         await on_reasoning(rc)
                     if d.get("content"):
                         content.append(d["content"])
+                        if not first_output:
+                            first_output = True
+                            if on_status:
+                                await on_status("first_output", "First model output received · text")
                         await on_text(d["content"])
                     for tc in d.get("tool_calls") or []:
+                        if not first_output:
+                            first_output = True
+                            if on_status:
+                                await on_status("first_output", "First model output received · tool call")
                         i = tc.get("index", 0)
                         slot = tcalls.setdefault(i, {"id": "", "type": "function",
                                                      "function": {"name": "", "arguments": ""}})
@@ -359,7 +399,7 @@ _no_effort: set = set()
 
 
 async def chat(model_ref: str, messages: list[dict], tools: list[dict], on_text, on_reasoning,
-               notify: Notify, thinking=None, max_tokens=None, effort=None, fallback: bool = True, on_reset=None):
+               notify: Notify, thinking=None, max_tokens=None, effort=None, fallback: bool = True, on_reset=None, on_status=None):
     """Streaming chat with retries and one fallback-model attempt (unless fallback=False: pinned models never get swapped). Returns {message, finish_reason, usage}."""
     prov, model = split_ref(model_ref)
     if (prov, model) in _no_think:
@@ -371,7 +411,9 @@ async def chat(model_ref: str, messages: list[dict], tools: list[dict], on_text,
     tried_no_thinking = False
     for attempt in range(len(delays) + 1):
         try:
-            return await _stream_once(prov, model, messages, tools, on_text, on_reasoning, thinking, max_tokens, effort)
+            if on_status:
+                await on_status("requesting", f"Request sent to {prov.upper()} · {model}")
+            return await _stream_once(prov, model, messages, tools, on_text, on_reasoning, thinking, max_tokens, effort, on_status)
         except LLMError as e:
             last = e
             # A failed stream may already have emitted partial text. Clear that attempt
@@ -394,6 +436,8 @@ async def chat(model_ref: str, messages: list[dict], tools: list[dict], on_text,
                 continue
             if e.status in (429, 503) and attempt >= 1:     # overloaded/rate-limited: a second model beats a longer wait
                 break
+            if on_status:
+                await on_status("retrying", f"Provider error · retrying in {delays[attempt]}s")
             await notify(f"{e} — retrying in {delays[attempt]}s")
             await asyncio.sleep(delays[attempt])
         except (httpx.TransportError, httpx.TimeoutException) as e:
@@ -402,6 +446,8 @@ async def chat(model_ref: str, messages: list[dict], tools: list[dict], on_text,
                 await on_reset()
             if attempt == len(delays):
                 break
+            if on_status:
+                await on_status("retrying", f"Network hiccup ({type(e).__name__}) · retrying in {delays[attempt]}s")
             await notify(f"network hiccup ({type(e).__name__}) — retrying in {delays[attempt]}s")
             await asyncio.sleep(delays[attempt])
 
@@ -410,8 +456,10 @@ async def chat(model_ref: str, messages: list[dict], tools: list[dict], on_text,
         if on_reset:
             await on_reset()
         await notify(f"{model} keeps failing ({last}). Falling back to {fb} for this step.")
+        if on_status:
+            await on_status("fallback", f"Switching to fallback model · {fb}")
         fprov, fmodel = split_ref(fb)
-        return await _stream_once(fprov, fmodel, messages, tools, on_text, on_reasoning, None, max_tokens)
+        return await _stream_once(fprov, fmodel, messages, tools, on_text, on_reasoning, None, max_tokens, on_status=on_status)
     raise last
 
 
