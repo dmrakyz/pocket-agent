@@ -964,6 +964,17 @@ async def vision_proxy(s: dict, run: Run, msgs: list) -> list:
     return out
 
 
+async def _heartbeat(run: Run):
+    while not run.done:
+        await asyncio.sleep(5)
+        if run.done:
+            return
+        cur = run.current or {}
+        elapsed = max(0, int(time.time() - cur.get("since", time.time())))
+        detail = (cur.get("detail") or cur.get("phase") or "Working") + " · " + str(elapsed) + "s"
+        await run.emit({"type": "heartbeat", "phase": cur.get("phase", "working"), "detail": detail, "at": time.time(), "step": run.step})
+
+
 def start(s: dict, text: str, images: Optional[list] = None) -> Run:
     """Append the user's message and launch the background run."""
     root = workspace.ws_path(s["id"])
@@ -977,6 +988,7 @@ def start(s: dict, text: str, images: Optional[list] = None) -> Run:
         s["title"] = (text.strip().splitlines() or ["New chat"])[0][:48] or "New chat"
     s["_running"] = True
     run = Run(s)
+    run.heartbeat_task = asyncio.create_task(_heartbeat(run))
     if s.get("autopilot"):
         s["job"] = {"status": "running", "started": time.time(), "heartbeat": time.time(), "steps": 0}
     runs[s["id"]] = run
@@ -1017,6 +1029,7 @@ async def resume_jobs():
         job["status"] = "running"
         job["resumed_at"] = time.time()
         run = Run(s)
+        run.heartbeat_task = asyncio.create_task(_heartbeat(run))
         runs[s["id"]] = run
         run.task = asyncio.create_task(run_turn(s, run))
         store.touch(s)
