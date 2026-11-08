@@ -29,6 +29,8 @@ class Run:
         self.approvals: dict[str, asyncio.Future] = {}
         self.pending: dict[str, dict] = {}   # approval id -> event (for reattach)
         self.partial = {"text": "", "reasoning": ""}
+        self.current = {"phase": "starting", "since": time.time(), "detail": ""}
+        self.step = 0
         self.subs: dict[str, dict] = {}                      # live view of sub-agents for the UI panel
         self.sub_count = 0                                   # sub-agents started this turn (all depths)
         self.sub_sem = asyncio.Semaphore(config.SUBAGENT_PARALLEL)   # guards sub-agent model calls
@@ -39,6 +41,12 @@ class Run:
 
     async def emit(self, ev: dict):
         t = ev.get("type")
+        if t in ("step_start", "tool_start", "tool_end", "phase"):
+            phase = {"step_start": "thinking", "tool_start": "tool", "tool_end": "thinking", "phase": ev.get("phase")}.get(t, "working")
+            detail = ev.get("detail") or ev.get("name") or ("Waiting for model response" if phase == "thinking" else "")
+            self.current = {"phase": phase, "since": time.time(), "detail": str(detail)[:300], "tool_id": ev.get("tool_id")}
+        elif t == "tool_output":
+            self.current["last_output_at"] = time.time()
         if t == "step_start":
             self.partial = {"text": "", "reasoning": ""}
         elif t == "delta":
@@ -386,6 +394,8 @@ async def request_approval(run: Run, s: dict, call_id: str, name: str, args: dic
 async def gated_execute(run: Run, s: dict, ctx: tools.Ctx, call: dict, allowed: Optional[set] = None,
                         label: str = "") -> dict:
     name = call["function"]["name"]
+    tool_id = call.get("id", "")
+    await run.emit({"type": "tool_start", "tool_id": tool_id, "name": name, "detail": name})
     try:
         args = json.loads(call["function"]["arguments"] or "{}")
         if not isinstance(args, dict):
@@ -423,7 +433,10 @@ async def gated_execute(run: Run, s: dict, ctx: tools.Ctx, call: dict, allowed: 
     blocked = await run_hooks(ctx.root, "PreToolUse", name, args)
     if blocked:
         return {"text": f"Blocked by a PreToolUse hook: {blocked}", "error": True}
-    res = await tools.execute(ctx, name, args)
+    tool_ctx = tools.Ctx(s, ctx.root, ctx.emit, ctx.subagent, ctx.mcp)
+    tool_ctx.call_id = tool_id
+    res = await tools.execute(tool_ctx, name, args)
+    await run.emit({"type": "tool_end", "tool_id": tool_id, "name": name, "error": bool(res.get("error"))})
     fb = await run_hooks(ctx.root, "PostToolUse", name, args, {"TOOL_ERROR": "1" if res.get("error") else "0"})
     if fb:
         res["text"] += f"\n\n[PostToolUse hook feedback]\n{fb}"
@@ -704,6 +717,8 @@ async def run_turn(s: dict, run: Run):
                 await run.emit({"type": "notice", "text": t})
 
             active_model = llm.route_model(s, _request_text(s))
+            run.step = step
+            await run.emit({"type": "phase", "phase": "model", "detail": "Waiting for " + active_model + " · step " + str(step)})
             if active_model != s["model"]:
                 await run.emit({"type": "notice", "text": f"Router selected {active_model} for this task"})
             resp = await llm.chat(active_model, [{"role": "system", "content": build_system(s, ws) + toolhint.section(_request_text(s), sch)}] + timectx.apply(s, await vision_proxy(s, run, s["messages"])),
@@ -996,16 +1011,12 @@ async def resume_jobs():
         job = s.get("job") or {}
         if job.get("status") not in ("running", "paused") or s.get("_running"):
             continue
-        was_paused = job.get("status") == "paused"
         repair_history(s)
         s["messages"].append({"role": "user", "_synthetic": True, "_ts": time.time(), "content": "[resume] The server restarted while this long-running job was active. Continue from the latest saved conversation and Git workspace checkpoint. Re-check the current files and test state before proceeding."})
         s["_running"] = True
-        job["status"] = "paused" if was_paused else "running"
+        job["status"] = "running"
         job["resumed_at"] = time.time()
         run = Run(s)
-        if was_paused:
-            run.pause_requested = True
-            run.pause_event.clear()
         runs[s["id"]] = run
         run.task = asyncio.create_task(run_turn(s, run))
         store.touch(s)
