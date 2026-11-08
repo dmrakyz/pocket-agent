@@ -250,7 +250,7 @@ function closeLightbox() { const el = $('#lightbox'); if (el) el.hidden = true; 
 /* ============================================================ state + api */
 const S = {
   api: '', token: '', sessions: [], cur: null, run: { running: false }, partial: { text: '', reasoning: '' },
-  pending: {}, results: {}, cards: {}, lastSeq: 0, streaming: false, finished: true, abort: null,
+  pending: {}, results: {}, cards: {}, lastSeq: 0, streaming: false, finished: true, abort: null, activity: [], currentActivity: null,
   images: [], files: [], live: null, statusEl: null, stick: true, info: null, commands: [], queues: {}, subs: [],
 };
 const EFFORTS = {
@@ -862,6 +862,10 @@ function handle(ev) {
     case 'sub_end': { const sb = S.subs.find((x) => x.id === ev.id); if (sb) sb.status = ev.status; renderSubs(); break; }
     case 'mode': c.mode = ev.mode; applyChips(); break;
     case 'notice': setStatus(ev.text); break;
+    case 'phase': S.currentActivity = { phase: ev.phase, detail: ev.detail, since: Date.now() }; setStatus(ev.detail || ev.phase); break;
+    case 'tool_start': { S.currentActivity = { phase: 'tool', detail: ev.name, since: Date.now() }; const card = S.cards[ev.tool_id]; if (card) { card.dataset.open = '1'; fillCard(card, card._call, S.results[ev.tool_id], null); } setStatus('Running ' + ev.name + '…'); break; }
+    case 'tool_output': { const card = S.cards[ev.tool_id]; if (card) { card._liveOutput = (card._liveOutput || '') + (ev.text || ''); const pre = card.querySelector('.tool-live-output'); if (pre) { pre.textContent = card._liveOutput.slice(-24000); pre.scrollTop = pre.scrollHeight; } else { const body = card.querySelector('.tool-body'); if (body) body.append(h('pre.tool-live-output', { text: card._liveOutput.slice(-24000) })); } } break; }
+    case 'tool_end': S.currentActivity = { phase: 'thinking', detail: 'Tool finished · ' + ev.name, since: Date.now() }; setStatus('Finished ' + ev.name + (ev.error ? ' · error' : '')); break;
     case 'error': toast(ev.text, true, 8000); msgsEl().append(h('div.notice.err', { text: ev.text })); scrollDown(); break;
     case 'reload': reloadCurrent(); break;
     case 'done': finishRun(); brRefreshAlive(); break;
@@ -878,7 +882,7 @@ function ensureApprovalCard(ev) {
   fillCard(card, card._call, null, ev);
 }
 async function finishRun() {
-  S.finished = true; S.run.running = false; S.pending = {};
+  S.finished = true; S.run.running = false; S.pending = {}; S.currentActivity = null;
   setStatus('');
   renderLive();
   try {
