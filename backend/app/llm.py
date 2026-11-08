@@ -11,7 +11,7 @@ import httpx
 
 from . import config
 
-TIMEOUT = httpx.Timeout(600.0, connect=30.0)
+TIMEOUT = httpx.Timeout(float(config.LLM_READ_TIMEOUT_SECONDS), connect=30.0)
 
 
 class Limiter:
@@ -178,24 +178,32 @@ def pick(models: list[dict], *needles: str) -> Optional[str]:
     return None
 
 
+def _is_kimi_ref(ref: str) -> bool:
+    return str(ref or "").split(":", 1)[0].lower() == "kimi"
+
+
+def _automatic_models(models: list[dict]) -> list[dict]:
+    """Paid Moonshot models remain manually selectable, never silently auto-selected."""
+    return [m for m in models if not m.get("error") and m.get("provider") != "kimi"]
+
+
 def select_default_model(models: list[dict]) -> str:
-    """Prefer Moonshot's newest flagship, Kimi K3.1 Pro, over older Kimi models."""
-    if config.DEFAULT_MODEL:
+    """Choose a non-Kimi default; a paid provider must be selected explicitly."""
+    if config.DEFAULT_MODEL and not _is_kimi_ref(config.DEFAULT_MODEL):
         return config.DEFAULT_MODEL
-    kimi = next((m for model_id in ("kimi-k3.1-pro", "kimi-k3.1-pro-highspeed", "kimi-k3",
-                                    "kimi-k2.7-code", "kimi-k2.7-code-highspeed", "kimi-k2.6")
-                 for m in models if not m.get("error") and m.get("provider") == "kimi"
-                 and m.get("id") == model_id), None)
-    if kimi:
-        return kimi["ref"]
-    return pick(models, "nemotron-3-ultra", "ultra", "nemotron-3.5-super", "super") or (models[0]["ref"] if models else "")
+    available = _automatic_models(models)
+    return (pick(available, "nemotron-3-ultra", "ultra", "nemotron-3.5-super", "super",
+                  "deepseek", "mistral-large", "qwen") or
+            (available[0]["ref"] if available else ""))
 
 
 def select_fallback_model(models: list[dict]) -> str:
-    """Prefer Nemotron Ultra as Kimi's fallback; use a smaller model only if Ultra is absent."""
-    if config.FALLBACK_MODEL:
+    """Choose a non-Kimi fallback so automatic recovery cannot incur Moonshot charges."""
+    if config.FALLBACK_MODEL and not _is_kimi_ref(config.FALLBACK_MODEL):
         return config.FALLBACK_MODEL
-    return pick(models, "nemotron-3-ultra", "ultra", "lightning", "nano") or ""
+    available = _automatic_models(models)
+    return pick(available, "nemotron-3-ultra", "ultra", "lightning", "nano", "deepseek") or (
+        available[0]["ref"] if available else "")
 
 
 async def default_model() -> str:
@@ -415,7 +423,14 @@ def route_model(session: dict, request: str = "") -> str:
     primary = session.get("model") or ""
     if mode == "manual":
         return primary
-    roles = session.get("model_roles") or {}
+    roles = {k: v for k, v in (session.get("model_roles") or {}).items()
+             if v and not _is_kimi_ref(v)}
+    # Existing sessions may have been created with Kimi as their primary.
+    # Automatic/Hybrid routing must move those sessions to a non-Kimi model.
+    if _is_kimi_ref(primary):
+        primary = select_default_model(_models_cache.get("v", []))
+        if not primary:
+            raise LLMError("Automatic routing excludes paid Kimi models, but no non-Kimi provider is available. Configure a free provider or select Kimi manually.")
     text = (request or "").lower()
     coding = any(x in text for x in ("implement", "write code", "code this", "debug", "fix the bug", "refactor", "compile", "typescript", "python", "javascript", "pull request", "tests", "test suite"))
     reasoning = any(x in text for x in ("analyze", "architecture", "design", "reason", "prove", "derive", "compare", "evaluate", "plan", "why", "trade-off", "tradeoff"))

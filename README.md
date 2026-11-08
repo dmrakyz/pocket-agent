@@ -89,7 +89,7 @@ This server runs shell commands, on the internet, in the same container as your 
 - Fetched web pages are treated as untrusted in the system prompt, but no model is immune to prompt injection.
 
 ## Config reference (Render → Environment)
-`KIMI_API_KEY` + optional `KIMI_API_KEYS` (Kimi K3.1 Pro primary; local default 2 RPM per key) · `DEFAULT_MODEL`, `FALLBACK_MODEL` (`provider:model-id`; auto-picked otherwise: Kimi K3.1 Pro, then Nemotron Ultra) · `OPENROUTER_API_KEY`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, `PROVIDERS_JSON` (any OpenAI-compatible endpoint) · `TAVILY_API_KEY` / `BRAVE_API_KEY` (better search) · `LLM_RPM`, `MAX_STEPS`, `AUTOPILOT_STEPS`, `MAX_SUBAGENTS`, `SUBAGENT_PARALLEL`, `MAX_SUBAGENT_DEPTH`, `COMPACT_AT_TOKENS`, `MAX_UPLOAD_MB`, `BASH_TIMEOUT`.
+`KIMI_API_KEY` + optional `KIMI_API_KEYS` (manual-only; local default 2 RPM per key) · `DEFAULT_MODEL`, `FALLBACK_MODEL` (`provider:model-id`; Kimi is excluded from automatic selection) · `OPENROUTER_API_KEY`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, `PROVIDERS_JSON` (any OpenAI-compatible endpoint) · `TAVILY_API_KEY` / `BRAVE_API_KEY` (better search) · `LLM_RPM`, `MAX_STEPS`, `AUTOPILOT_STEPS`, `MAX_SUBAGENTS`, `SUBAGENT_PARALLEL`, `MAX_SUBAGENT_DEPTH`, `COMPACT_AT_TOKENS`, `MAX_UPLOAD_MB`, `BASH_TIMEOUT` (default 600s), `BASH_MAX_TIMEOUT` (default 3600s), `LLM_READ_TIMEOUT_SECONDS` (default 1800s).
 
 ## Troubleshooting
 - **Menu → Server** shows what the server sees: providers, whether history sync is on, whether `git` is present.

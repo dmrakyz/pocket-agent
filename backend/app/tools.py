@@ -91,10 +91,10 @@ BASE_TOOLS = [
          "output_mode": {"type": "string", "enum": ["content", "files_with_matches", "count"]},
          "context": {"type": "integer"}, "case_insensitive": {"type": "boolean"},
          "head_limit": {"type": "integer"}}, ["pattern"]),
-    _fn("bash", "Run a shell command in the workspace root. Default timeout 120s. Set background=true for "
+    _fn("bash", "Run a shell command in the workspace root. Default timeout 600s (10 minutes), configurable up to 3600s. Set background=true for "
         "long-running processes (dev servers, watchers) and poll with bash_output. Network works but secrets are "
         "not in the environment. To publish work use git_sync, not git push.",
-        {"command": S, "timeout": {"type": "integer", "description": "seconds, max 600"},
+        {"command": S, "timeout": {"type": "integer", "description": "seconds, max 3600"},
          "background": {"type": "boolean"}, "description": S}, ["command"]),
     _fn("bash_output", "Read new output from a background bash job.", {"job_id": S}, ["job_id"]),
     _fn("kill_bash", "Stop a background bash job.", {"job_id": S}, ["job_id"]),
@@ -564,7 +564,7 @@ def _mem_msg(flag: dict) -> str:
 
 async def t_bash(ctx: Ctx, a: dict):
     cmd = a["command"]
-    timeout = min(int(a.get("timeout") or config.BASH_TIMEOUT), 600)
+    timeout = max(1, min(int(a.get("timeout") or config.BASH_TIMEOUT), config.BASH_MAX_TIMEOUT))
     env = workspace.clean_env()
     if a.get("background"):
         JOB_DIR.mkdir(parents=True, exist_ok=True)

@@ -1,5 +1,16 @@
 [
  {
+  "id": 13,
+  "date": "2026-11-08",
+  "title": "Longer coding runs and free-first model routing",
+  "items": [
+   "Shell commands default to 10 minutes and can be given up to 60 minutes; both limits are configurable",
+   "Long model streams allow up to 30 minutes without an idle read timeout (configurable)",
+   "Kimi remains available for deliberate manual selection, but is excluded from default, fallback and automatic specialist routing",
+   "Existing Auto/Hybrid chats that had Kimi as their primary switch to an available non-Kimi model"
+  ]
+ },
+ {
   "id": 12,
   "date": "2026-11-04",
   "title": "Kimi key rotation",

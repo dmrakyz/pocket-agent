@@ -1190,13 +1190,15 @@ async function modelSheet() {
     models = r.models.filter((x) => !x.error);
     if (S.cur) {
       const roleNames = { reasoning: 'Reasoning / planning', coding: 'Coding / implementation', reviewer: 'Independent reviewer', fast: 'Fast / simple tasks' };
-      const suggested = (terms) => { const m = models.find(x => terms.some(t => x.id.toLowerCase().includes(t))); return m ? m.ref : ''; };
+      const automaticModels = models.filter(x => x.provider !== 'kimi');
+      const suggested = (terms) => { const m = automaticModels.find(x => terms.some(t => x.id.toLowerCase().includes(t))); return m ? m.ref : ''; };
       const roles = Object.assign({
-        reasoning: suggested(['mistral-large-4']),
+        reasoning: suggested(['mistral-large-4', 'nemotron-3-ultra', 'deepseek']),
         coding: suggested(['deepseek-v4', 'qwen3-coder', 'devstral']),
         reviewer: suggested(['deepseek-v4', 'nemotron-3-ultra']),
         fast: suggested(['flash', 'small', 'nano'])
       }, S.cur.model_roles || {});
+      for (const key of Object.keys(roles)) if (roles[key] && roles[key].startsWith('kimi:')) roles[key] = '';
       const mode = h('select', { class: 'mroute-mode' },
         ...[['manual','Manual · use selected model'],['auto','Automatic · choose by task'],['hybrid','Hybrid · primary + specialists']].map(([v,t]) => h('option', { value:v, text:t, selected:(S.cur.model_mode || 'manual')===v })));
       mode.onchange = async () => {
@@ -1204,7 +1206,7 @@ async function modelSheet() {
         catch(e) { toast(e.message,true); }
       };
       const roleRows = Object.entries(roleNames).map(([key,label]) => {
-        const sel = h('select', { class:'mroute-role' }, h('option',{value:'',text:'Not assigned'}), ...models.map(m=>h('option',{value:m.ref,text:m.provider+' · '+m.id,selected:roles[key]===m.ref})));
+        const sel = h('select', { class:'mroute-role' }, h('option',{value:'',text:'Not assigned'}), ...automaticModels.map(m=>h('option',{value:m.ref,text:m.provider+' · '+m.id,selected:roles[key]===m.ref})));
         sel.onchange = async () => {
           roles[key]=sel.value;
           try { await api('/api/sessions/' + S.cur.id,{method:'PATCH',body:{model_roles:roles}}); S.cur.model_roles={...roles}; }
