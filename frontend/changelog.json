@@ -5,9 +5,11 @@
   "title": "Interrupt active work with new instructions",
   "items": [
    "Autopilot has no fixed step ceiling and continues until completion or a genuine blocker",
-   "Send new instructions while the agent is working; they are queued server-side and injected at the next safe model/tool boundary",
-   "An active shell/build/test operation is allowed to finish before the agent incorporates the new instruction",
-   "Interrupts survive server restarts through session persistence; no pause/resume UI is exposed"
+   "Send new instructions while the agent is working; they are queued and checked after the current operation finishes",
+   "Live activity feed shows the current model/tool operation and elapsed time, refreshed every five seconds",
+   "Foreground and background shell output streams into the active tool card",
+   "Reopening an active session restores its current operation and reconnects to live events",
+   "Workspace checkpoints and restart recovery for GitHub-backed jobs"
   ]
  },
  {
