@@ -221,8 +221,8 @@ async def create_session(body: dict):
 def run_state(sid: str) -> dict:
     r = agent.runs.get(sid)
     if r and not r.done:
-        return {"running": True, "paused": r.pause_requested, "seq": r.seq, "partial": r.partial, "pending": list(r.pending.values()), "subs": list(r.subs.values())}
-    return {"running": False, "paused": False, "seq": r.seq if r else 0, "partial": None, "pending": [], "subs": list(r.subs.values()) if r else []}
+        return {"running": True, "seq": r.seq, "partial": r.partial, "current": r.current, "step": r.step, "pending": list(r.pending.values()), "subs": list(r.subs.values())}
+    return {"running": False, "seq": r.seq if r else 0, "partial": None, "current": None, "step": 0, "pending": [], "subs": list(r.subs.values()) if r else []}
 
 
 def commands_for(sid: str) -> list[str]:
