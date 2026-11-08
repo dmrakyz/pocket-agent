@@ -730,6 +730,7 @@ function renderChat(forceScroll) {
   updateSend();
 }
 let liveRaf = 0;
+let statusClockTimer = null;
 function renderLive() {
   if (!S.run.running) {
     if (S.live) S.live.remove();
@@ -738,6 +739,13 @@ function renderLive() {
     S.statusEl = null;
     return;
   }
+  if (!statusClockTimer) statusClockTimer = setInterval(() => {
+    const a = S.currentActivity;
+    if (!S.run.running || !a || !S.statusEl || !S.statusEl.firstChild) return;
+    const elapsed = Math.max(0, (a.elapsedSeconds || 0) + Math.floor((Date.now() - (a.clockAt || Date.now())) / 1000));
+    const base = String(a.detail || 'Working').replace(/ · \\d+m \\d+s/, '');
+    S.statusEl.firstChild.nodeValue = base + ' · ' + Math.floor(elapsed / 60) + 'm ' + (elapsed % 60) + 's';
+  }, 1000);
   if (!S.live) {
     S.live = h('div.msg-ai.fresh');
     msgsEl().append(S.live);
@@ -912,13 +920,13 @@ function handle(ev) {
       toast('Messenger reply received');
       break;
     }
-    case 'phase': S.currentActivity = { phase: ev.phase, detail: ev.detail, since: Date.now() }; setStatus(ev.detail || ev.phase); break;
-    case 'llm_status': S.currentActivity = { phase: 'model', stage: ev.stage, detail: ev.detail, since: Date.now() }; setStatus(ev.detail || 'Contacting model…'); break;
-    case 'tool_start': { S.currentActivity = { phase: 'tool', detail: ev.detail || ev.name, since: Date.now() }; const card = S.cards[ev.tool_id]; if (card) { card._progress = { detail: ev.detail || ('Starting ' + ev.name), progress: 0, total: 0 }; card.dataset.open = '1'; fillCard(card, card._call, S.results[ev.tool_id], null); } setStatus(ev.detail || ('Running ' + ev.name + '…')); break; }
+    case 'phase': S.currentActivity = { phase: ev.phase, detail: ev.detail, since: Date.now(), clockAt: Date.now(), elapsedSeconds: 0 }; setStatus(ev.detail || ev.phase); break;
+    case 'llm_status': S.currentActivity = { phase: 'model', stage: ev.stage, detail: ev.detail, since: Date.now(), clockAt: Date.now(), elapsedSeconds: 0 }; setStatus(ev.detail || 'Contacting model…'); break;
+    case 'tool_start': { S.currentActivity = { phase: 'tool', detail: ev.detail || ev.name, since: Date.now(), clockAt: Date.now(), elapsedSeconds: 0 }; const card = S.cards[ev.tool_id]; if (card) { card._progress = { detail: ev.detail || ('Starting ' + ev.name), progress: 0, total: 0 }; card.dataset.open = '1'; fillCard(card, card._call, S.results[ev.tool_id], null); } setStatus(ev.detail || ('Running ' + ev.name + '…')); break; }
     case 'tool_progress': { const card = S.cards[ev.tool_id]; if (card) { card._progress = { detail: ev.detail || 'Working…', progress: Number(ev.progress || 0), total: Number(ev.total || 0) }; if (!S.results[ev.tool_id]) fillCard(card, card._call, null, null); } if (ev.detail) setStatus(ev.detail); break; }
     case 'tool_output': { const card = S.cards[ev.tool_id]; if (card) { card._liveOutput = (card._liveOutput || '') + (ev.text || ''); const pre = card.querySelector('.tool-live-output'); if (pre) { pre.textContent = card._liveOutput.slice(-24000); pre.scrollTop = pre.scrollHeight; } else { const body = card.querySelector('.tool-body'); if (body) body.append(h('pre.tool-live-output', { text: card._liveOutput.slice(-24000) })); } } break; }
-    case 'tool_end': S.currentActivity = { phase: 'thinking', detail: 'Tool finished · ' + ev.name, since: Date.now() }; setStatus('Finished ' + ev.name + (ev.error ? ' · error' : '')); break;
-    case 'heartbeat': S.currentActivity = { phase: ev.phase, stage: ev.stage, detail: ev.detail, elapsedSeconds: ev.elapsed_seconds, tokenIdleSeconds: ev.token_idle_seconds, since: Date.now() }; setStatus(ev.detail || 'Working…'); break;
+    case 'tool_end': S.currentActivity = { phase: 'thinking', detail: 'Tool finished · ' + ev.name, since: Date.now(), clockAt: Date.now(), elapsedSeconds: 0 }; setStatus('Finished ' + ev.name + (ev.error ? ' · error' : '')); break;
+    case 'heartbeat': S.currentActivity = { phase: ev.phase, stage: ev.stage, detail: ev.detail, elapsedSeconds: ev.elapsed_seconds, tokenIdleSeconds: ev.token_idle_seconds, since: Date.now(), clockAt: Date.now() }; setStatus(ev.detail || 'Working…'); break;
     case 'error': toast(ev.text, true, 8000); msgsEl().append(h('div.notice.err', { text: ev.text })); scrollDown(); break;
     case 'reload': reloadCurrent(); break;
     case 'done': finishRun(); brRefreshAlive(); break;
@@ -935,7 +943,7 @@ function ensureApprovalCard(ev) {
   fillCard(card, card._call, null, ev);
 }
 async function finishRun() {
-  S.finished = true; S.run.running = false; S.pending = {}; S.currentActivity = null;
+  S.finished = true; S.run.running = false; S.pending = {}; S.currentActivity = null; if (statusClockTimer) { clearInterval(statusClockTimer); statusClockTimer = null; }
   setStatus('');
   renderLive();
   try {
