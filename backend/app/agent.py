@@ -824,9 +824,13 @@ async def run_turn(s: dict, run: Run):
                 await commit_message(run, s, {"role": "user", "_synthetic": True, "content": hint})
             if await consume_interrupts(s, run):
                 continue
-            if autopilot and step % 5 == 0:
+            # Render local disk is ephemeral: checkpoint every completed tool batch.
+            # Do this for normal turns as well as autopilot so completed edits survive resets.
+            try:
                 await _autosync(s, ws, run)
-                await store.flush_all()
+            except Exception as e:  # noqa: BLE001
+                await run.emit({"type": "notice", "text": f"Workspace checkpoint failed: {type(e).__name__}: {e}"[:240]})
+            await store.flush_all()
             if any(c["function"]["name"] == "exit_plan_mode" and s.get("mode") == "plan" for c in calls):
                 # plan was denied (mode still plan): stop and let the user respond
                 break
