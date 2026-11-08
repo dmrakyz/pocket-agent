@@ -251,11 +251,12 @@ def strip_private(messages: list[dict], preserve_reasoning: bool = False) -> lis
 
 def kimi_reasoning_effort(thinking, effort=None) -> str:
     """Map Pocket Agent's controls to Kimi K3.1 Pro's low/high/max reasoning levels."""
-    if thinking is False or str(effort or "").lower() == "low":
-        return "low"                 # Reasoning remains enabled; this is the lightest level.
-    if str(effort or "").lower() in ("medium", "med"):
+    level = str(effort or "high").lower()
+    if level == "low":
+        return "low"
+    if level in ("medium", "med"):
         return "high"
-    return "max"                     # High/default maps to maximum reasoning effort.
+    return "max"                     # High and max map to the provider maximum when it exposes only 3 tiers.
 
 
 def request_body(prov_name: str, model: str, messages, tools, thinking, max_tokens, effort=None) -> dict:
@@ -272,8 +273,8 @@ def request_body(prov_name: str, model: str, messages, tools, thinking, max_toke
         body["max_tokens"] = max_tokens
     if thinking is not None and prov_name == "nvidia":
         kw = {"enable_thinking": bool(thinking)}
-        if thinking and effort == "medium":
-            kw["medium_effort"] = True     # Nemotron 3 Ultra: fewer reasoning tokens than full thinking
+        if thinking and effort in ("low", "medium"):
+            kw["medium_effort"] = True     # NVIDIA models exposing this switch use their reduced-effort path.
         body["chat_template_kwargs"] = kw
     return body
 
@@ -358,7 +359,7 @@ _no_effort: set = set()
 
 
 async def chat(model_ref: str, messages: list[dict], tools: list[dict], on_text, on_reasoning,
-               notify: Notify, thinking=None, max_tokens=None, effort=None, fallback: bool = True):
+               notify: Notify, thinking=None, max_tokens=None, effort=None, fallback: bool = True, on_reset=None):
     """Streaming chat with retries and one fallback-model attempt (unless fallback=False: pinned models never get swapped). Returns {message, finish_reason, usage}."""
     prov, model = split_ref(model_ref)
     if (prov, model) in _no_think:
@@ -373,6 +374,10 @@ async def chat(model_ref: str, messages: list[dict], tools: list[dict], on_text,
             return await _stream_once(prov, model, messages, tools, on_text, on_reasoning, thinking, max_tokens, effort)
         except LLMError as e:
             last = e
+            # A failed stream may already have emitted partial text. Clear that attempt
+            # before retrying so the UI never concatenates two different generations.
+            if on_reset:
+                await on_reset()
             if e.status == 400 and thinking and effort:
                 _no_effort.add((prov, model))
                 effort = None              # this model doesn't know the effort flag; keep thinking on, retry
@@ -393,6 +398,8 @@ async def chat(model_ref: str, messages: list[dict], tools: list[dict], on_text,
             await asyncio.sleep(delays[attempt])
         except (httpx.TransportError, httpx.TimeoutException) as e:
             last = LLMError(f"network error: {type(e).__name__}")
+            if on_reset:
+                await on_reset()
             if attempt == len(delays):
                 break
             await notify(f"network hiccup ({type(e).__name__}) — retrying in {delays[attempt]}s")
@@ -400,6 +407,8 @@ async def chat(model_ref: str, messages: list[dict], tools: list[dict], on_text,
 
     fb = await fallback_model() if fallback else ""
     if fb and fb != model_ref and fb != f"{prov}:{model}":
+        if on_reset:
+            await on_reset()
         await notify(f"{model} keeps failing ({last}). Falling back to {fb} for this step.")
         fprov, fmodel = split_ref(fb)
         return await _stream_once(fprov, fmodel, messages, tools, on_text, on_reasoning, None, max_tokens)

@@ -250,13 +250,15 @@ function closeLightbox() { const el = $('#lightbox'); if (el) el.hidden = true; 
 /* ============================================================ state + api */
 const S = {
   api: '', token: '', sessions: [], cur: null, run: { running: false }, partial: { text: '', reasoning: '' },
-  pending: {}, results: {}, cards: {}, lastSeq: 0, streaming: false, finished: true, abort: null,
+  pending: {}, results: {}, cards: {}, lastSeq: 0, streaming: false, finished: true, abort: null, activity: [], currentActivity: null,
   images: [], files: [], live: null, statusEl: null, stick: true, info: null, commands: [], queues: {}, subs: [],
 };
 const EFFORTS = {
-  off: ['Off', 'No reasoning. Fastest and cheapest, weakest on hard problems.'],
-  medium: ['Medium', 'Reasons with fewer tokens. Good default for everyday coding.'],
-  high: ['High', 'Full reasoning. Best for hard bugs and planning, slower.'],
+  low: ['Low', 'Lower effort for straightforward tasks; faster and lighter.'],
+  medium: ['Medium', 'Balanced effort for ordinary implementation and analysis.'],
+  high: ['High', 'More effort for difficult implementation, debugging, and planning.'],
+  max: ['Max', 'Maximum effort for the hardest tasks; slowest and most expensive.'],
+  auto: ['Auto', 'Choose effort from task complexity, independently of model routing.'],
 };
 const MODES = {
   ask: ['Ask', 'Asks before edits and commands. Safe read-only commands run freely.'],
@@ -390,6 +392,7 @@ async function openSession(id) {
   S.cur = d.session; S.run = d.run; S.commands = d.commands || [];
   S.pending = {}; for (const p of d.run.pending || []) S.pending[p.id] = p;
   S.partial = d.run.partial || { text: '', reasoning: '' };
+  S.currentActivity = d.run.current || null;
   S.lastSeq = d.run.seq || 0;
   S.finished = !d.run.running;
   S.subs = d.run.subs || [];
@@ -397,7 +400,11 @@ async function openSession(id) {
   brRefreshAlive();
   renderChat(true);
   renderList();
-  if (d.run.running) attach();
+  if (d.run.running) {
+    const cur = d.run.current || {};
+    setStatus(cur.detail || 'Reconnected to active run…');
+    attach();
+  }
 }
 async function newChat(opts = {}) {
   const m = await api('/api/sessions', { body: opts });
@@ -507,6 +514,15 @@ function fillCard(card, call, result, approval) {
     h('span.tool-sum', { text: toolSummary(name, a) }), state));
   if (!open) return;
   const body = h('div.tool-body');
+  if (!result && !approval) {
+    const p = card._progress || {};
+    const meter = h('div.tool-progress', {},
+      h('div.tool-progress-label', { text: p.detail || 'Starting tool…' }),
+      h('div.tool-progress-track', {}, h('i', { style: p.total > 0 ? 'width:' + Math.max(0, Math.min(100, p.progress / p.total * 100)) + '%' : '' })));
+    if (p.total > 0) meter.classList.add('determinate');
+    body.append(meter);
+  }
+  if (card._liveOutput) body.append(h('pre.tool-live-output', { text: card._liveOutput.slice(-24000) }));
   if (name === 'exit_plan_mode') {
     body.append(h('div.plan.prose', { html: md(a.plan || '') }));
   } else if (name === 'bash') {
@@ -585,8 +601,7 @@ function userNode(m, idx) {
 function assistantNode(m, idx) {
   const n = h('div.msg-ai', { 'data-idx': idx });
   const calls = m.tool_calls || [];
-  const thought = !m.content && calls.length ? m._reasoning : '';
-  if (m._reasoning && !thought) n.append(h('details.reasoning', {}, h('summary', { text: 'Thinking' }), h('div.rtext', { text: m._reasoning })));
+  const thought = ''; // Never render raw provider reasoning into the conversation UI.
   if (m.content) n.append(prose(m.content));
   if (m._unverified && m.content) n.append(h('div.unverified', { text: '⚠ Not verified: no passing run after the last code change' }));
   if (calls.length) {
@@ -716,21 +731,41 @@ function renderChat(forceScroll) {
 }
 let liveRaf = 0;
 function renderLive() {
-  if (!S.run.running) { if (S.live) S.live.remove(); S.live = null; if (S.statusEl) S.statusEl.remove(); S.statusEl = null; return; }
-  if (!S.live) { S.live = h('div.msg-ai.fresh'); msgsEl().append(S.live); }
+  if (!S.run.running) {
+    if (S.live) S.live.remove();
+    S.live = null;
+    if (S.statusEl) S.statusEl.remove();
+    S.statusEl = null;
+    return;
+  }
+  if (!S.live) {
+    S.live = h('div.msg-ai.fresh');
+    msgsEl().append(S.live);
+  }
   if (liveRaf) return;
   liveRaf = requestAnimationFrame(() => {
     liveRaf = 0;
     if (!S.live) return;
+    const box = chat();
+    const keepAtBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 120;
     const p = S.partial;
-    S.live.replaceChildren();
-    if (p.reasoning) S.live.append(h('details.reasoning', { open: !p.text }, h('summary', { text: 'Thinking…' }), h('div.rtext', { text: p.reasoning })));
-    if (p.text) S.live.append(prose(p.text));
-    if (!p.text && !p.reasoning) S.live.append(h('div.live-dots', {}, h('i'), h('i'), h('i')));
-    if (S.statusEl) msgsEl().append(S.statusEl);
-    msgsEl().append(S.live);
-    if (S.statusEl) msgsEl().append(S.statusEl);
-    scrollDown();
+    // Keep the live message node stable. Replacing/moving it on every streamed
+    // token caused layout flashes and yanked readers away from their position.
+    let body = S.live.querySelector('.live-body');
+    if (!body) {
+      S.live.replaceChildren();
+      body = h('div.live-body');
+      S.live.append(body);
+    }
+    if (p.text) {
+      body.replaceChildren(prose(p.text));
+    } else if (!body.querySelector('.live-dots')) {
+      body.replaceChildren(h('div.live-dots', {}, h('i'), h('i'), h('i')));
+    }
+    // Provider reasoning tokens are deliberately not rendered into the chat.
+    // Show concise activity/status instead of exposing raw internal reasoning.
+    if (S.statusEl && S.statusEl.parentNode !== msgsEl()) msgsEl().append(S.statusEl);
+    if (keepAtBottom) scrollDown(true);
   });
 }
 const RETRYISH = /HTTP (408|429|5\d\d)|retrying in|keeps failing|network hiccup/;
@@ -748,10 +783,12 @@ async function retryOnOtherModel() {
 }
 function setStatus(text) {
   if (!text) { if (S.statusEl) S.statusEl.remove(); S.statusEl = null; return; }
+  const box = chat();
+  const keepAtBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 120;
   if (!S.statusEl) S.statusEl = h('div.notice');
   S.statusEl.replaceChildren(text, RETRYISH.test(text) ? h('button.notice-btn', { text: 'Try another model', onclick: retryOnOtherModel }) : null);
-  msgsEl().append(S.statusEl);
-  scrollDown();
+  if (S.statusEl.parentNode !== msgsEl()) msgsEl().append(S.statusEl);
+  if (keepAtBottom) scrollDown(true);
 }
 function renderTodos() {
   const bar = $('#todobar');
@@ -826,6 +863,7 @@ function handle(ev) {
   if (!c) return;
   switch (ev.type) {
     case 'step_start': S.partial = { text: '', reasoning: '' }; setStatus(''); renderLive(); break;
+    case 'stream_reset': S.partial = { text: '', reasoning: '' }; renderLive(); setStatus('Provider stream interrupted; restarting this response cleanly…'); break;
     case 'delta': S.partial.text += ev.text; renderLive(); break;
     case 'reasoning': S.partial.reasoning += ev.text; renderLive(); break;
     case 'message': {
@@ -835,6 +873,7 @@ function handle(ev) {
       if (m.role === 'tool') {
         S.results[m.tool_call_id] = m;
         const card = S.cards[m.tool_call_id];
+        if (card) card._progress = null;
         if (card) { fillCard(card, card._call, m, null); if (card._tg) refreshTG(card._tg); }
         if (m._browser) brRefreshAlive();
       } else if (m.role === 'assistant') {
@@ -862,6 +901,23 @@ function handle(ev) {
     case 'sub_end': { const sb = S.subs.find((x) => x.id === ev.id); if (sb) sb.status = ev.status; renderSubs(); break; }
     case 'mode': c.mode = ev.mode; applyChips(); break;
     case 'notice': setStatus(ev.text); break;
+    case 'messenger_reply': {
+      const msg = { role: 'assistant', content: ev.text, _messenger: true };
+      c.messages.push(msg);
+      const node = assistantNode(msg);
+      node.classList.add('messenger-reply');
+      if (S.live) msgsEl().insertBefore(node, S.live); else msgsEl().append(node);
+      mergeGroups();
+      if (S.stick) scrollDown();
+      toast('Messenger reply received');
+      break;
+    }
+    case 'phase': S.currentActivity = { phase: ev.phase, detail: ev.detail, since: Date.now() }; setStatus(ev.detail || ev.phase); break;
+    case 'tool_start': { S.currentActivity = { phase: 'tool', detail: ev.detail || ev.name, since: Date.now() }; const card = S.cards[ev.tool_id]; if (card) { card._progress = { detail: ev.detail || ('Starting ' + ev.name), progress: 0, total: 0 }; card.dataset.open = '1'; fillCard(card, card._call, S.results[ev.tool_id], null); } setStatus(ev.detail || ('Running ' + ev.name + '…')); break; }
+    case 'tool_progress': { const card = S.cards[ev.tool_id]; if (card) { card._progress = { detail: ev.detail || 'Working…', progress: Number(ev.progress || 0), total: Number(ev.total || 0) }; if (!S.results[ev.tool_id]) fillCard(card, card._call, null, null); } if (ev.detail) setStatus(ev.detail); break; }
+    case 'tool_output': { const card = S.cards[ev.tool_id]; if (card) { card._liveOutput = (card._liveOutput || '') + (ev.text || ''); const pre = card.querySelector('.tool-live-output'); if (pre) { pre.textContent = card._liveOutput.slice(-24000); pre.scrollTop = pre.scrollHeight; } else { const body = card.querySelector('.tool-body'); if (body) body.append(h('pre.tool-live-output', { text: card._liveOutput.slice(-24000) })); } } break; }
+    case 'tool_end': S.currentActivity = { phase: 'thinking', detail: 'Tool finished · ' + ev.name, since: Date.now() }; setStatus('Finished ' + ev.name + (ev.error ? ' · error' : '')); break;
+    case 'heartbeat': S.currentActivity = { phase: ev.phase, detail: ev.detail, since: Date.now() }; setStatus(ev.detail || 'Working…'); break;
     case 'error': toast(ev.text, true, 8000); msgsEl().append(h('div.notice.err', { text: ev.text })); scrollDown(); break;
     case 'reload': reloadCurrent(); break;
     case 'done': finishRun(); brRefreshAlive(); break;
@@ -878,7 +934,7 @@ function ensureApprovalCard(ev) {
   fillCard(card, card._call, null, ev);
 }
 async function finishRun() {
-  S.finished = true; S.run.running = false; S.pending = {};
+  S.finished = true; S.run.running = false; S.pending = {}; S.currentActivity = null;
   setStatus('');
   renderLive();
   try {
@@ -903,7 +959,9 @@ function updateSend() {
   const stop = S.run.running && !hasDraft();
   b.textContent = stop ? '■' : '↑';
   b.classList.toggle('stop', stop);
-  b.setAttribute('aria-label', stop ? 'Stop' : S.run.running ? 'Queue message' : 'Send');
+  b.setAttribute('aria-label', stop ? 'Stop' : S.run.running ? 'Queue instruction' : 'Send');
+  const now = $('#btn-send-now');
+  if (now) now.hidden = !(S.run.running && hasDraft());
 }
 function autoGrow() { const t = $('#input'); t.style.height = 'auto'; t.style.height = Math.min(t.scrollHeight, window.innerHeight * 0.38) + 'px'; }
 const queueFor = () => (S.queues[S.cur.id] ||= []);
@@ -913,6 +971,15 @@ function renderQueue() {
   bar.hidden = !q.length;
   bar.replaceChildren(...q.map((m, i) => h('div.qitem', {}, h('span.qn', { text: 'Queued' }), h('span.qt', { text: m.text.replace(/\s+/g, ' ').slice(0, 80) || '(attachment)' }), h('button', { 'aria-label': 'Remove from queue', text: '✕', onclick: () => { queueFor().splice(i, 1); renderQueue(); } }))));
 }
+async function sendQueuedNow(index) {
+  if (!S.cur || !S.run.running) return;
+  const q = queueFor(); const item = q[index]; if (!item) return;
+  try {
+    const r = await api('/api/sessions/' + S.cur.id + '/interrupt', { body: { text: item.text, images: item.images || [], priority: true, tz: (Intl.DateTimeFormat().resolvedOptions().timeZone || '') } });
+    q.splice(index, 1); renderQueue(); toast('Sent to the front of the agent queue (' + r.queued + ' pending).');
+  } catch (e) { toast(e.message, true, 6000); }
+}
+
 function takeDraft() {
   const input = $('#input');
   const images = S.images.slice();
@@ -928,9 +995,36 @@ async function send() {
   if (S.files.some((f) => f.state === 'uploading')) { toast('Still uploading…'); return; }
   if (!S.cur) { try { await newChat({}); } catch (e) { toast(e.message, true); return; } }
   const draft = takeDraft();
-  if (S.run.running) { queueFor().push(draft); renderQueue(); updateSend(); return; }
+  if (S.run.running) {
+    const isStatusQuestion = /^(how('?s| is) it going|status|progress|what('?s| is) happening|what are you doing|are you stuck|any update|update me)\b/i.test(draft.text.trim());
+    if (isStatusQuestion) {
+      try { const r = await api('/api/sessions/' + S.cur.id + '/messenger', { body: { text: draft.text } }); toast('Messenger replied · ' + shortModel(r.model)); }
+      catch (e) { $('#input').value = draft.text; toast(e.message, true, 6000); }
+      return;
+    }
+    try {
+      const r = await api('/api/sessions/' + S.cur.id + '/interrupt', { body: { text: draft.text, images: draft.images, tz: (Intl.DateTimeFormat().resolvedOptions().timeZone || '') } });
+      toast('Instruction queued (' + r.queued + ' pending). It will be checked after the current operation.');
+    } catch (e) {
+      $('#input').value = draft.text;
+      S.images = draft.images;
+      renderAttach(); autoGrow();
+      toast(e.message, true, 6000);
+    }
+    return;
+  }
   await dispatch(draft);
 }
+async function sendNow() {
+  if (!S.run.running || !hasDraft()) return send();
+  if (S.files.some((f) => f.state === 'uploading')) { toast('Still uploading…'); return; }
+  const draft = takeDraft();
+  try {
+    const r = await api('/api/sessions/' + S.cur.id + '/interrupt', { body: { text: draft.text, images: draft.images, priority: true, tz: (Intl.DateTimeFormat().resolvedOptions().timeZone || '') } });
+    toast('Sent to the front of the worker queue (' + r.queued + ' pending).');
+  } catch (e) { $('#input').value = draft.text; S.images = draft.images; renderAttach(); autoGrow(); toast(e.message, true, 6000); }
+}
+
 async function dispatch({ text, images }) {
   const msg = { role: 'user', content: images.length ? [{ type: 'text', text }, ...images.map((u) => ({ type: 'image_url', image_url: { url: u } }))] : text };
   S.cur.messages.push(msg);
@@ -1141,12 +1235,12 @@ function newChatSheet() {
 async function setEffort(k) {
   if (!S.cur) return;
   await api('/api/sessions/' + S.cur.id, { method: 'PATCH', body: { effort: k } });
-  S.cur.effort = k; S.cur.thinking = k !== 'off'; applyChips();
+  S.cur.effort = k; S.cur.thinking = true; applyChips();
 }
 async function modelSheet() {
   const list = h('div', { style: 'display:flex;flex-direction:column;gap:8px' }, h('div.dim', { text: 'Loading models…' }));
   const search = h('input.msearch', { type: 'search', placeholder: 'Search models', autocomplete: 'off', autocapitalize: 'off', autocorrect: 'off', spellcheck: 'false' });
-  const cur = () => (S.cur && (S.cur.effort || (S.cur.thinking === false ? 'off' : 'high'))) || 'high';
+  const cur = () => { const v = (S.cur && S.cur.effort) || 'high'; return v === 'off' ? 'low' : v; };
   const note = h('div.seg-note', { text: EFFORTS[cur()][1] });
   const seg = h('div.seg', {}, ...Object.entries(EFFORTS).map(([k, [name]]) => h('button' + (cur() === k ? '.on' : ''), { text: name, onclick: async (e) => {
     const me = e.currentTarget;
@@ -1156,7 +1250,7 @@ async function modelSheet() {
   } })));
   const head = [];
   if (S.cur) {
-    head.push(h('div.sec', { text: 'Effort (reasoning)' }), seg, note);
+    head.push(h('div.sec', { text: 'Effort' }), seg, note);
     const rv = h('input', { type: 'checkbox', checked: !!S.cur.review, onchange: async (e) => {
       const on = e.target.checked;
       try { await api('/api/sessions/' + S.cur.id, { method: 'PATCH', body: { review: on } }); S.cur.review = on; } catch (er) { e.target.checked = !on; toast(er.message, true); }
@@ -2383,7 +2477,7 @@ function evPick() {
   const effort = store.get('eval_effort') || 'high', suite = store.get('eval_suite') || 'standard';
   const seg = (opts, cur, key, redraw) => h('div.seg', {}, ...Object.entries(opts).map(([k, [name]]) => h('button' + (cur === k ? '.on' : ''), { text: name, onclick: () => { store.set(key, k); redraw(); } })));
   return h('div.evpick', {},
-    h('div.sec', { text: 'Effort (reasoning)' }), seg(EFFORTS, effort, 'eval_effort', evDraw), h('div.seg-note', { text: EFFORTS[effort][1] }),
+    h('div.sec', { text: 'Effort' }), seg(EFFORTS, effort, 'eval_effort', evDraw), h('div.seg-note', { text: EFFORTS[effort][1] }),
     h('div.sec', { text: 'Tasks' }), seg(EV_SUITES, suite, 'eval_suite', evDraw), h('div.seg-note', { text: EV_SUITES[suite][1] + (suite !== 'standard' ? '. The hard suite takes much longer.' : '') }), evChecklist(suite),
     h('label.rvrow', {}, h('input', { type: 'checkbox', checked: store.get('eval_review') === '1', onchange: (e) => { store.set('eval_review', e.target.checked ? '1' : '0'); evDraw(); } }),
       h('span', {}, h('b', { text: 'Self-review' }), h('div.dim', { style: 'font-size:12.5px', text: 'A fresh reviewer checks each task\'s changes before it counts. Compare scores with and without it.' }))));
@@ -2622,6 +2716,7 @@ function wire() {
   $('#btn-update').onclick = applyUpdate;
   $('#chat-search').oninput = renderList;
   $('#btn-send').onclick = send;
+  $('#btn-send-now').onclick = sendNow;
   $('#btn-attach').onclick = () => $('#file-img').click();
   $('#file-img').onchange = (e) => { [...e.target.files].forEach((f) => attachAny(f).catch((er) => toast(er.message, true))); e.target.value = ''; };
   const input = $('#input');

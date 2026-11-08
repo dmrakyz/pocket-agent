@@ -83,6 +83,11 @@ async def flush():
         if not s:
             continue
         _save_local(s)
+        try:
+            from . import db
+            if db.enabled(): await db.session_put(sid, _clean(s))
+        except Exception as e:
+            remote_status["error"] = f"turso session save: {e}"[:200]
         await _remote_put(sid, s)
 
 
@@ -92,6 +97,11 @@ async def flush_all():
         s = sessions.get(sid)
         if s:
             _save_local(s)
+            try:
+                from . import db
+                if db.enabled(): await db.session_put(sid, _clean(s))
+            except Exception as e:
+                remote_status["error"] = f"turso session save: {e}"[:200]
             await _remote_put(sid, s)
 
 
@@ -129,6 +139,11 @@ async def delete_session(sid: str):
     sessions.pop(sid, None)
     _dirty.pop(sid, None)
     (SESS_DIR / f"{sid}.json").unlink(missing_ok=True)
+    try:
+        from . import db
+        if db.enabled(): await db.session_delete(sid)
+    except Exception as e:
+        remote_status["error"] = f"turso session delete: {e}"[:200]
     if remote_status["enabled"] and sid in _shas:
         url = f"{API}/repos/{config.STATE_REPO}/contents/sessions/{sid}.json"
         try:
@@ -148,6 +163,13 @@ async def init():
             sessions[s["id"]] = s
         except Exception:  # noqa: BLE001
             pass
+    try:
+        from . import db
+        if db.enabled():
+            for sid, s in (await db.sessions_load()).items():
+                if sid not in sessions or s.get("updated", 0) > sessions[sid].get("updated", 0): sessions[sid] = s
+    except Exception as e:
+        remote_status["error"] = f"turso session load: {e}"[:200]
     if not (config.GITHUB_TOKEN and config.STATE_REPO):
         return
     try:

@@ -1,5 +1,30 @@
 [
  {
+  "id": 15,
+  "date": "2026-11-08",
+  "title": "Effort controls, messenger, and crash-safe checkpoints",
+  "items": [
+   "Choose Low, Medium, High, or Max effort manually, or let the agent select effort for each task independently of model routing",
+   "Ask live status questions while the worker is busy; a separate fast messenger answers without entering the worker's instruction queue",
+   "Send a new instruction to the front of the queue without waiting behind earlier queued prompts",
+   "Chat sessions are mirrored to Turso so chat history survives Render restarts",
+   "Workspace changes are committed and pushed after every completed tool batch, including normal turns"
+  ]
+ },
+ {
+  "id": 14,
+  "date": "2026-11-08",
+  "title": "Interrupt active work with new instructions",
+  "items": [
+   "Autopilot has no fixed step ceiling and continues until completion or a genuine blocker",
+   "Send new instructions while the agent is working; they are queued and checked after the current operation finishes",
+   "Live activity feed shows the current model/tool operation and elapsed time, refreshed every five seconds",
+   "Foreground and background shell output streams into the active tool card",
+   "Reopening an active session restores its current operation and reconnects to live events",
+   "Workspace checkpoints and restart recovery for GitHub-backed jobs"
+  ]
+ },
+ {
   "id": 13,
   "date": "2026-11-08",
   "title": "Longer coding runs and free-first model routing",

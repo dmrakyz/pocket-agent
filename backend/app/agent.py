@@ -29,6 +29,8 @@ class Run:
         self.approvals: dict[str, asyncio.Future] = {}
         self.pending: dict[str, dict] = {}   # approval id -> event (for reattach)
         self.partial = {"text": "", "reasoning": ""}
+        self.current = {"phase": "starting", "since": time.time(), "detail": ""}
+        self.step = 0
         self.subs: dict[str, dict] = {}                      # live view of sub-agents for the UI panel
         self.sub_count = 0                                   # sub-agents started this turn (all depths)
         self.sub_sem = asyncio.Semaphore(config.SUBAGENT_PARALLEL)   # guards sub-agent model calls
@@ -39,13 +41,23 @@ class Run:
 
     async def emit(self, ev: dict):
         t = ev.get("type")
+        if t in ("step_start", "tool_start", "tool_end", "phase"):
+            phase = {"step_start": "thinking", "tool_start": "tool", "tool_end": "thinking", "phase": ev.get("phase")}.get(t, "working")
+            detail = ev.get("detail") or ev.get("name") or ("Waiting for model response" if phase == "thinking" else "")
+            self.current = {"phase": phase, "since": time.time(), "detail": str(detail)[:300], "tool_id": ev.get("tool_id")}
+        elif t in ("delta", "reasoning"):
+            self.current["last_token_at"] = time.time()
+        elif t == "tool_output":
+            self.current["last_output_at"] = time.time()
         if t == "step_start":
             self.partial = {"text": "", "reasoning": ""}
         elif t == "delta":
             self.partial["text"] += ev["text"]
         elif t == "reasoning":
             self.partial["reasoning"] += ev["text"]
-        elif t == "message":
+        elif t in ("message", "stream_reset"):
+            # Discard tokens from a provider attempt that failed mid-stream.
+            # The next retry starts a fresh response; never concatenate attempts.
             self.partial = {"text": "", "reasoning": ""}
         ev["seq"] = self.seq + 1
         self.events.append(ev)
@@ -386,13 +398,18 @@ async def request_approval(run: Run, s: dict, call_id: str, name: str, args: dic
 async def gated_execute(run: Run, s: dict, ctx: tools.Ctx, call: dict, allowed: Optional[set] = None,
                         label: str = "") -> dict:
     name = call["function"]["name"]
+    tool_id = call.get("id", "")
     try:
         args = json.loads(call["function"]["arguments"] or "{}")
         if not isinstance(args, dict):
             raise ValueError("arguments must be a JSON object")
     except (json.JSONDecodeError, ValueError) as e:
+        await run.emit({"type": "tool_start", "tool_id": tool_id, "name": name, "detail": f"Preparing {name}"})
         return {"text": f"Error: tool arguments were not valid JSON ({e}). Send them again as a JSON object.",
                 "error": True}
+    summary = str(args.get("path") or args.get("command") or args.get("url") or args.get("query") or "")
+    await run.emit({"type": "tool_start", "tool_id": tool_id, "name": name,
+                    "detail": (name + (": " + summary[:180] if summary else ""))[:240]})
     if allowed is not None and name not in allowed:
         return {"text": f"Error: tool {name!r} is not available here.", "error": True}
     if name == "ask_user":
@@ -423,7 +440,10 @@ async def gated_execute(run: Run, s: dict, ctx: tools.Ctx, call: dict, allowed: 
     blocked = await run_hooks(ctx.root, "PreToolUse", name, args)
     if blocked:
         return {"text": f"Blocked by a PreToolUse hook: {blocked}", "error": True}
-    res = await tools.execute(ctx, name, args)
+    tool_ctx = tools.Ctx(s, ctx.root, ctx.emit, ctx.subagent, ctx.mcp)
+    tool_ctx.call_id = tool_id
+    res = await tools.execute(tool_ctx, name, args)
+    await run.emit({"type": "tool_end", "tool_id": tool_id, "name": name, "error": bool(res.get("error"))})
     fb = await run_hooks(ctx.root, "PostToolUse", name, args, {"TOOL_ERROR": "1" if res.get("error") else "0"})
     if fb:
         res["text"] += f"\n\n[PostToolUse hook feedback]\n{fb}"
@@ -521,6 +541,7 @@ async def run_subagent(run: Run, s: dict, root: Path, description: str, prompt: 
             m = resp["message"]
             usage.record(ref, (resp.get("usage") or {}).get("prompt_tokens", 0), (resp.get("usage") or {}).get("completion_tokens", 0))
             msgs.append({k: v for k, v in m.items() if not k.startswith("_")})
+            
             calls = m.get("tool_calls")
             if not calls:
                 final = m.get("content") or ""
@@ -633,6 +654,33 @@ async def self_review(run: Run, s: dict, ws: Path, base_sha: str, request: str) 
     return out[:5000]
 
 
+async def consume_interrupts(s: dict, run: Run) -> int:
+    queue = s.setdefault("interrupt_queue", [])
+    consumed = 0
+    while queue:
+        item = queue.pop(0)
+        await commit_message(run, s, item)
+        consumed += 1
+        await run.emit({"type": "notice", "text": "New instruction received; incorporating it after the previous operation."})
+    if consumed:
+        store.touch(s)
+    return consumed
+
+
+def choose_effort(session: dict, request: str) -> str:
+    """Choose a Claude-Code-style effort tier independently of model routing."""
+    setting = str(session.get("effort", "high")).lower()
+    if setting in ("low", "medium", "high", "max"):
+        return setting
+    text = (request or "").lower()
+    max_terms = ("architecture", "design a system", "prove", "formal", "research", "benchmark", "optimize", "security audit", "root cause", "multi-agent", "from scratch", "refactor the entire", "complex")
+    high_terms = ("implement", "debug", "fix", "refactor", "write code", "build", "test", "analyze", "compare", "plan")
+    low_terms = ("what is", "define", "translate", "summarize", "quick", "simple", "format", "list ")
+    if any(x in text for x in max_terms): return "max"
+    if any(x in text for x in high_terms): return "high"
+    if any(x in text for x in low_terms) or len(text) < 180: return "low"
+    return "medium"
+
 async def run_turn(s: dict, run: Run):
     status = "done"
     ws: Optional[Path] = None
@@ -655,13 +703,26 @@ async def run_turn(s: dict, run: Run):
         ctx = tools.Ctx(s, ws, run.emit, lambda d, p, m=None, e=False: run_subagent(run, s, ws, d, p, m, e, 1), MCP)
         nudged = 0
         autopilot = bool(s.get("autopilot"))
-        limit = int(s.get("budget") or config.AUTOPILOT_STEPS) if autopilot else config.MAX_STEPS
+        limit = config.MAX_STEPS
+        job = s.get("job") if autopilot else None
+        if autopilot:
+            job = job or {"status": "running", "started": time.time(), "steps": 0}
+            job["status"] = "running"
+            s["job"] = job
+            store.touch(s)
         nudged_ap = 0
         nudged_ws = 0
         nudged_vf = 0
         nudged_deny = 0
         reviewed = False
-        for step in range(limit):
+        step = 0
+        while autopilot or step < limit:
+            await consume_interrupts(s, run)
+            step += 1
+            if autopilot:
+                job["steps"] = int(job.get("steps", 0)) + 1
+                job["heartbeat"] = time.time()
+                store.touch(s)
             await compact(s, run)
             plan = s.get("mode") == "plan"
             sch = tools.schemas(s, MCP, plan_mode=plan)
@@ -673,14 +734,22 @@ async def run_turn(s: dict, run: Run):
             async def on_reason(t):
                 await run.emit({"type": "reasoning", "text": t})
 
+            async def on_stream_reset():
+                await run.emit({"type": "stream_reset"})
+
             async def notify(t):
                 await run.emit({"type": "notice", "text": t})
 
             active_model = llm.route_model(s, _request_text(s))
+            run.step = step
+            await run.emit({"type": "phase", "phase": "model", "detail": "Waiting for " + active_model + " · step " + str(step)})
             if active_model != s["model"]:
                 await run.emit({"type": "notice", "text": f"Router selected {active_model} for this task"})
+            active_effort = choose_effort(s, _request_text(s))
+            await run.emit({"type": "phase", "phase": "model", "detail": f"Waiting for {active_model} · {active_effort} effort · step {step}"})
             resp = await llm.chat(active_model, [{"role": "system", "content": build_system(s, ws) + toolhint.section(_request_text(s), sch)}] + timectx.apply(s, await vision_proxy(s, run, s["messages"])),
-                                  sch, on_text, on_reason, notify, thinking=s.get("thinking"), effort=s.get("effort"))
+                                  sch, on_text, on_reason, notify, thinking=s.get("thinking"), effort=active_effort,
+                                  on_reset=on_stream_reset)
             m = resp["message"]
             if resp.get("usage"):
                 s["usage"]["in"] += resp["usage"].get("prompt_tokens", 0)
@@ -695,6 +764,8 @@ async def run_turn(s: dict, run: Run):
                 m["content"] = "(the model returned an empty reply)"
             await commit_message(run, s, m)
             if not calls:
+                if await consume_interrupts(s, run):
+                    continue
                 if resp.get("finish_reason") == "length" and nudged < 2:
                     nudged += 1
                     await commit_message(run, s, {"role": "user", "content": "Your reply was cut off. Continue.",
@@ -740,7 +811,7 @@ async def run_turn(s: dict, run: Run):
                             "\n\nFix the real ones and re-run your checks. If a point is wrong, say why in one line. Then give your final answer."})
                         continue
                 if (autopilot and s.get("mode") != "plan" and not said.startswith(("DONE", "BLOCKED"))
-                        and nudged_ap < 60):
+                        ):
                     nudged_ap += 1
                     await commit_message(run, s, {"role": "user", "_synthetic": True, "content":
                         "[autopilot] Keep going until the goal is fully met and verified (run it, test it). When completely "
@@ -753,6 +824,7 @@ async def run_turn(s: dict, run: Run):
             else:
                 results = None
             for i, c in enumerate(calls):
+                
                 res = results[i] if results else await gated_execute(run, s, ctx, c)
                 tm = {"role": "tool", "tool_call_id": c["id"], "content": res["text"], "_name": c["function"]["name"]}
                 if res.get("error"):
@@ -775,6 +847,15 @@ async def run_turn(s: dict, run: Run):
             hint = stuck_hint(run, calls, s)
             if hint:
                 await commit_message(run, s, {"role": "user", "_synthetic": True, "content": hint})
+            if await consume_interrupts(s, run):
+                continue
+            # Render local disk is ephemeral: checkpoint every completed tool batch.
+            # Do this for normal turns as well as autopilot so completed edits survive resets.
+            try:
+                await _autosync(s, ws, run)
+            except Exception as e:  # noqa: BLE001
+                await run.emit({"type": "notice", "text": f"Workspace checkpoint failed: {type(e).__name__}: {e}"[:240]})
+            await store.flush_all()
             if any(c["function"]["name"] == "exit_plan_mode" and s.get("mode") == "plan" for c in calls):
                 # plan was denied (mode still plan): stop and let the user respond
                 break
@@ -790,6 +871,9 @@ async def run_turn(s: dict, run: Run):
         await run.emit({"type": "error", "text": f"{type(e).__name__}: {e}"})
     finally:
         s["_running"] = False
+        if s.get("job") and status in ("done", "error", "stopped"):
+            s["job"]["status"] = "completed" if status == "done" else status
+            s["job"]["finished"] = time.time()
         usage.record_run()
         if status == "stopped":
             # the user is staring at a Stop button: release the UI first, do the slow saving in the background
@@ -820,8 +904,8 @@ async def _autosync(s: dict, ws: Path, run: Run):
     async with _ws_lock(s["id"]):
         sha = await workspace.commit_all(ws, f"agent: {s['title'][:60]}")
         msg = await workspace.push(s, ws)
-    if "failed" in msg:
-        await run.emit({"type": "notice", "text": msg})
+    if not msg.startswith("pushed to "):
+        await run.emit({"type": "notice", "text": "Workspace durability warning: " + msg})
 
 
 async def _wrapup(s: dict, ws: Optional[Path], run: Run):
@@ -911,6 +995,28 @@ async def vision_proxy(s: dict, run: Run, msgs: list) -> list:
     return out
 
 
+async def _heartbeat(run: Run):
+    while not run.done:
+        await asyncio.sleep(5)
+        if run.done:
+            return
+        cur = run.current or {}
+        now = time.time()
+        elapsed = max(0, int(now - cur.get("since", now)))
+        age = max(0, int(now - cur["last_token_at"])) if cur.get("last_token_at") else None
+        detail = (cur.get("detail") or cur.get("phase") or "Working") + " · " + str(elapsed // 60) + "m " + str(elapsed % 60) + "s"
+        if cur.get("phase") == "model":
+            if age is None:
+                detail += " · no response tokens yet"
+            elif age >= 60:
+                detail += " · no new tokens for " + str(age // 60) + "m"
+            elif age >= 15:
+                detail += " · waiting for next token"
+            else:
+                detail += " · receiving response"
+        await run.emit({"type": "heartbeat", "phase": cur.get("phase", "working"), "detail": detail, "at": now, "step": run.step})
+
+
 def start(s: dict, text: str, images: Optional[list] = None) -> Run:
     """Append the user's message and launch the background run."""
     root = workspace.ws_path(s["id"])
@@ -924,6 +1030,9 @@ def start(s: dict, text: str, images: Optional[list] = None) -> Run:
         s["title"] = (text.strip().splitlines() or ["New chat"])[0][:48] or "New chat"
     s["_running"] = True
     run = Run(s)
+    run.heartbeat_task = asyncio.create_task(_heartbeat(run))
+    if s.get("autopilot"):
+        s["job"] = {"status": "running", "started": time.time(), "heartbeat": time.time(), "steps": 0}
     runs[s["id"]] = run
     run.task = asyncio.create_task(run_turn(s, run))
     store.touch(s)
@@ -948,3 +1057,21 @@ async def auto_title(s: dict):
             store.touch(s)
     except Exception:  # noqa: BLE001
         pass
+
+
+async def resume_jobs():
+    """Resume durable autopilot jobs after a server restart."""
+    for s in list(store.sessions.values()):
+        job = s.get("job") or {}
+        if job.get("status") not in ("running", "paused") or s.get("_running"):
+            continue
+        repair_history(s)
+        s["messages"].append({"role": "user", "_synthetic": True, "_ts": time.time(), "content": "[resume] The server restarted while this long-running job was active. Continue from the latest saved conversation and Git workspace checkpoint. Re-check the current files and test state before proceeding."})
+        s["_running"] = True
+        job["status"] = "running"
+        job["resumed_at"] = time.time()
+        run = Run(s)
+        run.heartbeat_task = asyncio.create_task(_heartbeat(run))
+        runs[s["id"]] = run
+        run.task = asyncio.create_task(run_turn(s, run))
+        store.touch(s)
