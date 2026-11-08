@@ -574,8 +574,10 @@ async def t_bash(ctx: Ctx, a: dict):
         f = open(log, "wb")
         p = await asyncio.create_subprocess_shell(cmd, cwd=str(ctx.root), env=env, stdout=f, stderr=asyncio.subprocess.STDOUT,
                                                   executable="/bin/bash", start_new_session=True)
-        JOBS[jid] = {"p": p, "log": log, "pos": 0, "session": ctx.session["id"], "memflag": {}, "t0": time.time()}
+        JOBS[jid] = {"p": p, "log": log, "pos": 0, "stream_pos": 0, "session": ctx.session["id"], "memflag": {}, "t0": time.time()}
         asyncio.create_task(_mem_guard(p, JOBS[jid]["memflag"]))
+        if call_id:
+            asyncio.create_task(_stream_job_output(jid, ctx, call_id))
         await asyncio.sleep(1.5)
         return f"started background job {jid} (pid {p.pid}). Use bash_output to read it.\n" + await _job_read(jid, ctx.session)
     p = await asyncio.create_subprocess_shell(cmd, cwd=str(ctx.root), env=env, stdout=asyncio.subprocess.PIPE,
@@ -617,6 +619,26 @@ async def t_bash(ctx: Ctx, a: dict):
             text = text.replace(secret, "***")
     text = cap(text) or "(no output)"
     return text + (_mem_msg(mflag) if mflag.get("killed") else "") + (f"\n[exit code {p.returncode}]" if p.returncode else "")
+
+
+async def _stream_job_output(jid: str, ctx: Ctx, call_id: str):
+    """Forward appended background-process output to the live run event stream."""
+    j = JOBS.get(jid)
+    if not j:
+        return
+    while True:
+        try:
+            data = j["log"].read_bytes()
+            pos = j.get("stream_pos", 0)
+            chunk = data[pos:]
+            if chunk:
+                j["stream_pos"] = len(data)
+                await ctx.emit({"type": "tool_output", "tool_id": call_id, "text": chunk.decode("utf-8", "replace")})
+            if j["p"].returncode is not None and j.get("stream_pos", 0) >= len(data):
+                return
+        except (OSError, asyncio.CancelledError):
+            return
+        await asyncio.sleep(0.5)
 
 
 async def _job_read(jid: str, s: dict | None = None) -> str:
