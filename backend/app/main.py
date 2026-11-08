@@ -35,6 +35,7 @@ perms.MCP = mcp_client
 async def lifespan(app: FastAPI):
     await store.init()
     await kv.init()
+    asyncio.create_task(agent.resume_jobs())
     await push.init()
     routines.start_loop()
     evals.resume()
@@ -220,8 +221,8 @@ async def create_session(body: dict):
 def run_state(sid: str) -> dict:
     r = agent.runs.get(sid)
     if r and not r.done:
-        return {"running": True, "seq": r.seq, "partial": r.partial, "pending": list(r.pending.values()), "subs": list(r.subs.values())}
-    return {"running": False, "seq": r.seq if r else 0, "partial": None, "pending": [], "subs": list(r.subs.values()) if r else []}
+        return {"running": True, "paused": r.pause_requested, "seq": r.seq, "partial": r.partial, "pending": list(r.pending.values()), "subs": list(r.subs.values())}
+    return {"running": False, "paused": False, "seq": r.seq if r else 0, "partial": None, "pending": [], "subs": list(r.subs.values()) if r else []}
 
 
 def commands_for(sid: str) -> list[str]:
@@ -318,6 +319,36 @@ async def events(sid: str, after: int = 0):
 
     return StreamingResponse(gen(), media_type="text/event-stream",
                              headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
+@app.post("/api/sessions/{sid}/pause", dependencies=[Depends(auth)])
+async def pause(sid: str):
+    s = get_session(sid)
+    r = agent.runs.get(sid)
+    if not r or r.done:
+        raise HTTPException(409, "no active run to pause")
+    r.pause_requested = True
+    r.pause_event.clear()
+    if s.get("job"):
+        s["job"]["status"] = "paused"
+        s["job"]["paused_at"] = time.time()
+        store.touch(s)
+    return {"ok": True, "paused": True, "note": "Pause takes effect after the current model/tool operation finishes."}
+
+
+@app.post("/api/sessions/{sid}/resume", dependencies=[Depends(auth)])
+async def resume(sid: str):
+    s = get_session(sid)
+    r = agent.runs.get(sid)
+    if not r or r.done:
+        raise HTTPException(409, "no paused run to resume")
+    r.pause_requested = False
+    r.pause_event.set()
+    if s.get("job"):
+        s["job"]["status"] = "running"
+        s["job"]["resumed_at"] = time.time()
+        store.touch(s)
+    return {"ok": True, "paused": False}
 
 
 @app.post("/api/sessions/{sid}/stop", dependencies=[Depends(auth)])
