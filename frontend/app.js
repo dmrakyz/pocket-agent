@@ -984,7 +984,7 @@ async function send() {
   if (!S.cur) { try { await newChat({}); } catch (e) { toast(e.message, true); return; } }
   const draft = takeDraft();
   if (S.run.running) {
-    const isStatusQuestion = /^(how('?s| is) it going|status|progress|what('?s| is) happening|what are you doing|are you stuck|any update|update me)\\b/i.test(draft.text.trim());
+    const isStatusQuestion = /^(how('?s| is) it going|status|progress|what('?s| is) happening|what are you doing|are you stuck|any update|update me)\b/i.test(draft.text.trim());
     if (isStatusQuestion) {
       try { const r = await api('/api/sessions/' + S.cur.id + '/messenger', { body: { text: draft.text } }); toast('Messenger replied · ' + shortModel(r.model)); }
       catch (e) { $('#input').value = draft.text; toast(e.message, true, 6000); }
