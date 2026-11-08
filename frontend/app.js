@@ -743,7 +743,7 @@ function renderLive() {
     const a = S.currentActivity;
     if (!S.run.running || !a || !S.statusEl || !S.statusEl.firstChild) return;
     const elapsed = Math.max(0, (a.elapsedSeconds || 0) + Math.floor((Date.now() - (a.clockAt || Date.now())) / 1000));
-    const base = String(a.detail || 'Working').replace(/ · \\d+m \\d+s/, '');
+    const base = String(a.detail || 'Working').replace(/ · \d+m \d+s/, '');
     S.statusEl.firstChild.nodeValue = base + ' · ' + Math.floor(elapsed / 60) + 'm ' + (elapsed % 60) + 's';
   }, 1000);
   if (!S.live) {
