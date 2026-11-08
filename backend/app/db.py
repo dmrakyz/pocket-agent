@@ -71,7 +71,7 @@ async def ensure():
     global _ready
     if _ready or not enabled():
         return
-    await run([("CREATE TABLE IF NOT EXISTS kv (name TEXT PRIMARY KEY, value TEXT NOT NULL, updated REAL NOT NULL)", [])])
+    await run([("CREATE TABLE IF NOT EXISTS kv (name TEXT PRIMARY KEY, value TEXT NOT NULL, updated REAL NOT NULL)", []), ("CREATE TABLE IF NOT EXISTS sessions (id TEXT PRIMARY KEY, value TEXT NOT NULL, updated REAL NOT NULL)", [])])
     _ready = True
 
 
@@ -103,3 +103,25 @@ async def keepalive_loop(every: float = 86400.0, first: float = 30.0):
         except Exception as e:  # noqa: BLE001
             print("turso keepalive failed:", e)
         await asyncio.sleep(every)
+
+
+async def sessions_load() -> dict:
+    await ensure()
+    rows = (await run([("SELECT id, value, updated FROM sessions", [])]))[0]
+    out = {}
+    for row in rows:
+        try:
+            out[row["id"]] = json.loads(row["value"])
+        except (TypeError, ValueError):
+            pass
+    return out
+
+
+async def session_put(session_id: str, value: dict):
+    await ensure()
+    await run([("INSERT INTO sessions (id, value, updated) VALUES (?, ?, ?) ON CONFLICT(id) DO UPDATE SET value = excluded.value, updated = excluded.updated", [session_id, json.dumps(value), time.time()])])
+
+
+async def session_delete(session_id: str):
+    await ensure()
+    await run([("DELETE FROM sessions WHERE id = ?", [session_id])])
