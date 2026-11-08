@@ -890,6 +890,17 @@ function handle(ev) {
     case 'sub_end': { const sb = S.subs.find((x) => x.id === ev.id); if (sb) sb.status = ev.status; renderSubs(); break; }
     case 'mode': c.mode = ev.mode; applyChips(); break;
     case 'notice': setStatus(ev.text); break;
+    case 'messenger_reply': {
+      const msg = { role: 'assistant', content: ev.text, _messenger: true };
+      c.messages.push(msg);
+      const node = assistantNode(msg);
+      node.classList.add('messenger-reply');
+      if (S.live) msgsEl().insertBefore(node, S.live); else msgsEl().append(node);
+      mergeGroups();
+      if (S.stick) scrollDown();
+      toast('Messenger reply received');
+      break;
+    }
     case 'phase': S.currentActivity = { phase: ev.phase, detail: ev.detail, since: Date.now() }; setStatus(ev.detail || ev.phase); break;
     case 'tool_start': { S.currentActivity = { phase: 'tool', detail: ev.name, since: Date.now() }; const card = S.cards[ev.tool_id]; if (card) { card.dataset.open = '1'; fillCard(card, card._call, S.results[ev.tool_id], null); } setStatus('Running ' + ev.name + '…'); break; }
     case 'tool_output': { const card = S.cards[ev.tool_id]; if (card) { card._liveOutput = (card._liveOutput || '') + (ev.text || ''); const pre = card.querySelector('.tool-live-output'); if (pre) { pre.textContent = card._liveOutput.slice(-24000); pre.scrollTop = pre.scrollHeight; } else { const body = card.querySelector('.tool-body'); if (body) body.append(h('pre.tool-live-output', { text: card._liveOutput.slice(-24000) })); } } break; }
@@ -971,6 +982,12 @@ async function send() {
   if (!S.cur) { try { await newChat({}); } catch (e) { toast(e.message, true); return; } }
   const draft = takeDraft();
   if (S.run.running) {
+    const isStatusQuestion = /^(how('?s| is) it going|status|progress|what('?s| is) happening|what are you doing|are you stuck|any update|update me)\\b/i.test(draft.text.trim());
+    if (isStatusQuestion) {
+      try { const r = await api('/api/sessions/' + S.cur.id + '/messenger', { body: { text: draft.text } }); toast('Messenger replied · ' + shortModel(r.model)); }
+      catch (e) { $('#input').value = draft.text; toast(e.message, true, 6000); }
+      return;
+    }
     try {
       const r = await api('/api/sessions/' + S.cur.id + '/interrupt', { body: { text: draft.text, images: draft.images, tz: (Intl.DateTimeFormat().resolvedOptions().timeZone || '') } });
       toast('Instruction queued (' + r.queued + ' pending). It will be checked after the current operation.');
