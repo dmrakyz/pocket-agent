@@ -490,3 +490,11 @@ label.memrow { flex-direction: row; gap: 12px; align-items: flex-start; }
 .mroute-mode,.mroute-role { width:100%; min-width:0; color:var(--text); background:var(--bg); border:1px solid var(--line); border-radius:9px; padding:9px 10px; font:inherit; font-size:13px; }
 .mroute-row { display:flex; flex-direction:column; gap:5px; color:var(--dim); font-size:12px; }
 
+
+/* Live tool execution progress */
+.tool-progress { padding: 9px 12px 11px; border-bottom: 1px solid var(--line); }
+.tool-progress-label { color: var(--dim); font: 12px var(--mono); overflow-wrap: anywhere; margin-bottom: 7px; }
+.tool-progress-track { height: 5px; border-radius: 8px; overflow: hidden; background: var(--panel2); }
+.tool-progress-track i { display: block; height: 100%; width: 34%; border-radius: inherit; background: var(--accent); transition: width .12s linear; }
+.tool-progress:not(.determinate) .tool-progress-track i { animation: tool-progress-sweep 1.25s ease-in-out infinite; }
+@keyframes tool-progress-sweep { from { transform: translateX(-110%); } to { transform: translateX(300%); } }
