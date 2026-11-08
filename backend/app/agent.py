@@ -746,7 +746,7 @@ async def run_turn(s: dict, run: Run):
                 await run.emit({"type": "stream_reset"})
 
             async def on_llm_status(stage, detail):
-                await run.emit({"type": "llm_status", "stage": stage, "detail": detail, "model": active_model if "active_model" in locals() else s.get("model")})
+                await run.emit({"type": "llm_status", "stage": stage, "detail": detail, "model": active_model})
 
             async def notify(t):
                 await run.emit({"type": "notice", "text": t})
