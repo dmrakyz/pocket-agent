@@ -254,9 +254,11 @@ const S = {
   images: [], files: [], live: null, statusEl: null, stick: true, info: null, commands: [], queues: {}, subs: [],
 };
 const EFFORTS = {
-  off: ['Off', 'No reasoning. Fastest and cheapest, weakest on hard problems.'],
-  medium: ['Medium', 'Reasons with fewer tokens. Good default for everyday coding.'],
-  high: ['High', 'Full reasoning. Best for hard bugs and planning, slower.'],
+  low: ['Low', 'Lower effort for straightforward tasks; faster and lighter.'],
+  medium: ['Medium', 'Balanced effort for ordinary implementation and analysis.'],
+  high: ['High', 'More effort for difficult implementation, debugging, and planning.'],
+  max: ['Max', 'Maximum effort for the hardest tasks; slowest and most expensive.'],
+  auto: ['Auto', 'Choose effort from task complexity, independently of model routing.'],
 };
 const MODES = {
   ask: ['Ask', 'Asks before edits and commands. Safe read-only commands run freely.'],
@@ -944,6 +946,15 @@ function renderQueue() {
   bar.hidden = !q.length;
   bar.replaceChildren(...q.map((m, i) => h('div.qitem', {}, h('span.qn', { text: 'Queued' }), h('span.qt', { text: m.text.replace(/\s+/g, ' ').slice(0, 80) || '(attachment)' }), h('button', { 'aria-label': 'Remove from queue', text: '✕', onclick: () => { queueFor().splice(i, 1); renderQueue(); } }))));
 }
+async function sendQueuedNow(index) {
+  if (!S.cur || !S.run.running) return;
+  const q = queueFor(); const item = q[index]; if (!item) return;
+  try {
+    const r = await api('/api/sessions/' + S.cur.id + '/interrupt', { body: { text: item.text, images: item.images || [], priority: true, tz: (Intl.DateTimeFormat().resolvedOptions().timeZone || '') } });
+    q.splice(index, 1); renderQueue(); toast('Sent to the front of the agent queue (' + r.queued + ' pending).');
+  } catch (e) { toast(e.message, true, 6000); }
+}
+
 function takeDraft() {
   const input = $('#input');
   const images = S.images.slice();
@@ -1183,12 +1194,12 @@ function newChatSheet() {
 async function setEffort(k) {
   if (!S.cur) return;
   await api('/api/sessions/' + S.cur.id, { method: 'PATCH', body: { effort: k } });
-  S.cur.effort = k; S.cur.thinking = k !== 'off'; applyChips();
+  S.cur.effort = k; S.cur.thinking = true; applyChips();
 }
 async function modelSheet() {
   const list = h('div', { style: 'display:flex;flex-direction:column;gap:8px' }, h('div.dim', { text: 'Loading models…' }));
   const search = h('input.msearch', { type: 'search', placeholder: 'Search models', autocomplete: 'off', autocapitalize: 'off', autocorrect: 'off', spellcheck: 'false' });
-  const cur = () => (S.cur && (S.cur.effort || (S.cur.thinking === false ? 'off' : 'high'))) || 'high';
+  const cur = () => (S.cur && S.cur.effort) || 'high';
   const note = h('div.seg-note', { text: EFFORTS[cur()][1] });
   const seg = h('div.seg', {}, ...Object.entries(EFFORTS).map(([k, [name]]) => h('button' + (cur() === k ? '.on' : ''), { text: name, onclick: async (e) => {
     const me = e.currentTarget;
@@ -1198,7 +1209,7 @@ async function modelSheet() {
   } })));
   const head = [];
   if (S.cur) {
-    head.push(h('div.sec', { text: 'Effort (reasoning)' }), seg, note);
+    head.push(h('div.sec', { text: 'Effort' }), seg, note);
     const rv = h('input', { type: 'checkbox', checked: !!S.cur.review, onchange: async (e) => {
       const on = e.target.checked;
       try { await api('/api/sessions/' + S.cur.id, { method: 'PATCH', body: { review: on } }); S.cur.review = on; } catch (er) { e.target.checked = !on; toast(er.message, true); }
@@ -2425,7 +2436,7 @@ function evPick() {
   const effort = store.get('eval_effort') || 'high', suite = store.get('eval_suite') || 'standard';
   const seg = (opts, cur, key, redraw) => h('div.seg', {}, ...Object.entries(opts).map(([k, [name]]) => h('button' + (cur === k ? '.on' : ''), { text: name, onclick: () => { store.set(key, k); redraw(); } })));
   return h('div.evpick', {},
-    h('div.sec', { text: 'Effort (reasoning)' }), seg(EFFORTS, effort, 'eval_effort', evDraw), h('div.seg-note', { text: EFFORTS[effort][1] }),
+    h('div.sec', { text: 'Effort' }), seg(EFFORTS, effort, 'eval_effort', evDraw), h('div.seg-note', { text: EFFORTS[effort][1] }),
     h('div.sec', { text: 'Tasks' }), seg(EV_SUITES, suite, 'eval_suite', evDraw), h('div.seg-note', { text: EV_SUITES[suite][1] + (suite !== 'standard' ? '. The hard suite takes much longer.' : '') }), evChecklist(suite),
     h('label.rvrow', {}, h('input', { type: 'checkbox', checked: store.get('eval_review') === '1', onchange: (e) => { store.set('eval_review', e.target.checked ? '1' : '0'); evDraw(); } }),
       h('span', {}, h('b', { text: 'Self-review' }), h('div.dim', { style: 'font-size:12.5px', text: 'A fresh reviewer checks each task\'s changes before it counts. Compare scores with and without it.' }))));
