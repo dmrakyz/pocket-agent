@@ -866,6 +866,7 @@ function handle(ev) {
     case 'tool_start': { S.currentActivity = { phase: 'tool', detail: ev.name, since: Date.now() }; const card = S.cards[ev.tool_id]; if (card) { card.dataset.open = '1'; fillCard(card, card._call, S.results[ev.tool_id], null); } setStatus('Running ' + ev.name + '…'); break; }
     case 'tool_output': { const card = S.cards[ev.tool_id]; if (card) { card._liveOutput = (card._liveOutput || '') + (ev.text || ''); const pre = card.querySelector('.tool-live-output'); if (pre) { pre.textContent = card._liveOutput.slice(-24000); pre.scrollTop = pre.scrollHeight; } else { const body = card.querySelector('.tool-body'); if (body) body.append(h('pre.tool-live-output', { text: card._liveOutput.slice(-24000) })); } } break; }
     case 'tool_end': S.currentActivity = { phase: 'thinking', detail: 'Tool finished · ' + ev.name, since: Date.now() }; setStatus('Finished ' + ev.name + (ev.error ? ' · error' : '')); break;
+    case 'heartbeat': S.currentActivity = { phase: ev.phase, detail: ev.detail, since: Date.now() }; setStatus(ev.detail || 'Working…'); break;
     case 'error': toast(ev.text, true, 8000); msgsEl().append(h('div.notice.err', { text: ev.text })); scrollDown(); break;
     case 'reload': reloadCurrent(); break;
     case 'done': finishRun(); brRefreshAlive(); break;
