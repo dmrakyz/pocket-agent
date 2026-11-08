@@ -895,8 +895,8 @@ async def _autosync(s: dict, ws: Path, run: Run):
     async with _ws_lock(s["id"]):
         sha = await workspace.commit_all(ws, f"agent: {s['title'][:60]}")
         msg = await workspace.push(s, ws)
-    if "failed" in msg:
-        await run.emit({"type": "notice", "text": msg})
+    if not msg.startswith("pushed to "):
+        await run.emit({"type": "notice", "text": "Workspace durability warning: " + msg})
 
 
 async def _wrapup(s: dict, ws: Optional[Path], run: Run):
