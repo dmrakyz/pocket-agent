@@ -24,6 +24,9 @@ class Run:
         self.base = 0                      # seq of events[0] - 1 (we trim old events)
         self.cond = asyncio.Condition()
         self.done = False
+        self.pause_requested = False
+        self.pause_event = asyncio.Event()
+        self.pause_event.set()
         self.started = time.time()
         self.task: Optional[asyncio.Task] = None
         self.approvals: dict[str, asyncio.Future] = {}
@@ -32,6 +35,13 @@ class Run:
         self.subs: dict[str, dict] = {}                      # live view of sub-agents for the UI panel
         self.sub_count = 0                                   # sub-agents started this turn (all depths)
         self.sub_sem = asyncio.Semaphore(config.SUBAGENT_PARALLEL)   # guards sub-agent model calls
+
+    async def wait_if_paused(self):
+        if self.pause_requested:
+            await self.emit({"type": "notice", "text": "Paused. Your work is saved; resume whenever you are ready."})
+            await self.pause_event.wait()
+            self.pause_requested = False
+            await self.emit({"type": "notice", "text": "Resuming work."})
 
     @property
     def seq(self) -> int:
@@ -521,6 +531,7 @@ async def run_subagent(run: Run, s: dict, root: Path, description: str, prompt: 
             m = resp["message"]
             usage.record(ref, (resp.get("usage") or {}).get("prompt_tokens", 0), (resp.get("usage") or {}).get("completion_tokens", 0))
             msgs.append({k: v for k, v in m.items() if not k.startswith("_")})
+            await run.wait_if_paused()
             calls = m.get("tool_calls")
             if not calls:
                 final = m.get("content") or ""
@@ -655,13 +666,26 @@ async def run_turn(s: dict, run: Run):
         ctx = tools.Ctx(s, ws, run.emit, lambda d, p, m=None, e=False: run_subagent(run, s, ws, d, p, m, e, 1), MCP)
         nudged = 0
         autopilot = bool(s.get("autopilot"))
-        limit = int(s.get("budget") or config.AUTOPILOT_STEPS) if autopilot else config.MAX_STEPS
+        limit = config.MAX_STEPS
+        job = s.get("job") if autopilot else None
+        if autopilot:
+            job = job or {"status": "running", "started": time.time(), "steps": 0}
+            job["status"] = "paused" if run.pause_requested else "running"
+            s["job"] = job
+            store.touch(s)
         nudged_ap = 0
         nudged_ws = 0
         nudged_vf = 0
         nudged_deny = 0
         reviewed = False
-        for step in range(limit):
+        step = 0
+        while autopilot or step < limit:
+            await run.wait_if_paused()
+            step += 1
+            if autopilot:
+                job["steps"] = int(job.get("steps", 0)) + 1
+                job["heartbeat"] = time.time()
+                store.touch(s)
             await compact(s, run)
             plan = s.get("mode") == "plan"
             sch = tools.schemas(s, MCP, plan_mode=plan)
@@ -740,7 +764,7 @@ async def run_turn(s: dict, run: Run):
                             "\n\nFix the real ones and re-run your checks. If a point is wrong, say why in one line. Then give your final answer."})
                         continue
                 if (autopilot and s.get("mode") != "plan" and not said.startswith(("DONE", "BLOCKED"))
-                        and nudged_ap < 60):
+                        ):
                     nudged_ap += 1
                     await commit_message(run, s, {"role": "user", "_synthetic": True, "content":
                         "[autopilot] Keep going until the goal is fully met and verified (run it, test it). When completely "
@@ -753,6 +777,7 @@ async def run_turn(s: dict, run: Run):
             else:
                 results = None
             for i, c in enumerate(calls):
+                await run.wait_if_paused()
                 res = results[i] if results else await gated_execute(run, s, ctx, c)
                 tm = {"role": "tool", "tool_call_id": c["id"], "content": res["text"], "_name": c["function"]["name"]}
                 if res.get("error"):
@@ -775,6 +800,9 @@ async def run_turn(s: dict, run: Run):
             hint = stuck_hint(run, calls, s)
             if hint:
                 await commit_message(run, s, {"role": "user", "_synthetic": True, "content": hint})
+            if autopilot and step % 5 == 0:
+                await _autosync(s, ws, run)
+                await store.flush_all()
             if any(c["function"]["name"] == "exit_plan_mode" and s.get("mode") == "plan" for c in calls):
                 # plan was denied (mode still plan): stop and let the user respond
                 break
@@ -790,6 +818,9 @@ async def run_turn(s: dict, run: Run):
         await run.emit({"type": "error", "text": f"{type(e).__name__}: {e}"})
     finally:
         s["_running"] = False
+        if s.get("job") and status in ("done", "error", "stopped"):
+            s["job"]["status"] = "completed" if status == "done" else status
+            s["job"]["finished"] = time.time()
         usage.record_run()
         if status == "stopped":
             # the user is staring at a Stop button: release the UI first, do the slow saving in the background
@@ -924,6 +955,8 @@ def start(s: dict, text: str, images: Optional[list] = None) -> Run:
         s["title"] = (text.strip().splitlines() or ["New chat"])[0][:48] or "New chat"
     s["_running"] = True
     run = Run(s)
+    if s.get("autopilot"):
+        s["job"] = {"status": "running", "started": time.time(), "heartbeat": time.time(), "steps": 0}
     runs[s["id"]] = run
     run.task = asyncio.create_task(run_turn(s, run))
     store.touch(s)
@@ -948,3 +981,24 @@ async def auto_title(s: dict):
             store.touch(s)
     except Exception:  # noqa: BLE001
         pass
+
+
+async def resume_jobs():
+    """Resume durable autopilot jobs after a server restart."""
+    for s in list(store.sessions.values()):
+        job = s.get("job") or {}
+        if job.get("status") not in ("running", "paused") or s.get("_running"):
+            continue
+        was_paused = job.get("status") == "paused"
+        repair_history(s)
+        s["messages"].append({"role": "user", "_synthetic": True, "_ts": time.time(), "content": "[resume] The server restarted while this long-running job was active. Continue from the latest saved conversation and Git workspace checkpoint. Re-check the current files and test state before proceeding."})
+        s["_running"] = True
+        job["status"] = "paused" if was_paused else "running"
+        job["resumed_at"] = time.time()
+        run = Run(s)
+        if was_paused:
+            run.pause_requested = True
+            run.pause_event.clear()
+        runs[s["id"]] = run
+        run.task = asyncio.create_task(run_turn(s, run))
+        store.touch(s)
