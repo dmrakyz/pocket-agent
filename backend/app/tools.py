@@ -391,6 +391,39 @@ async def t_read(ctx: Ctx, a: dict):
     return out
 
 
+async def _write_with_progress(ctx: Ctx, path: Path, content: str, action: str):
+    """Write atomically while reporting byte-level progress to the live tool card."""
+    call_id = getattr(ctx, "call_id", "")
+    data = content.encode("utf-8")
+    total = len(data)
+    name = ctx.rel(path)
+    if call_id:
+        await ctx.emit({"type": "tool_progress", "tool_id": call_id, "detail": f"{action} {name}", "progress": 0, "total": total})
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name("." + path.name + "." + uuid.uuid4().hex[:8] + ".tmp")
+    written = last_reported = 0
+    try:
+        with tmp.open("wb") as stream:
+            for offset in range(0, total, 65536):
+                chunk = data[offset:offset + 65536]
+                stream.write(chunk)
+                written += len(chunk)
+                if call_id and (written == total or written - last_reported >= 262144):
+                    await ctx.emit({"type": "tool_progress", "tool_id": call_id, "detail": f"{action} {name}", "progress": written, "total": total})
+                    last_reported = written
+            stream.flush()
+            os.fsync(stream.fileno())
+        tmp.replace(path)
+    except BaseException:
+        try:
+            tmp.unlink(missing_ok=True)
+        except OSError:
+            pass
+        raise
+    if call_id:
+        await ctx.emit({"type": "tool_progress", "tool_id": call_id, "detail": f"Saved {name}", "progress": total, "total": total, "complete": True})
+
+
 async def t_write(ctx: Ctx, a: dict):
     p = ctx.resolve(a["path"])
     old = ""
@@ -398,8 +431,7 @@ async def t_write(ctx: Ctx, a: dict):
         if str(p) not in ctx.read_files:
             raise ToolError("file exists and you haven't read it yet. read it first (or choose a new filename).")
         old = p.read_text("utf-8", "replace")
-    p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(a["content"], encoding="utf-8")
+    await _write_with_progress(ctx, p, a["content"], "Writing")
     ctx.read_files.add(str(p))
     name = ctx.rel(p)
     return {"text": f"{'Overwrote' if old else 'Created'} {name} ({len(a['content'].splitlines())} lines)",
@@ -427,7 +459,7 @@ async def t_edit(ctx: Ctx, a: dict):
         raise ToolError("read the file before editing it.")
     old = p.read_text("utf-8")
     new = _apply_edit(old, a["old_string"], a["new_string"], bool(a.get("replace_all")), ctx.rel(p))
-    p.write_text(new, encoding="utf-8")
+    await _write_with_progress(ctx, p, new, "Updating")
     return {"text": f"Edited {ctx.rel(p)}", "diff": _diff(old, new, ctx.rel(p))}
 
 
@@ -441,7 +473,7 @@ async def t_multiedit(ctx: Ctx, a: dict):
             cur = _apply_edit(cur, e["old_string"], e["new_string"], bool(e.get("replace_all")), ctx.rel(p))
         except ToolError as ex:
             raise ToolError(f"edit #{i} failed, nothing was written: {ex}")
-    p.write_text(cur, encoding="utf-8")
+    await _write_with_progress(ctx, p, cur, "Applying edits to")
     return {"text": f"Applied {len(a['edits'])} edits to {ctx.rel(p)}", "diff": _diff(old, cur, ctx.rel(p))}
 
 
