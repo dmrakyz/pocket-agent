@@ -863,6 +863,7 @@ function handle(ev) {
   if (!c) return;
   switch (ev.type) {
     case 'step_start': S.partial = { text: '', reasoning: '' }; setStatus(''); renderLive(); break;
+    case 'stream_reset': S.partial = { text: '', reasoning: '' }; renderLive(); setStatus('Provider stream interrupted; restarting this response cleanly…'); break;
     case 'delta': S.partial.text += ev.text; renderLive(); break;
     case 'reasoning': S.partial.reasoning += ev.text; renderLive(); break;
     case 'message': {
